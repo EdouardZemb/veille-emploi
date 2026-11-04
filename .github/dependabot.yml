@@ -1,0 +1,58 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: Europe/Zurich
+    cooldown:
+      default-days: 3
+    commit-message:
+      prefix: chore
+    groups:
+      actions:
+        patterns: ["*"]
+  # Les images épinglées par empreinte : le Dockerfile du projet, à la racine, et celui de l'image
+  # de test de la mécanique (tests/deploiement/Dockerfile, géré par le modèle).
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: Europe/Zurich
+    cooldown:
+      default-days: 3
+    commit-message:
+      prefix: chore
+    groups:
+      images:
+        patterns: ["*"]
+    # Une majeure d'image de base est une décision, pas une mise à jour de routine.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      # Python reste en 3.13, la version que le job verifier teste et que nomme l'ADR-0002
+      # (section 2) : passer en 3.14 est aussi une décision. L'empreinte de 3.13 monte toujours.
+      - dependency-name: "python"
+        update-types: ["version-update:semver-minor"]
+  - package-ecosystem: docker
+    directory: /tests/deploiement
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: Europe/Zurich
+    cooldown:
+      default-days: 3
+    commit-message:
+      prefix: chore
+    groups:
+      images:
+        patterns: ["*"]
+    # Une majeure d'image de base est une décision, pas une mise à jour de routine.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]

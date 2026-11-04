@@ -1,0 +1,48 @@
+[project]
+name = "veille-emploi"
+version = "0.1.0"
+description = "Console de recherche d'emploi - collecte, scoring explicable, candidature, pilotage"
+requires-python = ">=3.11"
+
+dependencies = [
+    "tzdata>=2024.1",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "jinja2>=3.1",
+    "pydantic>=2.9",
+    "pyyaml>=6.0",
+    "httpx>=0.27",                # API France Travail, resolution des liens
+    "feedparser>=6.0",            # flux RSS
+    "beautifulsoup4>=4.12",       # parsing des alertes mail
+    "lxml>=5.3",
+    "pywebpush>=2.0",             # notifications push web
+    "cryptography>=43.0",         # generation des cles VAPID
+    "webauthn>=3.0,<4",           # passkeys : les ceremonies WebAuthn
+]
+
+[project.optional-dependencies]
+# cbor2 : l'authentificateur de test (tests/authentificateur.py) l'importe lui-meme ;
+# ne pas compter sur `webauthn` pour l'amener.
+dev = ["pytest>=8.3", "cbor2>=5.6"]
+# WeasyPrint rend la lettre en PDF (`rendu.lettre_en_pdf`). Le serveur l'a, le
+# poste rarement : sans lui, la lettre reste en Markdown, non envoyable.
+pdf = ["weasyprint>=70"]
+# Le parcours de connexion dans Chromium (tests_navigateur/, hors de la suite du serveur).
+navigateur = ["playwright>=1.64"]
+
+[project.scripts]
+veille = "veille.cli:principal"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+veille = ["static/*", "templates/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

@@ -1,0 +1,169 @@
+#!/usr/bin/env bash
+# Double de `curl` pour les tests de la sonde, du déploiement, de la sauvegarde et de la restauration :
+# il note chaque appel dans $APPELS et répond selon l'adresse (le dernier argument).
+#
+#   http://127.0.0.1:<port>/sante   l'application en service (en-service.env, tenu par le
+#                                       double de docker) : sa version, son environnement et la
+#                                       révision de son image ; connexion refusée (code 7) si rien
+#                                       n'est en service. Si un conteneur jetable publie ce port
+#                                       (conteneur-<nom>.env, tenu par le double de docker), c'est
+#                                       lui qui répond, tant qu'il n'est pas arrêté ; le port 4319
+#                                       ne répond jamais pour l'application en service.
+#   https://…/sante                 l'adresse publique : le même corps que l'application en
+#                                       service, avec l'environnement de l'adresse (veille-emploi-staging…
+#                                       = staging, sinon prod) ; `-w` écrit son format après le corps
+#                                       (`%{http_code}` remplacé), `-f` fait échouer (22) un code >= 400
+#   toute autre adresse                 un signal de supervision : rien à répondre
+#
+# Un signal de supervision reçoit son adresse sur l'entrée standard (`-K -`, configuration
+# `url = "…"`), jamais en argument, comme avec `signaler`. Le double la note à part, dans
+# $APPELS.urls (une ligne par appel `-K -`) ; envois_supervision (aide.bash) recolle les deux.
+# Une adresse http(s) en argument, hors /sante, est refusée (code 125) : sur un hôte partagé,
+# les arguments d'un processus sont lisibles par les autres comptes.
+#
+# Pilotage :
+#   DOUBLE_CURL_SANTE_KO           images (séparées par des espaces) dont la santé répond 503
+#   DOUBLE_CURL_SANTE_KO_AU_UP     la santé répond 503 tant que le dernier `compose up` noté dans
+#                                  $APPELS est le n-ième (un `up` en échec, puis un retour sain)
+#   DOUBLE_CURL_SANTE_VIDE         images dont la santé répond 200 avec un corps vide
+#   DOUBLE_CURL_REVISION_FAUSSE    images dont l'application annonce une autre révision
+#   DOUBLE_CURL_CONFIGURATION      le champ configuration de l'application en service (M-0003,
+#                                  amendé) : absent sans la variable (une application d'avant le
+#                                  contrat de /config) ; auto, montee si elle monte /config
+#                                  (MONTAGE=/config dans en-service.env), exemple sinon ; toute
+#                                  autre valeur, telle quelle
+#   DOUBLE_CURL_TEST_KO            le conteneur jetable répond 503
+#   DOUBLE_CURL_TEST_CORPS         le corps que répond le conteneur jetable (défaut : statut ok,
+#                                  sans instance)
+#   DOUBLE_CURL_PUBLIC_CODE        code de sortie de curl pour l'adresse publique (défaut 0)
+#   DOUBLE_CURL_PUBLIC_HTTP        code HTTP de l'adresse publique (défaut 200 ; 302 = redirection)
+#   DOUBLE_CURL_PUBLIC_ENV         environnement annoncé par l'adresse publique (défaut : celui de
+#                                  l'adresse)
+#   DOUBLE_CURL_PUBLIC_CORPS       corps renvoyé à la place du corps de santé (une page HTML…)
+#   DOUBLE_CURL_SIGNAL_CODE        code des signaux de supervision (défaut 0)
+{ printf '%s' curl; for argument in "$@"; do printf ' %s' "$argument"; done; printf '\n'; } >>"${APPELS:?APPELS non défini}"
+
+precedent=""
+for argument in "$@"; do
+  # Refus, comme le double de docker : seules les adresses de santé passent en argument.
+  case "$argument" in
+    http://*/sante | https://*/sante) ;;
+    http://* | https://*)
+      echo "double curl : adresse de supervision en argument (visible par ps) ; elle passe par « -K - »" >&2
+      exit 125
+      ;;
+  esac
+  if [ "$precedent" = -K ] && [ "$argument" = - ]; then
+    config="$(sed -n 's/^url = "\(.*\)"$/\1/p')"
+    printf '%s\n' "$config" >>"$APPELS.urls"
+  fi
+  precedent="$argument"
+done
+
+DOSSIER="$(dirname "$APPELS")"
+EN_SERVICE="$DOSSIER/en-service.env"
+adresse="${!#}"
+
+# valeur <clé> : la valeur de cette clé dans en-service.env.
+valeur() {
+  sed -n "s/^$1=//p" "$EN_SERVICE"
+}
+
+case "$adresse" in
+  http://127.0.0.1:*/sante)
+    port="${adresse#http://127.0.0.1:}"
+    port="${port%%/*}"
+    # Un conteneur jetable qui publie ce port répond à la place de l'application en service.
+    for conteneur in "$DOSSIER"/conteneur-*.env; do
+      if [ ! -f "$conteneur" ] || ! grep -qx "PORT=$port" "$conteneur"; then
+        continue
+      fi
+      if grep -qx ARRET=1 "$conteneur"; then
+        echo "curl: (7) Failed to connect to 127.0.0.1: Connection refused" >&2
+        exit 7
+      fi
+      if [ -n "${DOUBLE_CURL_TEST_KO:-}" ]; then
+        echo "curl: (22) The requested URL returned error: 503" >&2
+        exit 22
+      fi
+      if [ -n "${DOUBLE_CURL_TEST_CORPS+x}" ]; then
+        printf '%s\n' "$DOUBLE_CURL_TEST_CORPS"
+      else
+        printf '{"statut":"ok","environnement":"dev","version":"dev","revision":"local"}\n'
+      fi
+      exit 0
+    done
+    if [ "$port" = 4319 ] || [ ! -f "$EN_SERVICE" ]; then
+      echo "curl: (7) Failed to connect to 127.0.0.1: Connection refused" >&2
+      exit 7
+    fi
+    image="$(valeur VEILLE_EMPLOI_IMAGE)"
+    case " ${DOUBLE_CURL_SANTE_KO:-} " in
+      *" $image "*)
+        echo "curl: (22) The requested URL returned error: 503" >&2
+        exit 22
+        ;;
+    esac
+    if [ -n "${DOUBLE_CURL_SANTE_KO_AU_UP:-}" ]       && [ "$(grep -c '^docker compose .* up -d ' "$APPELS" || true)" = "$DOUBLE_CURL_SANTE_KO_AU_UP" ]; then
+      echo "curl: (22) The requested URL returned error: 503" >&2
+      exit 22
+    fi
+    case " ${DOUBLE_CURL_SANTE_VIDE:-} " in
+      *" $image "*) exit 0 ;;
+    esac
+    # Même règle que le double de docker : les 40 premiers caractères du condensé.
+    condense="${image##*:}"
+    revision="${condense:0:40}"
+    case " ${DOUBLE_CURL_REVISION_FAUSSE:-} " in
+      *" $image "*) revision=0123456789abcdef0123456789abcdef01234567 ;;
+    esac
+    configuration="${DOUBLE_CURL_CONFIGURATION:-}"
+    if [ "$configuration" = auto ]; then
+      configuration=exemple
+      if grep -q '^MONTAGE=/config ' "$EN_SERVICE"; then
+        configuration=montee
+      fi
+    fi
+    printf '{"statut":"ok","environnement":"%s","version":"%s","revision":"%s"%s}\n' \
+      "$(valeur VEILLE_EMPLOI_ENV)" "$(valeur VEILLE_EMPLOI_VERSION)" "$revision" \
+      "${configuration:+,\"configuration\":\"$configuration\"}"
+    ;;
+
+  https://*/sante)
+    code="${DOUBLE_CURL_PUBLIC_CODE:-0}"
+    if [ "$code" -ne 0 ]; then
+      echo "curl: ($code) Could not resolve host" >&2
+      exit "$code"
+    fi
+    http="${DOUBLE_CURL_PUBLIC_HTTP:-200}"
+    environnement=prod
+    [[ "$adresse" != https://veille-emploi-staging.* ]] || environnement=staging
+    environnement="${DOUBLE_CURL_PUBLIC_ENV:-$environnement}"
+    if [ -n "${DOUBLE_CURL_PUBLIC_CORPS+x}" ]; then
+      corps="$DOUBLE_CURL_PUBLIC_CORPS"
+    else
+      corps="$(printf '{"statut":"ok","environnement":"%s","version":"x","revision":"y"}' "$environnement")"
+    fi
+    precedent=""
+    echec_http=0
+    format=""
+    for argument in "$@"; do
+      # `-f` (seul ou groupé : -fsS) : un code >= 400 échoue (22) sans corps, comme curl
+      case "$argument" in -[!-]*f*) echec_http=1 ;; esac
+      # `-w <format>` : écrit après le corps, `%{http_code}` remplacé par le code HTTP
+      [ "$precedent" != -w ] || format="$argument"
+      precedent="$argument"
+    done
+    if [ "$echec_http" -eq 1 ] && [ "$http" -ge 400 ]; then
+      echo "curl: (22) The requested URL returned error: $http" >&2
+      exit 22
+    fi
+    printf '%s' "$corps"
+    motif='%{http_code}'
+    # shellcheck disable=SC2059  # le format de curl est interprété comme celui de printf (\n)
+    printf "${format//"$motif"/$http}"
+    ;;
+
+  *) exit "${DOUBLE_CURL_SIGNAL_CODE:-0}" ;;
+esac
+exit 0

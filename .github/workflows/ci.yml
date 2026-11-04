@@ -1,0 +1,137 @@
+name: ci
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+  push:
+    branches: [principal]
+
+permissions:
+  contents: read
+
+# Une PR annule son exécution précédente. Un push n'annule jamais une publication d'image en
+# cours : il attend son tour (GitHub n'en garde alors qu'un en attente).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Le socle de modele-projet : gitleaks sur les commits de l'événement, la porte de
+  # confidentialité, le format des commits et du titre de PR, le garde de Claude branché.
+  socle:
+    uses: ./.github/workflows/modele-socle.yml
+    secrets: inherit
+    permissions:
+      contents: read
+      pull-requests: read
+
+  # Les vérifications propres au projet (la suite) : `deploiement` et `image` les attendent.
+  verifier:
+    name: verifier
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # La version du serveur, là où l'outil tourne.
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      # Pango et HarfBuzz, pour que WeasyPrint rende la lettre en PDF comme sur le serveur.
+      - name: Bibliothèques de WeasyPrint
+        run: sudo apt-get update && sudo apt-get install -y libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0
+      - name: Installer
+        run: pip install -e ".[dev,pdf]"
+      # La suite tourne sur l'exemple. La configuration réelle vit au dépôt de données : c'est sa
+      # CI (modele-donnees.yml) qui la vérifie, contre l'image publiée de ce dépôt.
+      # -rs : les raisons de chaque test sauté restent dans le journal.
+      # SUITE_COMPLETE : tout est installé ici, aucun test ne se saute faute de
+      # WeasyPrint, de systemd ou de POSIX ; une dépendance perdue échoue (tests/sauts.py).
+      - name: Tests
+        env:
+          SUITE_COMPLETE: "1"
+        run: python -m pytest -q -rs -p no:cacheprovider
+
+  navigateur:
+    name: navigateur
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - name: Installer
+        run: pip install -e ".[dev,navigateur]"
+      # Chromium et ses bibliothèques : l'authentificateur WebAuthn virtuel passe par CDP.
+      - name: Chromium
+        run: python -m playwright install --with-deps chromium
+      - name: Parcours de connexion
+        run: python -m pytest -q -rs -p no:cacheprovider tests_navigateur
+
+  # Les tests bats des scripts de déploiement, dans leur image (tests/deploiement/Dockerfile : age
+  # et sops aux versions du serveur) : la même commande qu'en local, rien à installer sur le runner.
+  deploiement:
+    name: deploiement
+    needs: verifier
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: sh tests/deploiement/lancer.sh
+
+  # Construit l'image du Dockerfile, la lance comme en production et la vérifie
+  # (deploiement/ci/verifier-image.sh). Au push sur la branche principale seulement, la publie sur
+  # GHCR : :sha-<sha>, que modele-version.yml réétiquette à chaque version, et :main, que le
+  # staging suit. Aucune image n'est publiée pour un commit dont la CI échoue, d'où socle,
+  # verifier et deploiement, et navigateur : une image ne se publie pas si le parcours de
+  # connexion dans Chromium échoue.
+  image:
+    name: image
+    needs: [socle, verifier, deploiement, navigateur]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # Nécessaire seulement au push sur principal ; sur une PR, la publication est sautée.
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Le conteneur veille-emploi reste lancé, sur http://localhost:8460, pour les étapes suivantes.
+      - uses: ./.github/actions/modele-image-construire
+      # Le jeu factice rend le kit en PDF : WeasyPrint, en uid 1000, sur la racine en lecture seule,
+      # est prouvé avant toute publication. Un code de sortie autre que 0 fait échouer le job.
+      - name: Charger le jeu factice dans le conteneur
+        run: docker exec veille-emploi veille factice
+      # L'image construite, et non ses listes (lot V1, #22) : l'exemple y est, l'instance n'y est
+      # pas, et sans /config monté la santé dit qu'elle sert l'exemple. L'exemple d'abord : un
+      # conteneur qui ne répond pas fait échouer l'étape, il ne passe pas pour une instance absente.
+      - name: L'image sert l'exemple, sans l'instance
+        shell: bash
+        run: |
+          docker exec veille-emploi test -f /app/exemple/criteres.yaml \
+            || { echo "::error::/app/exemple/criteres.yaml manque à l'image"; exit 1; }
+          docker exec veille-emploi test ! -e /app/instance \
+            || { echo "::error::/app/instance est dans l'image"; exit 1; }
+          curl -fsS http://127.0.0.1:8460/sante | jq -e '.configuration == "exemple"' \
+            || { echo "::error::/sante ne rend pas \"configuration\":\"exemple\""; exit 1; }
+      # Les autres tests de bout en bout du projet contre l'image s'ajoutent ici.
+      - uses: ./.github/actions/modele-image-publier
+        if: github.event_name == 'push' && github.ref == 'refs/heads/principal'
+      # Après un échec, le journal de l'app aide à comprendre. Le conteneur peut ne pas exister
+      # (échec avant `docker run`) : on le tolère.
+      - name: Journal du conteneur
+        if: failure()
+        run: docker logs veille-emploi || true
+      - name: Supprimer le conteneur
+        if: always()
+        run: docker rm -f -v veille-emploi
+
+# Ce fichier est au projet : `copier update` n'y touche plus.

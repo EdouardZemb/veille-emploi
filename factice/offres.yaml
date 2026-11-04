@@ -1,0 +1,236 @@
+# Les offres du jeu factice. Écrites à la main pour Camille Exemple (voir exemple/criteres.yaml) : personne, employeurs, lieux et liens sont inventés.
+# Chaque famille de l'exemple a au moins deux offres ; chaque éliminatoire en écarte au moins une ;
+# les quatre zones, la Suisse en francs, un lieu imprécis et un lieu absent y figurent.
+offres:
+  # --- Automatisation des tests -------------------------------------------
+  - titre: "Ingénieur QA automatisation"
+    employeur: "Rhin Logistique Logiciels"
+    lieu: "Saint-Louis (68)"
+    type_contrat: CDI
+    salaire_min: 46800
+    salaire_max: 53200
+    salaire_devise: EUR
+    description: "Vous industrialisez les tests d'un logiciel de gestion d'entrepôt : scripts pytest, campagnes Appium sur terminaux mobiles, tests d'API avec Postman, intégration continue. Équipe de six personnes."
+    url: https://offres.exemple.invalid/o/2001
+    date_publication: 2026-10-05
+  - titre: "SDET - Test Automation Engineer"
+    employeur: "Fret Digital AG"
+    lieu: "Bâle (Suisse)"
+    type_contrat: CDI
+    salaire_min: 101400
+    salaire_max: 113600
+    salaire_devise: CHF
+    description: "Test automation engineer pour une plateforme de suivi de fret : frameworks Python et Java, tests d'API, pipelines d'intégration continue. English-speaking team, trois jours de bureau par semaine."
+    url: https://offres.exemple.invalid/o/2002
+    date_publication: 2026-10-06
+  # --- Test fonctionnel et recette ----------------------------------------
+  - titre: "Testeuse logiciel"
+    employeur: "Atelier Fictif Conseil"
+    lieu: "Mulhouse (68)"
+    type_contrat: CDI
+    salaire_min: 40300
+    salaire_max: 44700
+    salaire_devise: EUR
+    description: "Vous rédigez et jouez les cas de test fonctionnel d'un progiciel de facturation, dans TestRail, et suivez les anomalies dans Redmine. Recette en fin de sprint avec les utilisateurs."
+    url: https://offres.exemple.invalid/o/2003
+    date_publication: 2026-10-07
+  - titre: "QA Engineer (accessibilité)"
+    employeur: "Société Démo Logiciels"
+    lieu: "Allschwil (Suisse)"
+    type_contrat: CDI
+    salaire_min: 97800
+    salaire_max: 108300
+    salaire_devise: CHF
+    description: "QA engineer pour une application mobile de commande : tests fonctionnels sur iOS et Android, tests d'accessibilité numérique (WCAG, lecteur d'écran). Notre processus de recrutement est accessible. International team, anglais courant."
+    url: https://offres.exemple.invalid/o/2004
+    date_publication: 2026-10-08
+  # --- Tests de performance et de charge ----------------------------------
+  - titre: "Ingénieur tests de performance"
+    employeur: "Banque Imaginaire"
+    lieu: "Illzach (68)"
+    type_contrat: CDI
+    salaire_min: 45600
+    salaire_max: 51400
+    salaire_devise: EUR
+    description: "Vous préparez les tests de charge d'un portail bancaire avec JMeter, analysez les temps de réponse et rédigez les rapports de capacité. Linux, SQL."
+    url: https://offres.exemple.invalid/o/2005
+    date_publication: 2026-10-09
+  - titre: "Performance Test Engineer"
+    employeur: "Laboratoires Fictifs"
+    lieu: "Liestal (Suisse)"
+    type_contrat: CDI
+    salaire_min: 118700
+    salaire_max: 127900
+    salaire_devise: CHF
+    description: "Performance testing of laboratory information systems: load testing scenarios with JMeter, monitoring, capacity reports. Two days a week working from home."
+    url: https://offres.exemple.invalid/o/2006
+    date_publication: 2026-10-10
+  # --- Intégration, vérification et validation ----------------------------
+  - titre: "Ingénieur IVVQ logiciel"
+    employeur: "Mécanique Imaginaire"
+    lieu: "Belfort (90)"
+    type_contrat: CDI
+    salaire_min: 49200
+    salaire_max: 56800
+    salaire_devise: EUR
+    description: "Intégration et validation du logiciel d'un banc de mesure : plans de vérification, essais d'intégration, traçabilité des exigences. Deux jours de télétravail par semaine."
+    url: https://offres.exemple.invalid/o/2007
+    date_publication: 2026-10-12
+  - titre: "Ingénieur validation logicielle"
+    employeur: "Instruments du Lac Fictif"
+    lieu: "Guebwiller (68)"
+    type_contrat: CDI
+    description: "Validation logicielle d'instruments de pesage connectés : protocoles de qualification, tests d'intégration, rapports de validation. Trois jours par semaine au bureau, le reste en télétravail."
+    url: https://offres.exemple.invalid/o/2008
+    date_publication: 2026-10-13
+  # --- Pilotage des tests et de la recette --------------------------------
+  - titre: "Test manager"
+    employeur: "Assurances du Rhin Imaginaire"
+    lieu: "Bâle (Suisse)"
+    type_contrat: CDI
+    salaire_min: 116400
+    salaire_max: 125900
+    salaire_devise: CHF
+    description: "Test manager pour un programme de refonte d'un système de gestion de sinistres : stratégie de test, coordination de quatre testeurs, reporting au comité de pilotage. Anglais professionnel."
+    url: https://offres.exemple.invalid/o/2009
+    date_publication: 2026-10-14
+  - titre: "Responsable recette"
+    employeur: "Mutuelle Exemplaire"
+    lieu: "Mulhouse (68)"
+    type_contrat: CDI
+    salaire_min: 43900
+    salaire_max: 49500
+    salaire_devise: EUR
+    description: "Vous pilotez les campagnes de recette d'un site de gestion de contrats : planning, suivi des anomalies, comptes rendus hebdomadaires aux équipes métier."
+    url: https://offres.exemple.invalid/o/2010
+    date_publication: 2026-10-15
+  # --- Recette des données et du décisionnel ------------------------------
+  - titre: "Ingénieur qualité des données et recette de migration"
+    employeur: "Données du Sundgau SAS"
+    lieu: "Mulhouse (68)"
+    type_contrat: CDI
+    salaire_min: 41700
+    salaire_max: 46100
+    salaire_devise: EUR
+    description: "Vous contrôlez les chargements d'un entrepôt de données : requêtes SQL, rapprochements, recette de migration de données entre deux applications de gestion."
+    url: https://offres.exemple.invalid/o/2011
+    date_publication: 2026-10-16
+  - titre: "BI tester"
+    employeur: "Cabinet Démo Analytique"
+    lieu: "Saint-Louis (68)"
+    type_contrat: CDI
+    description: "Recette décisionnelle d'un tableau de bord de ventes : vérification des indicateurs, tests de non-régression des rapports, SQL et MySQL."
+    url: https://offres.exemple.invalid/o/2012
+    date_publication: 2026-10-17
+  # --- Développement et outillage de test ---------------------------------
+  - titre: "Développeur Python, outillage de test"
+    employeur: "Transports Démo Logiciels"
+    lieu: "Huningue (68)"
+    type_contrat: CDI
+    salaire_min: 44400
+    salaire_max: 50300
+    salaire_devise: EUR
+    description: "Vous développez les outils internes de l'équipe qualité : générateurs de données, bancs de test, tableaux de bord en Python. Linux, Bash."
+    url: https://offres.exemple.invalid/o/2013
+    date_publication: 2026-10-19
+  - titre: "Software engineer"
+    employeur: "Entrepôts Connectés AG"
+    lieu: "Pratteln (Suisse)"
+    type_contrat: CDI
+    salaire_min: 99300
+    salaire_max: 109100
+    salaire_devise: CHF
+    description: "Software engineer pour un logiciel de pilotage d'entrepôts : développement Java, revue de code, tests unitaires. Équipe internationale, deux jours de télétravail par semaine."
+    url: https://offres.exemple.invalid/o/2014
+    date_publication: 2026-10-20
+  # --- Télétravail intégral -----------------------------------------------
+  - titre: "Testeuse fonctionnelle, 100% remote"
+    employeur: "Studio Nuage SAS"
+    lieu: "France (télétravail)"
+    type_contrat: CDI
+    salaire_min: 42600
+    salaire_max: 48800
+    salaire_devise: EUR
+    description: "Poste 100% remote : tests fonctionnels d'une application mobile de réservation, scénarios dans TestRail, anomalies dans Redmine. Rencontres d'équipe trimestrielles."
+    url: https://offres.exemple.invalid/o/2015
+    date_publication: 2026-10-21
+  - titre: "QA analyst"
+    employeur: "Brume Software Ltd (London)"
+    lieu: "Télétravail"
+    type_contrat: CDI
+    description: "Fully remote QA analyst for a SaaS product: exploratory testing, bug reports, regression checks before each release. International team, fluent English."
+    url: https://offres.exemple.invalid/o/2016
+    date_publication: 2026-10-22
+  # --- Lieu absent ou imprécis --------------------------------------------
+  - titre: "Testeur fonctionnel"
+    employeur: "Société Anonyme Fictive"
+    lieu: ""
+    type_contrat: CDI
+    description: "Tests fonctionnels d'un outil de gestion interne. Le lieu du poste sera précisé lors du premier échange."
+    url: https://offres.exemple.invalid/o/2017
+    date_publication: 2026-10-23
+  - titre: "Test lead"
+    employeur: "Groupe Démo Services"
+    lieu: "Alsace"
+    type_contrat: CDI
+    description: "Test lead d'une équipe de cinq testeurs : stratégie de test, planification des campagnes, indicateurs de qualité."
+    url: https://offres.exemple.invalid/o/2018
+    date_publication: 2026-10-23
+  # --- Annonce en allemand : mise en attente ------------------------------
+  - titre: "Softwaretester (m/w/d)"
+    employeur: "Logistik Rheinhafen AG"
+    lieu: "Basel (Schweiz)"
+    type_contrat: Unbefristet
+    description: "Sie testen die Lagerverwaltung unserer Kunden, schreiben Testfälle und dokumentieren Fehler. Wir bieten ein Team vor Ort, flexible Arbeitszeiten und eine gute Anbindung an den öffentlichen Verkehr."
+    url: https://offres.exemple.invalid/o/2019
+    date_publication: 2026-10-24
+  # --- Les éliminatoires : une offre par critère --------------------------
+  - titre: "Développeur automatisme, mise en service de convoyeurs"
+    employeur: "Manutention du Haut-Rhin SA"
+    lieu: "Mulhouse (68)"
+    type_contrat: CDI
+    description: "Programmation d'automates et mise en service de lignes de convoyeurs chez nos clients."
+    url: https://offres.exemple.invalid/o/2020
+    date_publication: 2026-10-26
+  - titre: "Testeur logiciel"
+    employeur: "Centre Démo Hébergement"
+    lieu: "Mulhouse (68)"
+    type_contrat: CDI
+    description: "Tests fonctionnels d'une plateforme d'hébergement. Astreintes une semaine sur quatre pour traiter les incidents."
+    url: https://offres.exemple.invalid/o/2021
+    date_publication: 2026-10-26
+  - titre: "Ingénieur QA"
+    employeur: "Billetterie Fictive SAS"
+    lieu: "Saint-Louis (68)"
+    type_contrat: CDI
+    description: "Tests de non-régression d'une billetterie en ligne, avec interventions le week-end lors des grands événements."
+    url: https://offres.exemple.invalid/o/2022
+    date_publication: 2026-10-27
+  - titre: "Testeur fonctionnel"
+    employeur: "Pharmacie Centrale Imaginaire"
+    lieu: "Pratteln (Suisse)"
+    type_contrat: CDI
+    description: "Tests fonctionnels d'un logiciel de préparation de commandes, en horaires décalés : travail de nuit et équipes alternées."
+    url: https://offres.exemple.invalid/o/2023
+    date_publication: 2026-10-27
+  - titre: "Support niveau 1 et recette applicative"
+    employeur: "Services Informatiques Démo"
+    lieu: "Colmar (68)"
+    type_contrat: CDI
+    description: "Vous répondez aux utilisateurs de premier niveau, puis jouez la recette applicative des mises à jour. Deux jours de télétravail par semaine."
+    url: https://offres.exemple.invalid/o/2024
+    date_publication: 2026-10-28
+  - titre: "Consultante test"
+    employeur: "Conseil Mobile Imaginaire"
+    lieu: "Mulhouse (68)"
+    type_contrat: CDI
+    description: "Mission de test chez nos clients dans toute l'Europe, avec de nombreux déplacements."
+    url: https://offres.exemple.invalid/o/2025
+    date_publication: 2026-10-28
+  - titre: "Testeuse logiciel"
+    employeur: "Transports Démo Rhénans"
+    lieu: "Bâle (Suisse)"
+    type_contrat: CDI
+    description: "Tests d'une application de suivi des expéditions, avec des réunions de recette en français et en allemand. Support client germanophone assuré par l'équipe de test."
+    url: https://offres.exemple.invalid/o/2026
+    date_publication: 2026-10-29

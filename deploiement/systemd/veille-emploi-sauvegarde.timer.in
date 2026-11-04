@@ -1,0 +1,11 @@
+# Rendu de deploiement/systemd/veille-emploi-sauvegarde.timer.in par deploiement/installer-unites.sh.
+# Ne pas modifier à la main : la sonde de prod alerte au moindre écart avec ce rendu.
+[Unit]
+Description=veille-emploi : minuterie de la sauvegarde (@ENV@)
+
+[Timer]
+OnCalendar=@HEURE_SAUVEGARDE@
+Persistent=true
+
+[Install]
+WantedBy=timers.target

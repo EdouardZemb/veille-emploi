@@ -1,0 +1,11 @@
+# Rendu de deploiement/systemd/veille-emploi-sonde.timer.in par deploiement/installer-unites.sh.
+# Ne pas modifier à la main : la sonde de prod alerte au moindre écart avec ce rendu.
+[Unit]
+Description=veille-emploi : minuterie de la sonde (@ENV@)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,13 @@
+# Rendu de deploiement/systemd/veille-emploi-sauvegarde.service.in par deploiement/installer-unites.sh.
+# Ne pas modifier à la main : la sonde de prod alerte au moindre écart avec ce rendu.
+[Unit]
+Description=veille-emploi : sauvegarde de la base (@ENV@)
+OnFailure=veille-emploi-alerte@%n.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash @CLONE@/deploiement/sauvegarder.sh @ENV@
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=15min

@@ -1,0 +1,29 @@
+# Ajouts du projet au service `app` du modèle (compose.yml, qui reste géré par le modèle) :
+# volumes, variables d'environnement, mem_limit… Compose fusionne ce fichier avec le premier.
+#
+# Le `mem_limit` de la console (384m) est celui du modèle : la collecte partage ce processus, et la
+# première semaine de prod dira s'il suffit (ADR-0002, « Conséquences »).
+#
+# Les variables de la collecte (ADR-0002, section 9). Chaque nom VEILLE_* ou FT_* doit être connu
+# de src/veille/config.py, sinon la console refuse de démarrer (tests/test_deploiement.py).
+#
+# - Les secrets : les scripts du modèle déchiffrent deploiement/secrets/<env>.env.enc et les
+#   exportent avant d'appeler docker compose (lib.sh, charger_secrets), qui les lit ici. Ils sont
+#   nommés dans secrets/prod.cles. Le staging n'en a aucun (secrets/staging.cles) : ils y sont
+#   vides, d'où `:-`, et la collecte n'y tourne pas.
+# - Les serveurs de Gmail, qui ne sont pas secrets : en clair. Ce sont aussi les valeurs par défaut
+#   du code ; les écrire ici dit où les changer. Le libellé et le mode de la collecte des mails
+#   viennent du sources.yaml de la configuration montée : VEILLE_IMAP_DOSSIER et VEILLE_IMAP_MODE ne sont
+#   pas posés, ils l'emporteraient sur lui.
+services:
+  app:
+    environment:
+      FT_CLIENT_ID: ${FT_CLIENT_ID:-}
+      FT_CLIENT_SECRET: ${FT_CLIENT_SECRET:-}
+      VEILLE_IMAP_UTILISATEUR: ${VEILLE_IMAP_UTILISATEUR:-}
+      VEILLE_IMAP_MOTDEPASSE: ${VEILLE_IMAP_MOTDEPASSE:-}
+      VEILLE_MAIL_DESTINATAIRE: ${VEILLE_MAIL_DESTINATAIRE:-}
+      VEILLE_IMAP_HOTE: imap.gmail.com
+      VEILLE_IMAP_PORT: "993"
+      VEILLE_SMTP_HOTE: smtp.gmail.com
+      VEILLE_SMTP_PORT: "587"

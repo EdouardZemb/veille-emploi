@@ -1,0 +1,117 @@
+# Géré par le modèle — ne pas modifier ici (docs/modele/methode.md).
+# Une étiquette `vX.Y.Z` posée sur un commit de la branche principale publie l'image `:X.Y.Z`
+# (celle que le serveur de production tire) et une Release GitHub. Aucune image n'est
+# reconstruite : on rend « versionnée » l'image `:sha-<sha>` que la CI (job `image`) a déjà
+# construite et vérifiée lors du push sur la branche principale.
+name: version
+
+on:
+  push:
+    tags:
+      # Filtre GitHub (glob, pas regex) : `+` = un ou plusieurs du caractère ou de la classe qui
+      # précède, `.` est littéral. Reconnaît v0.1.0 et v1.10.3, pas v1.2 ni v1.2.3-rc1.
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+concurrency:
+  group: version-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publier:
+    name: publier
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # `contents: write` : créer la Release. `packages: write` : poser la nouvelle étiquette d'image.
+      contents: write
+      packages: write
+    env:
+      IMAGE: ghcr.io/edouardzemb/veille-emploi
+    steps:
+      # Historique complet : il faut la branche principale d'origin pour vérifier que le commit en
+      # est un ancêtre.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Déterminer la version et le commit
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::L'étiquette « $GITHUB_REF_NAME » n'a pas la forme vX.Y.Z."
+            exit 1
+          fi
+          # `^{commit}` : suit une étiquette annotée jusqu'au commit qu'elle désigne.
+          sha=$(git rev-parse "refs/tags/$GITHUB_REF_NAME^{commit}")
+          {
+            echo "VERSION=${GITHUB_REF_NAME#v}"
+            echo "SHA=$sha"
+          } >> "$GITHUB_ENV"
+
+      - name: Vérifier que le commit est sur principal
+        run: |
+          if ! git merge-base --is-ancestor "$SHA" origin/principal; then
+            echo "::error::L'étiquette $GITHUB_REF_NAME désigne le commit $SHA, qui n'est pas un ancêtre de origin/principal. Une version ne se publie qu'à partir de principal : fusionnez d'abord la PR, puis posez l'étiquette sur le commit de fusion."
+            exit 1
+          fi
+
+      - name: Se connecter à GHCR
+        run: echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Vérifier que l'image du commit existe
+        run: |
+          if ! sortie=$(docker buildx imagetools inspect "$IMAGE:sha-$SHA" 2>&1); then
+            echo "$sortie"
+            echo "::error::L'image $IMAGE:sha-$SHA est introuvable. La CI n'a pas publié d'image pour ce commit : vérifiez que son exécution sur principal est verte (job « image »), qu'elle n'a pas été remplacée par une exécution plus récente, puis relancez-la ou posez l'étiquette sur un commit publié."
+            exit 1
+          fi
+          echo "$sortie"
+
+      # Une version publiée ne se réécrit pas : si `:X.Y.Z` existe déjà, on compare les empreintes
+      # (sha256 du manifeste brut, c'est-à-dire le « digest » du registre) avant d'écrire.
+      - name: Étiqueter l'image (sans réécrire une version existante)
+        run: |
+          set -o pipefail
+          tmp=$(mktemp -d)
+          docker buildx imagetools inspect --raw "$IMAGE:sha-$SHA" > "$tmp/sha"
+          empreinte_sha=$(sha256sum < "$tmp/sha" | cut -d' ' -f1)
+
+          if docker buildx imagetools inspect --raw "$IMAGE:$VERSION" > "$tmp/version" 2> "$tmp/erreur"; then
+            empreinte_version=$(sha256sum < "$tmp/version" | cut -d' ' -f1)
+            if [ "$empreinte_version" != "$empreinte_sha" ]; then
+              echo "::error::L'image $IMAGE:$VERSION existe déjà avec un autre contenu (sha256:$empreinte_version, alors que $IMAGE:sha-$SHA est sha256:$empreinte_sha) ; une version publiée ne se réécrit pas. Pour publier ce commit, posez une nouvelle étiquette de version."
+              exit 1
+            fi
+            echo "L'image $IMAGE:$VERSION existe déjà avec le même contenu (sha256:$empreinte_sha) : rien à faire."
+            exit 0
+          fi
+          # Échec de lecture : « absente » est le cas normal ; toute autre cause (réseau, droits)
+          # arrête le workflow plutôt que de risquer d'écraser une version existante. « absente »
+          # seulement si le registre le dit : un « unknown » ou un « 404 » seul (hôte inconnu,
+          # mandataire) n'en est pas la preuve.
+          if ! grep -qiE 'MANIFEST_UNKNOWN|manifest unknown|not found' "$tmp/erreur"; then
+            cat "$tmp/erreur"
+            echo "::error::Impossible de savoir si $IMAGE:$VERSION existe déjà : lecture du registre en échec."
+            exit 1
+          fi
+          # `--prefer-index=false` : une source unique qui est un manifeste simple (ce que
+          # `docker push` publie) est copiée telle quelle. Par défaut, imagetools l'envelopperait
+          # dans un nouvel index : `:X.Y.Z` n'aurait pas le condensé de `:sha-<sha>`, et une relance
+          # échouerait au garde ci-dessus.
+          docker buildx imagetools create --prefer-index=false -t "$IMAGE:$VERSION" "$IMAGE:sha-$SHA"
+
+      # Relançable : si la Release existe déjà (nouvelle exécution après un échec tardif), on passe.
+      - name: Créer la Release
+        run: |
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            echo "La Release $GITHUB_REF_NAME existe déjà : rien à faire."
+          else
+            gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}

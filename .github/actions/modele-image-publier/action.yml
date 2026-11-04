@@ -1,0 +1,28 @@
+# Géré par le modèle — ne pas modifier ici (docs/modele/methode.md).
+name: modele-image-publier
+description: >-
+  Publie sur GHCR l'image veille-emploi:ci que modele-image-construire a construite et vérifiée :
+  ghcr.io/edouardzemb/veille-emploi:sha-<sha>, la base des versions que modele-version.yml réétiquette,
+  puis :main, que le staging suit. Le job porte packages: write, et ci.yml ne l'appelle qu'au push
+  sur principal.
+runs:
+  using: composite
+  steps:
+    # Le jeton passe par l'entrée standard, jamais en argument.
+    - name: Se connecter à GHCR
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      run: |
+        printf '%s\n' "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+    - name: Publier l'image (:sha-<sha>, puis :main)
+      shell: bash
+      run: |
+        image=ghcr.io/edouardzemb/veille-emploi
+        docker tag veille-emploi:ci "$image:sha-$GITHUB_SHA"
+        docker tag veille-emploi:ci "$image:main"
+        # :sha-<sha> d'abord : si le second envoi échoue, l'image du commit existe déjà, et le
+        # staging (:main) n'avance pas vers une image sans étiquette de commit.
+        docker push "$image:sha-$GITHUB_SHA"
+        docker push "$image:main"

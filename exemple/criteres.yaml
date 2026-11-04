@@ -1,0 +1,1065 @@
+# ---------------------------------------------------------------------------
+# Critères d'exemple : une personne inventée, Camille Exemple, testeuse
+# logiciel autour de Mulhouse et de Bâle. Ce dossier sert de défaut au code, de
+# modèle à copier pour une vraie configuration, et de jeu de référence aux tests.
+#
+# Aucune valeur de ce fichier ne décrit une vraie personne. Pour une instance
+# réelle : copier ce dossier, le remplir, puis désigner le résultat par la
+# variable VEILLE_CONFIG.
+#
+# Règle de lecture : tout `poids` est un nombre de points ajouté au score.
+# Un critère `eliminatoire: true` met l'offre au rebut quel que soit le score.
+# Les motifs sont comparés sans accents ni casse.
+# ---------------------------------------------------------------------------
+
+version: 1
+
+profil:
+  nom: "Camille Exemple"
+  nom_fichier: "Camille-Exemple"
+  poste_actuel: "Testeuse logiciel"
+  employeur_actuel: "Entreprise Exemple SA"
+  domicile: "Saint-Louis (Haut-Rhin)"
+  langues:
+    francais: "natif"
+    anglais: "C1, pratiqué au travail"
+    allemand: "A2, en cours d'apprentissage"
+  certifications_verifiees:
+    - "ISTQB CTFL (Foundation Level)"
+  # Les atouts « pratiqués » (`outils_test`, `stack_pratiquee`) se tirent d'ici.
+  stack:
+    langages: ["Python", "Java", "Bash"]
+    donnees: ["SQL", "MySQL"]
+    systemes: ["Linux"]
+    test: ["pytest", "Postman", "Appium", "JMeter", "SoapUI", "Behave"]
+    gestion: ["TestRail", "Redmine"]
+
+# Une offre reçoit une seule famille, celle qui rapporte le plus. `formule_cv`
+# complète la phrase proposée pour le CV, « avec un intérêt particulier pour … »
+# (« with a particular interest in … ») ; la `formule` d'un atout s'y ajoute.
+#
+# Camille automatise ses tests depuis trois ans : c'est sa première porte. La
+# performance, qu'elle pratique avec JMeter, et le test fonctionnel suivent.
+# Le pilotage l'attire, mais elle n'a encore mené aucune équipe : il reste en
+# retrait, comme le développement pur.
+familles:
+  automatisation_tests:
+    libelle: "Automatisation des tests (web, mobile, API)"
+    poids: 32
+    formule_cv:
+      en: "test automation for web and mobile applications and APIs"
+      fr: "l'automatisation des tests d'applications web, mobiles et d'API"
+    motifs:
+      - "test automation"
+      - "qa automation"
+      - "qa automatisation"
+      - "sdet"
+      - "software development engineer in test"
+      - "automatisation des tests"
+      - "automatisation de tests"
+      - "automatisation de test"
+      - "tests automatises"
+      - "automaticien de test"
+      - "automaticien de tests"
+      - "automaticienne de test"
+      - "automaticienne de tests"
+      - "testeur automaticien"
+      - "testeuse automaticienne"
+      - "automation tester"
+      - "testautomation"
+      - "testautomatisierung"
+      - "testautomatisierer"
+
+  test_fonctionnel:
+    libelle: "Test fonctionnel et recette"
+    poids: 24
+    formule_cv:
+      en: "functional testing and user acceptance"
+      fr: "le test fonctionnel et la recette"
+    motifs:
+      - "testeur"
+      - "testeuse"
+      - "testeur fonctionnel"
+      - "testeuse fonctionnelle"
+      - "testeur logiciel"
+      - "testeuse logiciel"
+      - "test fonctionnel"
+      - "tests fonctionnels"
+      - "recette applicative"
+      - "recette fonctionnelle"
+      - "charge de recette"
+      - "chargee de recette"
+      - "consultant recette"
+      - "consultante recette"
+      - "consultant test"
+      - "consultante test"
+      - "recetteur"
+      - "recetteuse"
+      - "ingenieur de test"
+      - "ingenieure de test"
+      - "ingenieur qa"
+      - "ingenieure qa"
+      - "qa engineer"
+      - "qa ingenieur"
+      - "qa analyst"
+      - "qa tester"
+      - "manual qa"
+      - "manual tester"
+      - "software tester"
+      - "uat tester"
+      - "user acceptance testing"
+      - "test engineer"
+      - "quality assurance engineer"
+      - "software quality assurance"
+      - "softwaretester"
+      - "softwaretesterin"
+      - "testerin"
+      - "fachtester"
+      - "qualitatssicherung"
+
+  test_performance:
+    libelle: "Tests de performance et de charge"
+    # Au-dessus du test fonctionnel : « Performance Test Engineer » contient
+    # « test engineer », et seule la famille qui rapporte le plus est retenue.
+    poids: 27
+    formule_cv:
+      en: "performance and load testing"
+      fr: "les tests de performance et de charge"
+    motifs:
+      - "test de performance"
+      - "tests de performance"
+      - "test de charge"
+      - "tests de charge"
+      - "performance tester"
+      - "performancetester"
+      - "performance test engineer"
+      - "performance testing"
+      - "load testing"
+      - "load tester"
+      - "ingenieur performance"
+      - "ingenieure performance"
+      - "lasttest"
+      - "lasttests"
+      - "performancetest"
+      - "performancetests"
+
+  qualification_logicielle:
+    libelle: "Intégration, vérification et validation (IVVQ)"
+    poids: 20
+    formule_cv:
+      en: "software integration, verification and validation"
+      fr: "l'intégration, la vérification et la validation logicielles"
+    motifs:
+      - "ivvq"
+      - "ingenieur ivvq"
+      - "ingenieure ivvq"
+      - "qualification logicielle"
+      - "integration et validation"
+      - "integration validation"
+      - "integration verification validation"
+      - "validation logicielle"
+      - "software validation"
+      - "verification logicielle"
+      - "software verification"
+      - "verification engineer"
+      - "test and verification"
+      - "test systeme"
+      - "tests systeme"
+      - "systemtest"
+      - "systemtester"
+      - "softwarevalidierung"
+      - "integration testing"
+
+  pilotage_tests:
+    libelle: "Pilotage des tests et de la recette"
+    poids: 18
+    formule_cv:
+      en: "test planning and coordination"
+      fr: "la planification et la coordination des tests"
+    motifs:
+      - "test manager"
+      - "testmanager"
+      - "test lead"
+      - "test coordinator"
+      - "lead qa"
+      - "qa lead"
+      - "qa manager"
+      - "head of qa"
+      - "responsable qa"
+      - "responsable de test"
+      - "responsable des tests"
+      - "responsable recette"
+      - "pilote de recette"
+      - "chef de projet test"
+      - "coordinateur de test"
+      - "coordinatrice de test"
+      - "coordinateur des tests"
+      - "testleiter"
+      - "testleiterin"
+      - "strategie de test"
+
+  recette_donnees:
+    libelle: "Recette des données et du décisionnel"
+    poids: 14
+    formule_cv:
+      en: "data and business intelligence testing"
+      fr: "la recette des données et du décisionnel"
+    motifs:
+      - "data quality"
+      - "qualite des donnees"
+      - "datenqualitat"
+      - "migration de donnees"
+      - "recette de donnees"
+      - "recette de migration"
+      - "recette decisionnelle"
+      - "test etl"
+      - "tests etl"
+      - "etl tester"
+      - "etl testing"
+      - "bi tester"
+      - "bi testing"
+      - "data tester"
+      - "data testing"
+      - "data validation"
+      - "test de donnees"
+      - "tests de donnees"
+
+  developpement_outillage:
+    libelle: "Développement et outillage de test"
+    poids: 10
+    formule_cv:
+      en: "building test tools and harnesses"
+      fr: "le développement d'outils et de bancs de test"
+    motifs:
+      - "developpeur"
+      - "developpeuse"
+      - "developer"
+      - "software engineer"
+      - "programmeur"
+      - "programmeuse"
+      - "ingenieur logiciel"
+      - "ingenieure logiciel"
+      - "ingenieur developpement"
+      - "ingenieure developpement"
+      - "outillage de test"
+      - "test tooling"
+      - "softwareentwickler"
+      - "softwareentwicklerin"
+
+atouts:
+  # L'atout rare de Camille : elle teste l'accessibilité depuis l'entrée en
+  # vigueur de l'European Accessibility Act. Les annonces en parlent aussi pour
+  # leur propre recrutement (« notre processus de recrutement est accessible ») :
+  # ces phrases-là ne comptent pas.
+  accessibilite:
+    libelle: "Accessibilité numérique (RGAA, WCAG)"
+    poids: 25
+    ignorer_contextes: [recrutement]
+    plafond: 25
+    mis_en_avant:
+      libelle: "Accessibilité"
+      titre: "Offres qui demandent des tests d'accessibilité numérique"
+    formule:
+      en: "digital accessibility testing (WCAG)"
+      fr: "les tests d'accessibilité numérique (RGAA, WCAG)"
+    motifs:
+      - "accessibilite numerique"
+      - "accessibilite web"
+      - "rgaa"
+      - "wcag"
+      - "a11y"
+      - "accessibility testing"
+      - "digital accessibility"
+      - "web accessibility"
+      - "audit d'accessibilite"
+      - "audits d'accessibilite"
+      - "test d'accessibilite"
+      - "tests d'accessibilite"
+      - "digitale barrierefreiheit"
+      - "screen reader"
+      - "lecteur d'ecran"
+      - "european accessibility act"
+
+  contexte_mobile:
+    libelle: "Applications mobiles"
+    poids: 8
+    ignorer_contextes: [recrutement]
+    plafond: 8
+    motifs:
+      - "application mobile"
+      - "applications mobiles"
+      - "mobile app"
+      - "mobile apps"
+      - "mobile application"
+      - "mobile applications"
+      - "ios"
+      - "android"
+      - "react native"
+      - "flutter"
+
+  outils_test:
+    libelle: "Outils de test pratiqués"
+    poids: 5
+    plafond: 15
+    formule:
+      en: "test tooling such as pytest and Postman"
+      fr: "l'outillage de test, dont pytest et Postman"
+    motifs:
+      - "pytest"
+      - "postman"
+      - "appium"
+      - "jmeter"
+      - "soapui"
+      - "behave"
+      - "testrail"
+      - "redmine"
+
+  stack_pratiquee:
+    libelle: "Stack technique pratiquée"
+    poids: 4
+    plafond: 12
+    motifs:
+      - "python"
+      - "java"
+      - "bash"
+      - "sql"
+      - "mysql"
+      - "linux"
+
+  domaine_logistique:
+    libelle: "Logistique et transport"
+    poids: 8
+    # Bâle est une plaque tournante (port rhénan, douane, fret aérien) : les
+    # éditeurs de logiciels logistiques y recrutent, et y paient l'expérience
+    # du métier plus qu'en France.
+    poids_par_pays:
+      france: 6
+      suisse: 12
+    plafond: 12
+    # Le titre et l'employeur seulement : la description parle souvent des
+    # transports en commun ou de leur prise en charge, sans rapport avec le poste.
+    # Ni « entrepôt » ni « warehouse » seuls : un entrepôt de données (« data
+    # warehouse ») n'a rien de logistique.
+    champs: [titre, employeur]
+    formule:
+      en: "logistics and warehouse management systems"
+      fr: "les systèmes de logistique et de gestion d'entrepôt"
+    motifs:
+      - "logistique"
+      - "logistics"
+      - "logistik"
+      - "intralogistique"
+      - "intralogistik"
+      - "supply chain"
+      - "wms"
+      - "gestion d'entrepot"
+      - "entrepot logistique"
+      - "entreposage"
+      - "warehouse management"
+      - "lagerverwaltung"
+      - "transport"
+      - "transports"
+      - "spedition"
+      - "freight"
+      - "fret"
+
+# Camille habite Saint-Louis, à la frontière : Bâle est à dix minutes, Mulhouse
+# à une demi-heure. Elle préfère une équipe sur place, d'où un télétravail
+# intégral moins bien payé que l'agglomération.
+zones:
+  teletravail_total:
+    libelle: "Télétravail intégral"
+    poids: 18
+
+  zone_proche:
+    libelle: "Agglomération de Bâle, des deux côtés de la frontière (~15 km)"
+    poids: 28
+    acces: quotidien
+    motifs:
+      - "saint-louis"
+      - "huningue"
+      - "hegenheim"
+      - "village-neuf"
+      - "blotzheim"
+      - "basel"
+      - "bale"
+      - "binningen"
+      - "allschwil"
+      - "riehen"
+      - "birsfelden"
+      - "muttenz"
+      - "weil am rhein"
+
+  zone_trajet:
+    libelle: "Trajet quotidien en train ou en voiture (~40 km)"
+    poids: 16
+    acces: quotidien
+    motifs:
+      - "mulhouse"
+      - "illzach"
+      - "riedisheim"
+      - "altkirch"
+      - "pratteln"
+      - "liestal"
+      - "reinach bl"
+      - "arlesheim"
+      - "laufen"
+      - "lorrach"
+      - "delemont"
+
+  zone_occasionnelle:
+    libelle: "Deux jours sur site par semaine au plus (~80 km)"
+    poids: 8
+    acces: hybride
+    motifs:
+      - "colmar"
+      - "thann"
+      - "guebwiller"
+      - "belfort"
+      - "montbeliard"
+      - "freiburg im breisgau"
+      - "fribourg-en-brisgau"
+      - "olten"
+      - "aarau"
+
+zone_inconnue_poids: -12
+
+geographie:
+  # Ce qui, dans une ligne de courriel « Entreprise · Lieu », désigne un lieu :
+  # la région de l'exemple, en plus des indices génériques du lecteur.
+  indices_lieu:
+    - "haut-rhin"
+    - "sundgau"
+    - "saint-louis"
+    - "huningue"
+    - "hegenheim"
+    - "mulhouse"
+    - "altkirch"
+    - "colmar"
+    - "liestal"
+
+  teletravail_complet_motifs:
+    - "100% remote"
+    - "100 % remote"
+    - "fully remote"
+    - "full remote"
+    - "100% teletravail"
+    - "teletravail integral"
+    - "teletravail complet"
+    - "entierement a distance"
+    - "totalement a distance"
+    - "work from anywhere"
+    - "fully distributed"
+    - "remote anywhere"
+    - "remote always"
+    - "a distance"
+
+  presence_partielle_motifs:
+    - "hybrid"
+    - "hybride"
+    - "days in office"
+    - "days in the office"
+    - "days a week in the office"
+    - "days per week in the office"
+    - "days onsite"
+    - "days on site"
+    - "jours de teletravail par semaine"
+    - "jours sur site"
+    - "jours au bureau"
+    - "jours de presence"
+    - "office in"
+    - "mobiles arbeiten"
+    - "tage pro woche"
+
+  presence_totale_motifs:
+    - "presentiel"
+    - "sur site tous les jours"
+    - "5 days a week"
+    - "five days a week"
+    - "full time on site"
+    - "full-time in office"
+    - "vor ort"
+    - "sur site"
+    - "sur place"
+
+  pays:
+    suisse:
+      - "suisse"
+      - "switzerland"
+      - "schweiz"
+      - "basel"
+      - "bale"
+      - "basel-stadt"
+      - "baselland"
+      - "allschwil"
+      - "binningen"
+      - "riehen"
+      - "birsfelden"
+      - "pratteln"
+      - "muttenz"
+      - "liestal"
+      - "reinach bl"
+      - "arlesheim"
+      - "laufen"
+      - "delemont"
+      - "olten"
+      - "aarau"
+      - "ch-"
+    france:
+      - "france"
+      - "mulhouse"
+      - "saint-louis"
+      - "huningue"
+      - "hegenheim"
+      - "village-neuf"
+      - "blotzheim"
+      - "altkirch"
+      - "illzach"
+      - "riedisheim"
+      - "thann"
+      - "guebwiller"
+      - "colmar"
+      - "strasbourg"
+      - "belfort"
+      - "montbeliard"
+      - "alsace"
+      - "haut-rhin"
+      - "bas-rhin"
+      - "cedex"
+
+  bruit_agregateur:
+    - "find (more )?[a-z ]*jobs? in [^.]{0,60} on arbeitnow[^.]{0,40}\\.?"
+    - "full remote possible\\.?\\s*$"
+
+  # Un télétravail complet annoncé depuis ces lieux suppose souvent d'y résider :
+  # l'offre est signalée, jamais écartée.
+  employeur_lointain_motifs:
+    - "united kingdom"
+    - "london"
+    - "united states"
+    - "usa"
+    - "new york"
+    - "canada"
+    - "toronto"
+    - "india"
+    - "singapore"
+    - "australia"
+    - "brazil"
+
+  suisse_teletravail_complet: signaler
+
+  lieu_inconnu_poids: -10
+
+  # Un lieu qui désigne une région entière, sans ville : ni écarté sur la
+  # distance, ni crédité d'une zone. Trois grains : les régions autour de
+  # Saint-Louis restent neutres, une région large qui la contient à peine coûte
+  # un peu, un lieu qui ne dit rien coûte davantage.
+  lieux_imprecis:
+    proches:
+      poids: 0
+      motifs:
+        - "sundgau"
+        - "sud alsace"
+        - "haut rhin"
+        - "alsace"
+        - "trois frontieres"
+        - "region des trois frontieres"
+        - "dreilandereck"
+        - "regio basiliensis"
+        - "region bale"
+        - "region baloise"
+        - "basel region"
+        - "nordwestschweiz"
+        - "suisse du nord ouest"
+        - "baselland"
+        - "basel landschaft"
+        - "markgraflerland"
+    larges:
+      poids: -5
+      motifs:
+        - "grand est"
+        - "bas rhin"
+        - "lorraine"
+        - "franche comte"
+        - "bourgogne franche comte"
+        - "baden wurttemberg"
+        - "bade wurtemberg"
+        - "suisse alemanique"
+        - "deutschschweiz"
+    lointains:
+      poids: -12
+      motifs:
+        - "france entiere"
+        - "toute la france"
+        - "hauts de france"
+        - "occitanie"
+        - "auvergne rhone alpes"
+        - "nouvelle aquitaine"
+        - "national"
+        - "plusieurs sites"
+        - "romandie"
+        - "tessin"
+        - "deutschland"
+        - "europe"
+
+  # Les mots qui accompagnent un lieu imprécis sans le préciser. France Travail
+  # écrit le département devant la région : « 68 - Haut-Rhin ».
+  lieu_imprecis_bruit:
+    - "france"
+    - "suisse"
+    - "schweiz"
+    - "switzerland"
+    - "region"
+    - "departement"
+    - "canton"
+    - "kanton"
+    - "68"
+    - "nord"
+    - "sud"
+    - "sur site"
+    - "vor ort"
+    - "hybride"
+    - "hybrid"
+    - "teletravail"
+    - "presentiel"
+
+# Camille apprend l'allemand : une exigence d'allemand courant pèse, sans
+# écarter. Son anglais, pratiqué au travail, est un plus.
+langues:
+  allemand_exige:
+    libelle: "Allemand courant demandé"
+    exigence: allemand
+    valeurs: ["courant", "natif"]
+    poids: -10
+    eliminatoire: false
+    mise_en_attente: false
+    motifs:
+      - "verhandlungssicheres deutsch"
+      - "sehr gute deutschkenntnisse"
+      - "gute deutschkenntnisse"
+      - "fliessende deutschkenntnisse"
+      - "fliessend deutsch"
+      - "deutsch zwingend"
+      - "deutschkenntnisse zwingend"
+      - "deutsch in wort und schrift"
+      - "stilsicheres deutsch"
+      - "deutsch auf muttersprachniveau"
+      - "deutsch c1"
+      - "allemand courant"
+      - "allemand indispensable"
+      - "allemand lu ecrit parle"
+      - "maitrise de l'allemand"
+      - "fluent german"
+      - "fluency in german"
+      - "german is a must"
+      - "german language skills required"
+
+  anglais_valorise:
+    libelle: "Environnement anglophone"
+    poids: 8
+    exigence: anglais
+    valeurs: ["souhaite", "courant"]
+    motifs:
+      - "english speaking"
+      - "anglais courant"
+      - "anglais professionnel"
+      - "anglais indispensable"
+      - "fluent english"
+      - "fluency in english"
+      - "business english"
+      - "english c1"
+      - "international team"
+      - "equipe internationale"
+      - "englisch fliessend"
+      - "verhandlungssicheres englisch"
+
+eliminatoires:
+  # L'automatisme industriel (automates, robots, convoyeurs, mise en service
+  # sur site) est un autre métier, mais il emploie les mêmes mots que son
+  # premier métier, l'automatisation des tests (« automatisation »,
+  # « automation », « automaticien »), et les entrepôts de son domaine en
+  # recrutent beaucoup. Du plus spécifique au plus général : un intitulé sans
+  # ces mots n'est pas concerné ; un signal industriel sans ambiguïté dans
+  # l'intitulé (`toujours_motifs`) écarte l'offre, même si une famille est
+  # reconnue ; sinon, une famille attribuée ou un signal du logiciel
+  # (`sauf_si`) la garde. « API » n'est pas un signal du logiciel ici : en
+  # français, c'est aussi l'automate programmable industriel.
+  automatisme_industriel:
+    libelle: "Automatisme industriel - pas l'automatisation des tests"
+    champs: [titre]
+    motifs:
+      - "automatisme"
+      - "automatismes"
+      - "automaticien"
+      - "automaticienne"
+      - "automatisation"
+      - "automation"
+      - "automatisierung"
+      - "automatiker"
+      - "automatikerin"
+    toujours_motifs:
+      - "automate programmable"
+      - "automates programmables"
+      - "plc"
+      - "sps"
+      - "scada"
+      - "gtb"
+      - "gestion technique du batiment"
+      - "robotique"
+      - "robotik"
+      - "convoyeur"
+      - "convoyeurs"
+      - "convoyage"
+      - "electrotechnique"
+      - "elektrotechnik"
+      - "mise en service"
+      - "inbetriebnahme"
+      - "ligne de production"
+      - "lignes de production"
+    sauf_si:
+      famille_attribuee: true
+      champs: [titre, employeur, description]
+      motifs:
+        - "test"
+        - "tests"
+        - "testing"
+        - "testeur"
+        - "testeuse"
+        - "recette"
+        - "non-regression"
+        - "scripts de test"
+        - "pytest"
+        - "postman"
+        - "appium"
+        - "jmeter"
+        - "soapui"
+        - "behave"
+        - "integration continue"
+        - "devops"
+        - "logiciel"
+        - "logiciels"
+        - "software"
+        - "application web"
+        - "applications web"
+        - "application mobile"
+        - "applications mobiles"
+        - "site web"
+        - "front-end"
+        - "back-end"
+        - "wms"
+        - "gestion d'entrepot"
+        - "lagerverwaltungssoftware"
+
+  astreinte:
+    libelle: "Astreintes hors des heures ouvrées"
+    motifs:
+      - "astreinte"
+      - "astreintes"
+      - "on-call"
+      - "on call duty"
+      - "pikettdienst"
+      - "pikett"
+      - "bereitschaftsdienst"
+      - "permanence de nuit"
+
+  week_end:
+    libelle: "Week-end travaillé"
+    motifs:
+      - "travail le week-end"
+      - "interventions le week-end"
+      - "week-end travaille"
+      - "weekends travailles"
+      - "travail le samedi"
+      - "travail le dimanche"
+      - "wochenendarbeit"
+      - "wochenenddienst"
+      - "samstagsarbeit"
+      - "weekend work"
+      - "working weekends"
+      - "weekend shifts"
+
+  horaires_decales:
+    libelle: "Horaires de soirée, de nuit ou en équipes"
+    motifs:
+      - "travail en soiree"
+      - "travail de nuit"
+      - "horaires decales"
+      - "horaires de nuit"
+      - "3x8"
+      - "2x8"
+      - "travail en equipes alternees"
+      - "schichtarbeit"
+      - "schichtbetrieb"
+      - "nachtarbeit"
+      - "evening shift"
+      - "night shift"
+      - "shift work"
+
+  # Le support de premier niveau n'est pas du test, même quand l'annonce cite
+  # la recette : on ne le cherche que dans l'intitulé.
+  support_premier_niveau:
+    libelle: "Support de premier niveau"
+    champs: [titre]
+    motifs:
+      - "support niveau 1"
+      - "support n1"
+      - "helpdesk"
+      - "help desk"
+      - "service desk"
+      - "hotline"
+      - "first level support"
+      - "1st level support"
+      - "technicien support"
+      - "technicienne support"
+      - "centre d'appels"
+      - "call center"
+
+  deplacements_frequents:
+    libelle: "Déplacements fréquents"
+    motifs:
+      - "deplacements frequents"
+      - "nombreux deplacements"
+      - "grands deplacements"
+      - "deplacements a l'etranger"
+      - "deplacements internationaux"
+      - "mobilite nationale"
+      - "frequent travel"
+      - "extensive travel"
+      - "hohe reisebereitschaft"
+      - "hohe reisetatigkeit"
+
+  relation_client_allemand:
+    libelle: "Relation clientèle en allemand"
+    motifs:
+      - "kundenkontakt auf deutsch"
+      - "kundenbetreuung auf deutsch"
+      - "kundensupport auf deutsch"
+      - "beratung auf deutsch"
+      - "relation client en allemand"
+      - "service client en allemand"
+      - "support client germanophone"
+      - "clientele germanophone"
+      - "german speaking customers"
+
+salaire:
+  france:
+    devise: "EUR"
+    plancher: 38000
+    cible_basse: 42000
+    cible_haute: 55000
+    poids_dans_cible: 12
+    poids_au_dessus_cible: 16
+  suisse:
+    devise: "CHF"
+    plancher: 85000
+    cible_basse: 95000
+    cible_haute: 115000
+    poids_dans_cible: 10
+    poids_au_dessus_cible: 14
+  poids_absent: 0
+
+contrat:
+  # Une mission d'intérim suisse trop courte ne laisse pas le temps de s'y
+  # installer : six mois au moins.
+  interim_suisse_duree_minimale_mois: 6
+  interim_motifs:
+    - "interim"
+    - "interimaire"
+    - "mission d'interim"
+    - "contrat de mission"
+    - "mission temporaire"
+    - "travail temporaire"
+    - "temporarstelle"
+    - "temporaranstellung"
+    - "personalverleih"
+    - "temporary assignment"
+    - "temporary contract"
+    - "temp to perm"
+  cdi_bonus: 6
+
+scoring:
+  poids_description: 0.4
+  seuil_interessant: 40
+  seuil_plancher: 15
+  malus_donnees_partielles: -3
+
+langue_annonce:
+  de:
+    libelle: "Annonce en allemand"
+    mise_en_attente: true
+    motif: "annonce en allemand : langue non maîtrisée à ce jour"
+    exception_langue_de_travail:
+      libelle: "Langue de travail anglaise annoncée"
+      motifs:
+        - "english is our working language"
+        - "our working language is english"
+        - "working language is english"
+        - "working language english"
+        - "company language is english"
+        - "corporate language is english"
+        - "english speaking environment"
+        - "english speaking team"
+        - "we communicate in english"
+        - "all communication is in english"
+        - "documentation is in english"
+        - "englisch als arbeitssprache"
+        - "arbeitssprache ist englisch"
+        - "arbeitssprache englisch"
+        - "unternehmenssprache ist englisch"
+        - "unternehmenssprache englisch"
+        - "konzernsprache englisch"
+        - "firmensprache englisch"
+        - "englischsprachiges umfeld"
+        - "in englischer sprache"
+
+contextes_ignores:
+  recrutement:
+    libelle: "Mention sur le processus de recrutement"
+    motifs:
+      - "hiring process"
+      - "recruitment process"
+      - "recruiting process"
+      - "selection of candidates"
+      - "screening applications"
+      - "reviewing applications"
+      - "analyzing resumes"
+      - "analysing resumes"
+      - "applicant tracking"
+      - "candidate privacy notice"
+      - "applicant and candidate privacy"
+      - "ai notice"
+      - "ai policy"
+      - "processus de recrutement"
+      - "traitement de votre candidature"
+      - "analyse de votre candidature"
+      - "selection des candidatures"
+      - "tri des candidatures"
+      - "bewerbungsprozess"
+      - "auswahlprozess"
+      - "bewerbungsverfahren"
+
+# Ce qu'aucune lettre de Camille ne doit affirmer. La porte de validation cherche
+# ces motifs mot pour mot dans chaque paragraphe, avant tout appel d'agent, et
+# bloque l'envoi. Chaque règle a la même forme : une affirmation fausse qui
+# survit à sa correction, et qu'un motif rattrape mieux qu'une relecture.
+# `provenance` dit d'où vient la règle, pour remonter à la décision. Les motifs
+# sont comparés sans accents ni casse.
+affirmations_refusees:
+  - libelle: "Niveau de certification ISTQB"
+    valeur: "Ne jamais écrire qu'elle est certifiée ISTQB Advanced : elle a le niveau Foundation (CTFL), et n'a pas commencé l'Advanced."
+    provenance: "exemple inventé — une lettre a promu sa certification d'un niveau"
+    motifs:
+      - "istqb advanced"
+      - "certifiee istqb advanced"
+      - "istqb test manager"
+      - "ctal"
+  - libelle: "Encadrement d'équipe"
+    valeur: "Ne jamais écrire qu'elle a encadré ou managé une équipe : elle a coordonné une campagne de recette, sans diriger personne."
+    provenance: "exemple inventé — coordonner n'est pas encadrer"
+    motifs:
+      - "j ai encadre une equipe"
+      - "j ai manage une equipe"
+      - "encadrement de testeurs"
+      - "managed a team"
+      - "led a team of"
+      - "team leader depuis"
+  - libelle: "Allemand courant"
+    valeur: "Ne jamais écrire qu'elle parle allemand couramment : elle est au niveau A2, en cours d'apprentissage."
+    provenance: "exemple inventé — profil, langues"
+    motifs:
+      - "allemand courant"
+      - "allemand couramment"
+      - "parle couramment allemand"
+      - "fluent in german"
+      - "fluent german"
+      - "fliessend deutsch"
+      - "verhandlungssicheres deutsch"
+  - libelle: "Salaire actuel"
+    valeur: "Ne jamais communiquer le salaire actuel : il ancre la négociation vers le bas."
+    provenance: "exemple inventé — kit, section du salaire"
+    motifs:
+      - "mon salaire actuel est"
+      - "je gagne actuellement"
+      - "my current salary is"
+      - "i currently earn"
+      - "39 500 euros"
+      - "39500 euros"
+      - "39,5 k euros"
+
+# La préparation d'entretien lit le fichier 17 du kit de Camille et retient les
+# sections qui concernent l'annonce. Les questions posées à tout candidat (« avez-
+# vous écrit ce code », le préavis, « pourquoi vous partez », le salaire, ses
+# questions à eux, la liste d'avant chaque entretien) sont dans le code ; ici,
+# celles que son parcours appelle, qui passent devant. `cle_section` : un
+# fragment du titre de la section, sans accents ni ponctuation. Sans `motifs`, le
+# point sort toujours ; sinon, la phrase de l'annonce qui porte le premier motif
+# trouvé devient l'ancrage : du plus spécifique au plus général. `pays: ch` le
+# réserve aux postes en Suisse.
+entretien:
+  declencheurs:
+    - cle_section: "vous n avez jamais encadre d equipe"
+      categorie: "attaque"
+      pourquoi: "l'annonce demande d'encadrer : elle n'a encore mené aucune équipe"
+      motifs:
+        - "encadrement d equipe"
+        - "management d equipe"
+        - "people management"
+        - "team lead"
+        - "teamleitung"
+        - "fuhrungserfahrung"
+        - "encadrer"
+    - cle_section: "vous n avez jamais teste de logiciel embarque"
+      categorie: "attaque"
+      pourquoi: "l'annonce porte sur de l'embarqué, qu'elle n'a jamais testé"
+      motifs:
+        - "logiciel embarque"
+        - "systemes embarques"
+        - "embedded software"
+        - "firmware"
+        - "embedded"
+        - "embarque"
+    - cle_section: "votre allemand suffira t il"
+      categorie: "attaque"
+      pourquoi: "l'annonce demande l'allemand : elle en est au niveau A2"
+      motifs:
+        - "deutschkenntnisse"
+        - "sprachkenntnisse"
+        - "muttersprache"
+        - "fliessend"
+        - "deutsch"
+        - "german"
+        - "allemand"
+    - cle_section: "pourquoi la suisse"
+      categorie: "attaque"
+      pourquoi: "poste en Suisse : elle travaille aujourd'hui du côté français"
+      pays: "ch"
+    - cle_section: "ton point fort l audit d accessibilite"
+      categorie: "appui"
+      pourquoi: "l'annonce parle d'accessibilité : c'est son atout le plus rare"
+      motifs:
+        - "accessibilite numerique"
+        - "rgaa"
+        - "wcag"
+        - "accessibility"
+        - "barrierefreiheit"
+        - "accessibilite"
+    - cle_section: "la logistique ton terrain"
+      categorie: "appui"
+      pourquoi: "l'annonce est dans la logistique : c'est son domaine"
+      motifs:
+        - "gestion d entrepot"
+        - "warehouse management"
+        - "wms"
+        - "supply chain"
+        - "logistik"
+        - "logistics"
+        - "logistique"
+  # Les intitulés pour lesquels son kit dit que ce n'est pas encore le moment.
+  intitules_a_risque:
+    motifs:
+      - "test manager"
+      - "testmanager"
+      - "qa manager"
+      - "head of qa"
+      - "responsable des tests"
+    avertissement: "ton fichier 17 dit que ces postes demandent d'avoir déjà mené une équipe de test, et que tu n'en as encore mené aucune. Relis la section sur l'encadrement."

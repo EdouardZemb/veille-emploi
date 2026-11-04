@@ -1,0 +1,11 @@
+# .gitleaksignore — les faux positifs de gitleaks, un par ligne, par empreinte.
+#
+# Ce dépôt est né d'un seul commit (lot V2, la scission) : une empreinte y est écrite sans commit,
+# `<fichier>:<règle>:<ligne>`, et vaut pour la ligne où le constat entre dans l'historique. Un
+# commit qui récrirait cette ligne la ferait relever de nouveau, à son nouveau numéro. Ajouter une
+# ligne ici, c'est écrire qu'on a regardé et qu'il n'y a rien de réel. Chaque ligne dit donc
+# pourquoi.
+
+# La valeur fictive de FT_CLIENT_SECRET dans un test : les seize chiffres hexadécimaux, deux fois.
+# Le test vérifie justement que `masquer` la fait disparaître d'un message d'erreur.
+tests/test_cli_env.py:generic-api-key:97

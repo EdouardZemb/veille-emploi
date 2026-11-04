@@ -1,0 +1,302 @@
+:root{
+  --fond:#11151c; --fond2:#181e28; --fond3:#202836;
+  --trait:#2c3547; --texte:#e6ebf2; --doux:#94a3b8;
+  --accent:#5b9dff; --bon:#3ddc97; --moyen:#f0b429; --mauvais:#ef6461;
+  --rayon:10px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--fond); color:var(--texte);
+  font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  padding-bottom:env(safe-area-inset-bottom);
+}
+h1{font-size:1.15rem;margin:0}
+button,select,input{font:inherit}
+code{background:var(--fond3);padding:1px 5px;border-radius:4px;font-size:.86em}
+/* Des titres aux lignes équilibrées, des paragraphes sans mot seul sur la dernière ligne. */
+h1,h2,h3,.offre-titre{text-wrap:balance}
+.resume,.avert,.aide{text-wrap:pretty}
+
+/* ---------- barre et onglets ---------- */
+/* La barre et les onglets collent ensemble (`.entete`, index.html) : les onglets
+   collés à une hauteur écrite à la main glissaient sous la barre dès qu'elle grandissait. */
+.entete{position:sticky;top:0;z-index:20}
+.barre{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:12px 16px;background:var(--fond2);border-bottom:1px solid var(--trait);
+}
+.barre-actions{display:flex;gap:8px;align-items:center}
+.enligne{display:inline}
+.onglets{display:flex;gap:2px;padding:0 10px;background:var(--fond2);border-bottom:1px solid var(--trait);
+  overflow-x:auto}
+.onglet{
+  background:none;border:none;color:var(--doux);padding:11px 14px;cursor:pointer;
+  border-bottom:2px solid transparent;white-space:nowrap;
+}
+.onglet.actif{color:var(--texte);border-bottom-color:var(--accent)}
+.pastille{background:var(--mauvais);color:#fff;border-radius:9px;padding:0 6px;font-size:.72rem;margin-left:4px;
+  font-variant-numeric:tabular-nums}
+.pastille:empty{display:none}
+
+.vue{padding:14px 16px;max-width:1000px;margin:0 auto}
+.cachee{display:none}
+
+/* ---------- filtres ---------- */
+/* Barre compacte, toujours visible. Le panneau complet se replie : sur
+   telephone les offres doivent venir en premier, les reglages sont atteignables
+   mais jamais devant. */
+.barre-filtres{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.badge{
+  display:inline-block;min-width:18px;margin-left:6px;padding:0 5px;
+  background:var(--accent);color:#06121f;border-radius:9px;
+  font-size:.74rem;font-weight:700;text-align:center;font-variant-numeric:tabular-nums;
+}
+.badge:empty{display:none}
+button.bascule[aria-pressed="true"]{
+  background:rgba(61,220,151,.18);color:var(--bon);
+  box-shadow:inset 0 0 0 1px rgba(61,220,151,.45);
+}
+
+/* Puces des filtres actifs : sans elles, une liste courte reste inexpliquee
+   quand le panneau est replie. */
+.puces{display:flex;flex-wrap:wrap;gap:6px;flex:1 1 auto;min-width:0}
+.puce{
+  display:inline-flex;align-items:center;gap:6px;
+  background:var(--fond3);color:var(--doux);border:1px solid var(--trait);
+  border-radius:999px;padding:3px 6px 3px 11px;font-size:.78rem;
+}
+.puce button{
+  background:none;border:none;color:var(--doux);cursor:pointer;
+  font-size:1rem;line-height:1;padding:0 4px;font-weight:400;position:relative;
+}
+/* La croix est petite ; sa zone tapable fait 40 x 30 px. Pas plus haut : les lignes
+   de puces sont à environ 32 px l'une de l'autre, et deux zones ne se chevauchent pas. */
+.puce button::after{
+  content:"";position:absolute;left:50%;top:50%;width:40px;height:30px;translate:-50% -50%;
+}
+.puce button:hover{color:var(--mauvais)}
+
+.filtres{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.filtres[hidden]{display:none}
+.filtres input[type=search]{flex:1 1 220px;min-width:0}
+input,select{
+  background:var(--fond2);color:var(--texte);border:1px solid var(--trait);
+  border-radius:var(--rayon);padding:9px 11px;
+}
+.case{display:flex;align-items:center;gap:6px;color:var(--doux);font-size:.88rem}
+.case input{padding:0}
+button{
+  background:var(--accent);color:#06121f;border:none;border-radius:var(--rayon);
+  padding:9px 14px;cursor:pointer;font-weight:600;
+  transition-property:scale;transition-duration:150ms;transition-timing-function:ease-out;
+}
+/* L'appui se voit tout de suite, avant la réponse du serveur. Pas sur les onglets :
+   on les touche sans cesse. */
+button:not(.onglet):active:not(:disabled){scale:.96}
+button.discret{background:var(--fond3);color:var(--texte);font-weight:500}
+button.discret:hover{background:var(--trait)}
+button:disabled{opacity:.5;cursor:default}
+.resume{color:var(--doux);font-size:.88rem;margin:6px 0 12px}
+
+/* ---------- cartes d'offre ---------- */
+.liste{display:flex;flex-direction:column;gap:10px}
+.offre{
+  background:var(--fond2);border:1px solid var(--trait);border-left:4px solid var(--trait);
+  border-radius:var(--rayon);padding:13px 15px;
+}
+.offre.bonne{border-left-color:var(--bon)}
+.offre.moyenne{border-left-color:var(--moyen)}
+.offre.faible{border-left-color:var(--mauvais)}
+.offre-haut{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.offre-titre{font-weight:650;font-size:1.02rem;margin:0 0 3px}
+.offre-titre a{color:var(--texte);text-decoration:none}
+.offre-titre a:hover{text-decoration:underline}
+.score{
+  background:var(--fond3);border-radius:999px;padding:4px 11px;font-weight:700;
+  font-variant-numeric:tabular-nums;white-space:nowrap;flex-shrink:0;
+}
+.score.bonne{background:rgba(61,220,151,.16);color:var(--bon)}
+.score.moyenne{background:rgba(240,180,41,.16);color:var(--moyen)}
+.score.faible{background:rgba(239,100,97,.16);color:var(--mauvais)}
+.meta{color:var(--doux);font-size:.88rem;display:flex;flex-wrap:wrap;gap:4px 10px;margin:4px 0 0}
+.etiquettes{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.etiquette{background:var(--fond3);color:var(--doux);border-radius:6px;padding:2px 8px;font-size:.76rem}
+.etiquette.alerte{background:rgba(240,180,41,.16);color:var(--moyen)}
+.etiquette.grave{background:rgba(239,100,97,.16);color:var(--mauvais)}
+.etiquette.atout{background:rgba(91,157,255,.13);color:var(--accent)}
+.etiquette.atout-fort{
+  background:linear-gradient(90deg,rgba(61,220,151,.22),rgba(91,157,255,.22));
+  color:var(--bon);font-weight:650;border:1px solid rgba(61,220,151,.35);
+}
+
+.actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:11px}
+.actions button{padding:7px 11px;font-size:.86rem}
+
+details.explication{margin-top:9px}
+/* La zone tapable grandit de 10 px en haut et en bas sans déplacer la carte : la marge
+   négative rend la place. 10 px, pas plus : 11 px plus bas commencent les boutons. */
+details.explication summary{cursor:pointer;color:var(--doux);font-size:.85rem;
+  padding-block:10px;margin-block:-10px}
+.contribs{list-style:none;padding:8px 0 0;margin:0;font-size:.86rem}
+.contribs li{display:flex;gap:9px;padding:3px 0;border-bottom:1px solid var(--fond3)}
+.contribs li:last-child{border-bottom:none}
+.pts{font-variant-numeric:tabular-nums;min-width:52px;text-align:right;font-weight:600}
+.pts.plus{color:var(--bon)} .pts.moins{color:var(--mauvais)} .pts.zero{color:var(--doux)}
+.contrib-detail{color:var(--doux)}
+
+/* ---------- pilotage ---------- */
+.bloc{background:var(--fond2);border:1px solid var(--trait);border-radius:var(--rayon);padding:14px 16px;margin-bottom:12px}
+.bloc h2{font-size:.95rem;margin:0 0 10px;color:var(--doux);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.chiffres{display:flex;flex-wrap:wrap;gap:22px}
+.chiffre{min-width:92px}
+.chiffre b{display:block;font-size:1.7rem;line-height:1.1;font-variant-numeric:tabular-nums}
+.chiffre span{color:var(--doux);font-size:.82rem}
+table{width:100%;border-collapse:collapse;font-size:.88rem}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--fond3)}
+th{color:var(--doux);font-weight:600}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+
+/* ---------- documents et reglages ---------- */
+.sous-titre{
+  font-size:.86rem;color:var(--texte);margin:14px 0 6px;font-weight:600;
+  display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;
+}
+.sous-titre:first-of-type{margin-top:4px}
+/* `.fichiers .fichier`, pas `.fichier` : `.fichiers li`, plus bas, l'emporterait et
+   ramènerait la marge à 4 px. */
+.fichiers .fichier{
+  display:flex;flex-wrap:wrap;align-items:center;gap:8px;
+  padding:9px 0;border-bottom:1px solid var(--fond3);
+}
+.fichier:last-child{border-bottom:none}
+.fichier a{
+  color:var(--accent);text-decoration:none;font-weight:550;
+  flex:1 1 auto;min-width:0;word-break:break-word;
+}
+.fichier a:hover{text-decoration:underline}
+.menu{color:var(--doux);font-size:.78rem;font-weight:400}
+.etiquette.bon{background:rgba(61,220,151,.16);color:var(--bon)}
+
+.formulaire{display:flex;flex-direction:column;gap:8px;max-width:420px}
+.formulaire.enligne{flex-direction:row;align-items:center;max-width:280px}
+.formulaire.enligne input{width:110px}
+.choix{
+  display:flex;gap:10px;align-items:flex-start;padding:9px 0;
+  border-bottom:1px solid var(--fond3);cursor:pointer;
+}
+.choix:last-of-type{border-bottom:none}
+.choix input{margin-top:3px;flex-shrink:0}
+
+/* ---------- fenetre ---------- */
+dialog{
+  background:var(--fond2);color:var(--texte);border:1px solid var(--trait);
+  border-radius:14px;padding:20px;max-width:640px;width:calc(100% - 28px);
+}
+dialog::backdrop{background:rgba(0,0,0,.66)}
+dialog h2{margin-top:0}
+dialog textarea{
+  width:100%;min-height:90px;background:var(--fond3);color:var(--texte);
+  border:1px solid var(--trait);border-radius:var(--rayon);padding:9px;resize:vertical;
+}
+.fichiers{list-style:none;padding:0;margin:10px 0}
+.fichiers li{padding:4px 0}
+.fichiers a{color:var(--accent)}
+.avert{background:rgba(240,180,41,.12);border-left:3px solid var(--moyen);padding:9px 12px;border-radius:6px;margin:9px 0;font-size:.88rem}
+.avert.grave{background:rgba(239,100,97,.14);border-left-color:var(--mauvais);color:var(--texte)}
+/* Le bandeau de la console qui sert l'exemple par oubli : sous les onglets, sur toute la largeur. */
+.avert.bandeau{margin:0;border-radius:0;padding:10px 16px}
+dialog textarea#texte-annonce{min-height:150px;font-family:inherit}
+
+/* ---------- messages ---------- */
+#messages{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:60;display:flex;flex-direction:column;gap:8px}
+.message{background:var(--fond3);border:1px solid var(--trait);border-radius:var(--rayon);padding:10px 16px;box-shadow:0 8px 28px rgba(0,0,0,.45);
+  transition-property:opacity,translate;transition-duration:200ms;transition-timing-function:ease-out}
+.message.erreur{border-color:var(--mauvais);color:var(--mauvais)}
+/* Le message monte de 8 px en paraissant, et s'efface plus vite qu'il n'est venu :
+   `message()` (app.js) pose `sortie`, puis le retire. */
+@starting-style{.message{opacity:0;translate:0 8px}}
+.message.sortie{opacity:0;translate:0 8px;transition-duration:150ms}
+
+/* ---------- connexion ---------- */
+.centre{display:grid;place-items:center;min-height:100vh}
+.carte-connexion{background:var(--fond2);border:1px solid var(--trait);border-radius:14px;padding:26px 30px;width:min(360px,92vw)}
+.carte-connexion form{display:flex;flex-direction:column;gap:9px;margin-top:14px}
+.erreur{color:var(--mauvais);font-size:.88rem}
+.aide{color:var(--doux);font-size:.85rem}
+
+/* ---------- telephone ---------- */
+@media (max-width:640px){
+  .vue{padding:12px}
+  /* Une seule ligne compacte avant la premiere offre. Quand le panneau
+     s'ouvre, chaque controle prend toute la largeur pour rester tapable. */
+  .filtres select,.filtres input[type=search],.filtres button{flex:1 1 100%}
+  /* Sans `min-width:0`, un sélecteur reste aussi large que sa plus longue option : un
+     libellé de zone long faisait défiler toute la page de côté. */
+  .filtres select{min-width:0}
+  .barre-filtres{gap:6px}
+  .puces{flex-basis:100%;order:3}
+  .offre-haut{flex-direction:row}
+  .actions button{flex:1 1 auto}
+  .offre{padding:12px 13px}
+  .formulaire,.formulaire.enligne{max-width:none}
+  .formulaire.enligne input{flex:1 1 auto;width:auto}
+  .bloc{padding:13px 14px}
+  /* Au doigt, 44 px au moins : les boutons, la case des écartées, les liens de
+     téléchargement. La croix des puces a sa propre zone (`.puce button::after`). */
+  button{min-height:44px}
+  .puce button{min-height:0}
+  .case{min-height:44px}
+  /* La marge est sur le lien, pas sur la ligne : c'est le lien qu'on touche. */
+  .fichiers .fichier{padding:0 0 10px}
+  .fichier a{flex-basis:100%;padding-block:11px}
+}
+
+/* Sans mouvement demandé : l'appui et les messages changent d'état sans transition. */
+@media (prefers-reduced-motion:reduce){
+  button,.message{transition:none}
+}
+
+/* ---------- rapport d'enrichissement ---------- */
+.avert.bonne{background:rgba(61,220,151,.13);border-left-color:var(--bon)}
+b.monte{color:var(--bon)} b.descend{color:var(--mauvais)}
+.preuves{list-style:none;padding:0;margin:6px 0 12px}
+.preuves li{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--fond3);font-size:.88rem}
+.preuves li:last-child{border-bottom:none}
+.preuves li.contre{border-left:3px solid var(--mauvais);padding-left:9px}
+.preuves li.pour{border-left:3px solid var(--bon);padding-left:9px}
+/* La phrase de l'annonce, citee telle quelle : c'est elle qui donne confiance. */
+.citation{
+  color:var(--doux);font-style:italic;display:inline-block;margin-top:3px;
+  background:var(--fond3);padding:5px 9px;border-radius:6px;line-height:1.45;
+}
+
+/* ---------- deux axes, deux repères ----------
+   Le score de correspondance et la complétude ne doivent jamais se ressembler :
+   couleurs et formes distinctes, et jamais côte à côte dans un même nombre. */
+.reperes{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 2px}
+.verif,.completude{border-radius:6px;padding:2px 8px;font-size:.74rem;white-space:nowrap}
+.verif{background:var(--fond3);color:var(--doux)}
+.verif.jamais{background:rgba(240,180,41,.16);color:var(--moyen)}
+.verif.non-verifiable{background:rgba(239,100,97,.14);color:var(--mauvais)}
+.verif.ancienne{background:rgba(240,180,41,.10);color:var(--moyen)}
+.verif.par-edouard{background:rgba(61,220,151,.14);color:var(--bon)}
+/* La complétude est encadrée, jamais pleine : on ne la confond pas avec un score. */
+.completude{background:transparent;border:1px solid var(--fond3);color:var(--doux)}
+.completude.solide{border-color:var(--bon);color:var(--bon)}
+.completude.correct{border-color:var(--accent);color:var(--accent)}
+.completude.mince{border-color:var(--moyen);color:var(--moyen)}
+.completude.insuffisant{border-color:var(--mauvais);color:var(--mauvais)}
+@media (max-width:640px){
+  .reperes{gap:5px}
+  .verif,.completude{font-size:.72rem}
+}
+
+/* ---------- champs de saisie du destinataire ---------- */
+.champ{display:block;margin:8px 0;font-size:.82rem;color:var(--doux)}
+.champ input,.champ textarea{
+  display:block;width:100%;margin-top:3px;padding:8px 10px;
+  background:var(--fond2);color:var(--texte);border:1px solid var(--fond3);
+  border-radius:8px;font-size:.9rem;font-family:inherit;
+}
+.champ input:focus,.champ textarea:focus{outline:2px solid var(--accent);outline-offset:-1px}

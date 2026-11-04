@@ -1,0 +1,25 @@
+name: Lot
+description: Un lot de travail, avec sa mini-spec
+title: "Lot : "
+body:
+  - type: textarea
+    id: objectif
+    attributes:
+      label: Objectif
+      description: Ce que le lot doit produire, en quelques phrases.
+    validations:
+      required: true
+  - type: textarea
+    id: criteres
+    attributes:
+      label: Critères d'acceptation
+      description: Une liste de conditions vérifiables. Le lot est fini quand elles sont toutes vraies.
+    validations:
+      required: true
+  - type: textarea
+    id: hors-perimetre
+    attributes:
+      label: Hors périmètre
+      description: Ce que le lot ne fait pas, même si cela semble proche.
+    validations:
+      required: true

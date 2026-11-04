@@ -1,0 +1,42 @@
+# Géré par le modèle — ne pas modifier ici (docs/modele/methode.md).
+# gitleaks sur tout l'historique : sur une PR ou un envoi, l'action n'examine que les commits de
+# l'événement ; sur workflow_dispatch et schedule, elle examine tout l'historique. Puis la porte de
+# confidentialité relit l'historique d'un dépôt de code (--historique), sans les constats acceptés
+# de .github/constats-acceptes.txt ; un dépôt de données y est relu par gitleaks seul.
+name: historique
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * 1" # le lundi à 05:00 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  historique:
+    name: historique
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
+      - name: Visibilité du dépôt
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY" --jq '"DEPOT_PRIVE=\(.private)", "BRANCHE_DEFAUT=\(.default_branch)"' >> "$GITHUB_ENV"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Confidentialité de l'historique
+        env:
+          MOTIFS_INTERDITS: ${{ secrets.MOTIFS_INTERDITS }}
+        run: python scripts/modele/confidentialite.py --exiger-prives --historique --acceptes .github/constats-acceptes.txt

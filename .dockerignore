@@ -1,0 +1,65 @@
+# Le contexte de construction de l'image (Dockerfile, `COPY . .`) : le dépôt, moins ce qui est
+# privé, propre au poste, ou inutile à la console. Restent : pyproject.toml, src/, exemple/ (la
+# configuration par défaut) et factice/ (le jeu de données du staging), que la console lit sous /app.
+# La configuration de l'instance vit au dépôt de données : elle se monte sur /config, et rien de ce
+# qu'un clone en recevrait (instance/, config/, contenu/) n'entre dans l'image.
+# tests/test_deploiement.py vérifie les deux listes.
+
+# Les secrets et les données d'Edouard : jamais dans une image.
+donnees
+dossiers
+instance
+config
+contenu
+gabarits
+exports
+sorties
+**/.env
+**/.env.*
+**/*.env
+**/*secret*
+**/*credential*
+**/*.pem
+**/*.key
+**/*.p12
+**/id_rsa*
+**/*.sqlite3
+**/*.sqlite3-*
+**/*.db
+**/*.pdf
+**/*.docx
+**/*.zip
+
+# Git, les garde-fous et les outils de session : ils servent au poste et à la CI, pas à la console.
+.git
+.gitignore
+.gitattributes
+.gitleaksignore
+.githooks
+.github
+.claude
+.superpowers
+.copier-answers.yml
+.editorconfig
+.sops.yaml
+scripts
+deploiement
+docs
+CLAUDE.md
+README.md
+Dockerfile
+.dockerignore
+
+# Les tests tournent en CI (job verifier) et sur le poste, pas dans l'image.
+tests
+tests_navigateur
+
+# Ce qu'un poste laisse dans le dépôt.
+.venv
+**/__pycache__
+**/*.pyc
+**/*.egg-info
+.pytest_cache
+.ruff_cache
+.mypy_cache
+node_modules

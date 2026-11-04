@@ -1,0 +1,5 @@
+#!/bin/sh
+# Géré par le modèle (docs/modele/methode.md) — ne pas modifier ici.
+racine=$(git rev-parse --show-toplevel) || exit 1
+sh "$racine/scripts/modele/lancer.sh" "$racine/scripts/modele/commits.py" --message "$1" || exit 1
+exec sh "$racine/scripts/modele/lancer.sh" "$racine/scripts/modele/confidentialite.py" --message "$1"

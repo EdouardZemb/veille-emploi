@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Veille emploi - connexion</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="centre">
+<main class="carte-connexion">
+  <h1>Veille emploi</h1>
+  <button type="button" id="btn-passkey">Se connecter avec une passkey</button>
+  <p id="message" class="erreur" role="alert" hidden></p>
+  {% if not origine_connue %}
+    <p class="erreur">La connexion est indisponible : VEILLE_URL n'est pas définie sur le serveur.</p>
+  {% elif nb_passkeys == 0 %}
+    <p class="aide">Aucune passkey n'est enregistrée. Sur le serveur : <code>veille lien</code>, puis ouvre le lien sur ce téléphone.</p>
+  {% endif %}
+</main>
+<script src="/static/connexion.js?v={{ v_js }}"></script>
+</body>
+</html>

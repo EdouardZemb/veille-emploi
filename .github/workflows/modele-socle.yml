@@ -1,0 +1,136 @@
+# Géré par le modèle — ne pas modifier ici (docs/modele/methode.md).
+name: socle
+
+on:
+  workflow_call:
+    secrets:
+      MOTIFS_INTERDITS:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  secrets:
+    name: secrets
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Secrets chiffrés (clés et destinataires, sans déchiffrer)
+        run: python scripts/modele/verifier_secrets.py
+
+  confidentialite:
+    name: confidentialite
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Déterminer la base de comparaison
+        env:
+          BASE_PR: ${{ github.event.pull_request.base.sha }}
+          BASE_PUSH: ${{ github.event.before }}
+        run: echo "BASE=${BASE_PR:-$BASE_PUSH}" >> "$GITHUB_ENV"
+      - name: Confidentialité du diff
+        env:
+          MOTIFS_INTERDITS: ${{ secrets.MOTIFS_INTERDITS }}
+          DEPOT_PRIVE: ${{ github.event.repository.private }}
+          BRANCHE_DEFAUT: ${{ github.event.repository.default_branch }}
+        run: python scripts/modele/confidentialite.py --exiger-prives --diff "$BASE"
+      - name: Format des commits
+        run: |
+          case "$BASE" in
+            *[!0]*) python scripts/modele/commits.py --plage "$BASE..HEAD" ;;
+            *) echo "Base nulle : plage de commits non contrôlée." ;;
+          esac
+      - name: Confidentialité des messages de commit
+        env:
+          MOTIFS_INTERDITS: ${{ secrets.MOTIFS_INTERDITS }}
+          DEPOT_PRIVE: ${{ github.event.repository.private }}
+          BRANCHE_DEFAUT: ${{ github.event.repository.default_branch }}
+        run: |
+          case "$BASE" in
+            *[!0]*) git log --format=%B "$BASE..HEAD" > "$RUNNER_TEMP/messages.txt" ;;
+            *) git log --format=%B HEAD > "$RUNNER_TEMP/messages.txt" ;;
+          esac
+          python scripts/modele/confidentialite.py --exiger-prives --texte "$RUNNER_TEMP/messages.txt"
+      - name: Confidentialité et format du titre et du corps de la PR
+        if: github.event_name == 'pull_request'
+        env:
+          MOTIFS_INTERDITS: ${{ secrets.MOTIFS_INTERDITS }}
+          DEPOT_PRIVE: ${{ github.event.repository.private }}
+          BRANCHE_DEFAUT: ${{ github.event.repository.default_branch }}
+          TITRE: ${{ github.event.pull_request.title }}
+          CORPS: ${{ github.event.pull_request.body }}
+        run: |
+          printf '%s\n%s\n' "$TITRE" "$CORPS" > "$RUNNER_TEMP/pr.txt"
+          python scripts/modele/confidentialite.py --exiger-prives --texte "$RUNNER_TEMP/pr.txt"
+          python scripts/modele/commits.py --titre "$TITRE"
+      - name: Le garde de Claude est branché
+        run: |
+          python - <<'FIN'
+          import json
+          import re
+          import sys
+
+          OUTILS = ("Bash", "PowerShell", "Monitor")
+
+
+          def couvre(matcher, outil):
+              if matcher in (None, "", "*"):
+                  return True
+              try:
+                  return re.fullmatch(matcher, outil) is not None
+              except (re.error, TypeError):
+                  return False
+
+
+          try:
+              with open(".claude/settings.json", encoding="utf-8") as f:
+                  reglages = json.load(f)
+              branche = reglages.get("disableAllHooks") is not True and any(
+                  all(couvre(groupe.get("matcher"), outil) for outil in OUTILS)
+                  and any(
+                      "garde_claude.py" in crochet.get("command", "")
+                      for crochet in groupe.get("hooks", [])
+                  )
+                  for groupe in reglages["hooks"]["PreToolUse"]
+              )
+              signaux = branche and any(
+                  couvre(groupe.get("matcher"), "startup")
+                  and couvre(groupe.get("matcher"), "resume")
+                  and any(
+                      "signaux.py" in crochet.get("command", "")
+                      for crochet in groupe.get("hooks", [])
+                  )
+                  for groupe in reglages["hooks"]["SessionStart"]
+              )
+          except (OSError, ValueError, KeyError, TypeError, AttributeError):
+              branche = signaux = False
+          if not (branche and signaux):
+              print(
+                  "garde : .claude/settings.json est illisible (conflit de copier update ?), "
+                  "coupe les hooks (disableAllHooks), ou n'a plus de hook PreToolUse qui "
+                  "appelle garde_claude.py pour Bash, PowerShell et Monitor, ou n'a plus de hook "
+                  "SessionStart (startup et resume) qui appelle signaux.py",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+          FIN

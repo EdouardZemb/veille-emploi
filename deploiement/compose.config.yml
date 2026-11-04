@@ -1,0 +1,9 @@
+# La configuration de l'instance, montée en lecture seule sur /config (M-0006, § 5) : le dossier
+# config/ de l'instantané du commit de données, jamais le clone des données. `dc` (lib.sh) n'ajoute
+# ce fichier que quand compose.env porte VEILLE_EMPLOI_CONFIG, que le déploiement n'écrit jamais en
+# staging. La valeur ne vient que de compose.env : compose préférerait celle du shell, et
+# refuser_image_heritee (lib.sh) refuse qu'elle y soit posée. Géré par le modèle.
+services:
+  app:
+    volumes:
+      - "${VEILLE_EMPLOI_CONFIG:?}:/config:ro"

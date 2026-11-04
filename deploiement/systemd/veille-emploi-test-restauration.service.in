@@ -1,0 +1,13 @@
+# Rendu de deploiement/systemd/veille-emploi-test-restauration.service.in par deploiement/installer-unites.sh.
+# Ne pas modifier à la main : la sonde de prod alerte au moindre écart avec ce rendu.
+[Unit]
+Description=veille-emploi : test de restauration d'une sauvegarde (@ENV@)
+OnFailure=veille-emploi-alerte@%n.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash @CLONE@/deploiement/tester-restauration.sh @ENV@
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=15min

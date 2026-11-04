@@ -1,0 +1,52 @@
+# Lancé par `dc` (lib.sh), ou à la main avec les mêmes arguments : le projet, les deux fichiers et
+# le compose.env que le déploiement écrit :
+#   docker compose -p <projet> -f <clone>/deploiement/compose.yml \
+#     -f <clone>/deploiement/compose.projet.yml --env-file <état>/compose.env …
+# Quand compose.env porte VEILLE_EMPLOI_CONFIG ou VEILLE_EMPLOI_CONTENU, `dc` ajoute après eux
+# -f <clone>/deploiement/compose.config.yml ou -f <clone>/deploiement/compose.contenu.yml : les
+# montages de l'instantané des données (M-0006, § 5).
+# <état> vaut ~/.local/state/veille-emploi/<env>, sauf si VEILLE_EMPLOI_RACINE_ETAT le déplace.
+# Pas de `name:` ici : le projet (`veille-emploi`, `veille-emploi-staging`, `veille-emploi-local`…) vient de `-p`.
+# Les variables `${…:?}` sans valeur font échouer la commande : mieux vaut un arrêt net qu'un
+# conteneur lancé avec la mauvaise image ou les mauvais dossiers.
+# Les ajouts propres au projet (volumes, variables, mem_limit) vont dans `compose.projet.yml`.
+services:
+  app:
+    image: ${VEILLE_EMPLOI_IMAGE:?}
+    environment:
+      VEILLE_EMPLOI_ENV: ${VEILLE_EMPLOI_ENV:?}
+      VEILLE_EMPLOI_VERSION: ${VEILLE_EMPLOI_VERSION:?}
+      VEILLE_EMPLOI_URL_PUBLIQUE: ${VEILLE_EMPLOI_URL_PUBLIQUE:?}
+    volumes:
+      - ${VEILLE_EMPLOI_DONNEES:?}:/donnees
+      - ${VEILLE_EMPLOI_SAUVEGARDES:?}:/sauvegardes
+    # Publié sur la boucle locale seulement : l'accès public passe par le tunnel.
+    ports:
+      - "127.0.0.1:${VEILLE_EMPLOI_PORT:?}:8460"
+    # Le réseau du tunnel est créé par le serveur, un par projet et par environnement : le tunnel
+    # commun joint l'application par cet alias, sans port publié.
+    networks:
+      default: {}
+      tunnel:
+        aliases:
+          - veille-emploi-${VEILLE_EMPLOI_ENV}
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    user: "1000:1000"
+    mem_limit: 384m
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: "3"
+
+networks:
+  tunnel:
+    external: true
+    name: tunnel-veille-emploi-${VEILLE_EMPLOI_ENV}

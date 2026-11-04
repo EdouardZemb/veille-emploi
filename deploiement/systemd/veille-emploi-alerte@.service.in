@@ -1,0 +1,13 @@
+# Rendu de deploiement/systemd/veille-emploi-alerte@.service.in par deploiement/installer-unites.sh.
+# Ne pas modifier à la main : la sonde de prod alerte au moindre écart avec ce rendu.
+# Instance : le nom de l'unité en échec (%n de l'unité qui échoue), traduit par alerter.sh.
+[Unit]
+Description=veille-emploi : alerte après l'échec de %i
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash @CLONE_PROD@/deploiement/alerter.sh %i
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=15min

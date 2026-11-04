@@ -1,0 +1,764 @@
+#!/usr/bin/env bash
+# Double de `docker` pour les tests de la sonde, du déploiement, du ménage des images, de la
+# sauvegarde et de la restauration : il note chaque appel dans $APPELS (le nom puis les arguments,
+# séparés par des espaces) et simule ce que ces scripts attendent de Docker. Rien n'est réellement
+# tiré, lancé ni retiré.
+#
+# Ménage des images : le stock est dans le dossier de $APPELS, posé par poser_image et
+# poser_conteneur (aide.bash). Le fichier images porte une ligne « <id>|<créée>|<noms>|<empreintes> »
+# par image (noms et empreintes séparés par des espaces), le fichier conteneurs une ligne « <id du
+# conteneur> <id de l'image> » par conteneur, arrêté ou non. Un fichier absent vaut un stock vide.
+#   image ls [--all] --no-trunc --quiet  l'identifiant de chaque image, une fois par nom, comme
+#                                        docker. Sans --all, comme un Docker 29 récent (constaté en
+#                                        29.5.3, magasin classique), seulement les images qui ont un
+#                                        nom ; avec, aussi celles qui n'en ont aucun, une
+#                                        fois chacune (les anciennes :main que la sonde a tirées par
+#                                        empreinte, et les intermédiaires)
+#   image inspect --format <format> <id…>  la ligne du stock de chaque image : le format est celui
+#                                        du ménage, {{.Id}}|{{.Created}}|{{range .RepoTags}}{{.}} {{end}}|{{range .RepoDigests}}{{.}} {{end}}
+#                                        (code 1, « No such image », pour un identifiant absent)
+#   ps --all --no-trunc --quiet          l'identifiant de chaque conteneur
+#   container inspect --format '{{.Image}}' <id…>  l'image de chaque conteneur
+#   container inspect --format '{{json .Mounts}}' c0ffee
+#                                        les montages de l'application en service, un tableau JSON
+#                                        par conteneur, comme docker (voir plus bas)
+#   image rm <id>                        retire l'image du stock et écrit « Deleted: <id> »
+#   image rm <nom>                       retire ce nom (une étiquette) de l'image et écrit
+#                                        « Untagged: <nom> » ; comme docker, le dernier nom emporte
+#                                        l'image et ses empreintes, et « Deleted: <id> » suit
+# Garde-fou : `image rm` refuse (code 1) le retrait d'une image sans référence, d'une image dont
+# une référence est hors de ghcr.io/edouardzemb/veille-emploi et de localhost:<port>/edouardzemb/veille-emploi,
+# ou d'une image qu'un conteneur utilise. Il refuse aussi (code 1, avec le message de docker), le
+# retrait par son identifiant d'une image qui porte deux étiquettes ou plus : sans -f, docker le
+# refuse (« image is referenced in multiple repositories »), et une telle image se retire par ses
+# étiquettes. Il refuse (code 125) toute option (-f, --force…), plus d'une image par appel, et tout
+# `image prune`, `system prune` ou `rmi`. Chaque refus est noté, une ligne, dans refus-images, à côté
+# de $APPELS : un test qui le trouve absent sait qu'aucun retrait interdit n'a été demandé.
+#
+# L'« application en service » est le fichier en-service.env, à côté de $APPELS : la configuration
+# effective du dernier `compose up` réussi, effacée par `compose stop|down`. Comme dans compose,
+# une variable posée dans l'environnement l'emporte sur le --env-file. Le double de curl y lit la
+# version et l'image en service pour répondre à /sante.
+#
+# Comme compose, qui interpole le fichier à chaque sous-commande, il refuse (code 1) tout appel
+# `compose` sans VEILLE_EMPLOI_URL_PUBLIQUE, ni dans l'environnement ni dans le --env-file : la variable
+# est obligatoire dans compose.yml (`${VEILLE_EMPLOI_URL_PUBLIQUE:?}`). Les autres variables
+# obligatoires ne sont pas contrôlées ici, sauf celles des fichiers de montage au `up`.
+#
+# Les montages de l'instance (M-0006, § 5) : un `compose up` qui reçoit `-f …/compose.config.yml`
+# monte VEILLE_EMPLOI_CONFIG sur /config, et `-f …/compose.contenu.yml` VEILLE_EMPLOI_CONTENU sur /contenu,
+# en lecture seule (la variable vide ou absente : code 1, comme `${…:?}`). en-service.env porte une
+# ligne « MONTAGE=<point> <écriture> <source> » par montage, que `container inspect` rend, après
+# celui de /donnees, dans la forme de son format : « <point> <false|true> <source> ». La source y est
+# nettoyée, sans « // » ni « / » final, comme docker la rend après compose.
+#
+# Pilotage :
+#   DOUBLE_DOCKER_PULL_ERREUR        `pull` échoue avec ce message (« manifest unknown »…)
+#   DOUBLE_DOCKER_EMPREINTE          réponse de `image inspect -f` pour RepoDigests (une référence
+#                                    image@sha256:… ; défaut : condensé de « a »)
+#   DOUBLE_DOCKER_IMAGE_LS_ECHEC     `image ls` échoue (code 1)
+#   DOUBLE_DOCKER_IMAGE_INSPECT_ECHEC  `image inspect --format` échoue (code 1) ; `-f` n'en dépend pas
+#   DOUBLE_DOCKER_PS_ECHEC           `ps` échoue (code 1)
+#   DOUBLE_DOCKER_CONTAINER_INSPECT_ECHEC  `container inspect` échoue (code 1)
+#   DOUBLE_DOCKER_IMAGE_RM_ECHEC     identifiants ou noms (séparés par des espaces) dont `image rm`
+#                                    échoue (code 1), sans refus noté
+#   DOUBLE_DOCKER_SAUVEGARDE_CODE    code de `compose exec … <sauvegarder> <dossier>` (défaut 0)
+#   DOUBLE_DOCKER_SAUVEGARDE_SORTIE  sa sortie (défaut : rien)
+#   DOUBLE_DOCKER_SAUVEGARDE_SANS_FICHIER  `<sauvegarder>` répond 0 sans rien écrire
+#   DOUBLE_DOCKER_SAUVEGARDE_FORME   ce que `<sauvegarder>` écrit à la destination : dossier (défaut),
+#                                    vide (un dossier vide), fichier (un fichier à la place du
+#                                    dossier), lien (un dossier qui contient un lien symbolique),
+#                                    physique (un dossier où deux noms sont un même fichier),
+#                                    partielle (une partie du dossier, puis le code 1), apparue
+#                                    (le dossier, et un dossier vide au nom sans .partiel, comme
+#                                    s'il était apparu pendant l'écriture)
+#   DOUBLE_DOCKER_SAUVEGARDE_VIEILLI  le dossier écrit est daté d'autant de jours, comme une copie
+#                                    qui garde les dates de /donnees (cp -a, rsync -a)
+#   DOUBLE_DOCKER_SAUVEGARDE_ATTENTE  `<sauvegarder>` dure autant de secondes avant de répondre
+#   DOUBLE_DOCKER_UP_ECHEC           images (séparées par des espaces) dont le `compose up` échoue
+#   DOUBLE_DOCKER_SECRETS            noms de variables (séparés par des espaces) : `compose up` écrit
+#                                    dans secrets-recus, à côté de $APPELS, ceux que son
+#                                    environnement porte, non vides, un par ligne ; jamais une valeur
+#   DOUBLE_DOCKER_START_ECHEC        `compose start` échoue
+#   DOUBLE_DOCKER_STOP_ECHEC         `compose stop` échoue
+#   DOUBLE_DOCKER_MONTAGES_GARDES    `compose up` ne recrée pas le conteneur : ses montages restent
+#                                    ceux de l'application en service avant lui
+#   DOUBLE_DOCKER_MONTAGES_GARDES_AU_UP  de même, pour le n-ième `compose up` noté dans $APPELS
+#                                    seulement (un retour arrière que compose ne recrée pas)
+#   DOUBLE_DOCKER_MONTAGES_EN_ECRITURE  les montages de l'instance sont en écriture (RW true)
+#   DOUBLE_DOCKER_MONTAGES_EN_PLUS   des montages de plus, « <point>:<source> » séparés par des
+#                                    espaces, comme en déclarerait compose.projet.yml
+#   DOUBLE_DOCKER_VERIFIER_REFUSE    images (séparées par des espaces) dont la vérification de
+#                                    l'instance rend 2 (non conforme)
+#   DOUBLE_DOCKER_VERIFIER_INSTANCE_CODE  code de la vérification de l'instance (défaut 0)
+#   DOUBLE_DOCKER_VERIFIER_CODE      code de `run --rm … <verifier> /donnees` (défaut 0 ; 2 = non conforme)
+#   DOUBLE_DOCKER_VERIFIER_SORTIE    sa sortie (défaut : rien)
+#   DOUBLE_DOCKER_REPORT_CODE        code de `run --rm … <reporter…> /actuel /donnees` (défaut 0)
+#   DOUBLE_DOCKER_REPORT_SORTIE      sa sortie standard (défaut : {"reportes":1})
+#   DOUBLE_DOCKER_REPORT_ERREUR      sa sortie d'erreur (défaut : rien)
+#   DOUBLE_DOCKER_REPORT_ATTENTE     le report dure autant de secondes avant de répondre
+#   DOUBLE_DOCKER_REPORT_FORME       ce que le report laisse dans /donnees, avant de répondre : vide
+#                                    (il le vide), lien (il y ajoute un lien symbolique)
+#   DOUBLE_DOCKER_RUN_ECHEC          `run -d` échoue avec ce message (« port is already allocated »…)
+#   DOUBLE_DOCKER_RM_ECHEC           `rm` échoue
+#
+# Sauvegarde : `compose exec -T app <sauvegarder…> /sauvegardes/<chemin>` crée, dans le dossier des
+# sauvegardes de compose.env, le dossier de l'instantané, qui a la forme de /donnees (donnees.txt,
+# un fichier caché .cachee et un sous-dossier sous/profond.txt), comme la commande de l'image. Une
+# destination qui existe déjà est refusée (code 1), et un dossier parent absent aussi : la commande
+# crée son dossier, pas ses parents, que le script doit avoir créés (R22). Les mots de la commande (ce qui suit « app »,
+# destination comprise) sont écrits un par ligne dans exec-mots, à côté de $APPELS.
+#
+# Conteneurs jetables : `run -d --name <nom>` crée conteneur-<nom>.env à côté de $APPELS (port,
+# image, dossier monté) ; le double de curl y lit de quoi répondre sur ce port. `stop` y ajoute
+# ARRET=1, `rm` le supprime. `run` sans -d est un conteneur à usage unique, la vérification d'un
+# instantané (`<verifier…> /donnees`) : il rend DOUBLE_DOCKER_VERIFIER_CODE, ou 2 si donnees.txt
+# commence par « CORROMPU ». Il écrit les mots de la commande (ce qui suit l'image) un par ligne
+# dans run-mots, et copie le dossier monté dans verifie/, à côté de $APPELS : ce que la
+# vérification a vu.
+#
+# Report : `run --rm … <reporter…> /actuel /donnees`, la commande REPORTER de la restauration. Elle
+# monte exactement deux dossiers : sur /actuel, la copie jetable des données en service, un
+# dossier report-<AAAAMMJJTHHMMSSZ> du dossier des sauvegardes ; sur /donnees, la copie de
+# l'instantané, <données>.nouvelle. Jamais les données elles-mêmes. L'application doit être
+# arrêtée. Le double écrit, à côté de $APPELS : report-mots (les mots de la commande, un par
+# ligne), report-mode (les droits de /actuel), report-actuel (ce que /actuel contenait) et
+# report-en-service (ce que les données contenaient à ce moment). Puis il écrit dans /actuel (il
+# ajoute « écrit par le report » à courant.txt, et crée trace-du-report), ce que garde
+# report-actuel-apres, et dans /donnees, le fichier reporte.txt (« reporté depuis /actuel : »
+# suivi de courant.txt). Il écrit même s'il échoue : une commande en échec a pu commencer.
+#
+# Vérification de l'instance (verifier_instantane, lib.sh) : `run --rm --network none … <image>
+# <commande…> /config`, ou `/contenu [/en-service]`, un conteneur jetable de l'image visée, sans
+# réseau ni port, chaque dossier, qui existe, monté en lecture seule sur /config, /contenu ou
+# /en-service. Il rend 2 (« non conforme ») pour une image de DOUBLE_DOCKER_VERIFIER_REFUSE, sinon
+# DOUBLE_DOCKER_VERIFIER_INSTANCE_CODE.
+#
+# Invariants vérifiés à chaque appel (code 125 sinon) : DOCKER_CONFIG est posé, `--config` n'est
+# jamais passé, et un `compose` reçoit un --env-file qui existe (comme le vrai docker compose).
+# Pour les autres `run` : l'image est celle de `deploye`, un conteneur détaché a un nom et un autre
+# est jetable (--rm), le seul port publié est 127.0.0.1:<port>:8460 hors du port de la prod, et le
+# seul volume est un dossier existant monté sur /donnees, jamais les données ni les sauvegardes de
+# la prod. Le report seul monte deux dossiers, ceux que dit son paragraphe, et jamais les données.
+{ printf '%s' docker; for argument in "$@"; do printf ' %s' "$argument"; done; printf '\n'; } >>"${APPELS:?APPELS non défini}"
+
+ARGUMENTS="$*"
+DOSSIER="$(dirname "$APPELS")"
+EN_SERVICE="$DOSSIER/en-service.env"
+STOCK_IMAGES="$DOSSIER/images"
+STOCK_CONTENEURS="$DOSSIER/conteneurs"
+# Le format de `image inspect` du ménage : identifiant, date de création, noms, empreintes.
+FORMAT_IMAGES='{{.Id}}|{{.Created}}|{{range .RepoTags}}{{.}} {{end}}|{{range .RepoDigests}}{{.}} {{end}}'
+
+refuser() {
+  echo "double docker : $*" >&2
+  exit 125
+}
+
+# refuser_retrait <code> <raison> : un retrait que le ménage ne doit jamais demander. Noté dans
+# refus-images, puis refusé avec ce code.
+refuser_retrait() {
+  local code="$1"
+  shift
+  printf '%s : docker %s\n' "$*" "$ARGUMENTS" >>"$DOSSIER/refus-images"
+  echo "double docker : retrait refusé, $*" >&2
+  exit "$code"
+}
+
+[ -n "${DOCKER_CONFIG:-}" ] || refuser "DOCKER_CONFIG absent"
+for argument in "$@"; do
+  [ "$argument" != --config ] || refuser "--config interdit"
+done
+
+# Le label de révision d'une image : les 40 premiers caractères hexadécimaux de son condensé (le
+# double de curl le calcule de la même façon).
+revision_de() {
+  local condense="${1##*:}"
+  printf '%s\n' "${condense:0:40}"
+}
+
+# ligne_d_image <id> : la ligne du stock de cette image ; échec si elle n'y est pas.
+ligne_d_image() {
+  local ligne
+  [ -f "$STOCK_IMAGES" ] || return 1
+  while IFS= read -r ligne; do
+    if [ "${ligne%%|*}" = "$1" ]; then
+      printf '%s\n' "$ligne"
+      return 0
+    fi
+  done <"$STOCK_IMAGES"
+  return 1
+}
+
+# ligne_formatee <ligne du stock> : ce que Docker imprime pour FORMAT_IMAGES : chaque nom et chaque
+# empreinte est suivi d'une espace, la dernière comprise.
+ligne_formatee() {
+  local id cree noms empreintes element
+  IFS='|' read -r id cree noms empreintes <<<"$1"
+  printf '%s|%s|' "$id" "$cree"
+  for element in $noms; do printf '%s ' "$element"; done
+  printf '|'
+  for element in $empreintes; do printf '%s ' "$element"; done
+  printf '\n'
+}
+
+# du_projet <référence> : la référence est du dépôt du projet ou de son dépôt de test. Son nom
+# s'arrête à « @ », sinon au dernier « : » s'il suit le dernier « / » (pas à celui d'un port).
+du_projet() {
+  local nom="$1"
+  if [[ "$nom" == *@* ]]; then
+    nom="${nom%%@*}"
+  elif [[ "${nom##*/}" == *:* ]]; then
+    nom="${nom%:*}"
+  fi
+  [ "$nom" = ghcr.io/edouardzemb/veille-emploi ] || [[ "$nom" =~ ^localhost:[0-9]+/edouardzemb/veille-emploi$ ]]
+}
+
+# ligne_de_l_etiquette <nom> : la ligne du stock de l'image qui porte ce nom ; échec sinon.
+ligne_de_l_etiquette() {
+  local ligne noms nom
+  local -a liste=()
+  [ -f "$STOCK_IMAGES" ] || return 1
+  while IFS= read -r ligne; do
+    IFS='|' read -r _ _ noms _ <<<"$ligne"
+    read -r -a liste <<<"$noms"
+    for nom in "${liste[@]}"; do
+      if [ "$nom" = "$1" ]; then
+        printf '%s\n' "$ligne"
+        return 0
+      fi
+    done
+  done <"$STOCK_IMAGES"
+  return 1
+}
+
+# retirer_image <arguments de `image rm`…> : le garde-fou, puis le retrait. L'argument est
+# l'identifiant de l'image, ou l'un de ses noms : comme docker, le retrait d'un nom ne retire que ce
+# nom, et l'image avec ses empreintes quand c'était le dernier.
+retirer_image() {
+  local cible id ligne cree noms empreintes reference conteneur image reste=""
+  local -a references=() etiquettes=()
+  for argument in "$@"; do
+    case "$argument" in
+      -*) refuser_retrait 125 "option interdite $argument" ;;
+    esac
+  done
+  [ "$#" -eq 1 ] || refuser_retrait 125 "une image par appel"
+  cible="$1"
+  if ! ligne="$(ligne_d_image "$cible")" && ! ligne="$(ligne_de_l_etiquette "$cible")"; then
+    echo "Error response from daemon: No such image: $cible" >&2
+    exit 1
+  fi
+  IFS='|' read -r id cree noms empreintes <<<"$ligne"
+  read -r -a references <<<"$noms $empreintes"
+  read -r -a etiquettes <<<"$noms"
+  [ -n "${references[*]}" ] || refuser_retrait 1 "image sans référence"
+  for reference in "${references[@]}"; do
+    du_projet "$reference" || refuser_retrait 1 "référence hors du dépôt $reference"
+  done
+  if [ -f "$STOCK_CONTENEURS" ]; then
+    while read -r conteneur image; do
+      [ "$image" != "$id" ] || refuser_retrait 1 "image utilisée par le conteneur $conteneur"
+    done <"$STOCK_CONTENEURS"
+  fi
+  # Sans -f, docker ne retire par son identifiant qu'une image d'une étiquette au plus.
+  if [ "$cible" = "$id" ] && [ -n "${etiquettes[1]:-}" ]; then
+    echo "Error response from daemon: conflict: unable to delete ${id:7:12} (must be forced) - image is referenced in multiple repositories" >&2
+    refuser_retrait 1 "identifiant d'une image à plusieurs étiquettes"
+  fi
+  case " ${DOUBLE_DOCKER_IMAGE_RM_ECHEC:-} " in
+    *" $cible "*)
+      echo "Error response from daemon: conflict: unable to delete ${id:7:12} (cannot be forced) - image has dependent child images" >&2
+      exit 1
+      ;;
+  esac
+  if [ "$cible" != "$id" ]; then
+    for reference in "${etiquettes[@]}"; do
+      [ "$reference" = "$cible" ] || reste="${reste:+$reste }$reference"
+    done
+    echo "Untagged: $cible"
+  fi
+  # Il reste des noms : seul celui-ci part. Sinon, l'image quitte le stock, empreintes comprises.
+  while IFS= read -r ligne; do
+    if [ "${ligne%%|*}" != "$id" ]; then
+      printf '%s\n' "$ligne"
+    elif [ -n "$reste" ]; then
+      printf '%s|%s|%s|%s\n' "$id" "$cree" "$reste" "$empreintes"
+    fi
+  done <"$STOCK_IMAGES" >"$STOCK_IMAGES.tmp"
+  mv -f "$STOCK_IMAGES.tmp" "$STOCK_IMAGES"
+  [ -n "$reste" ] || echo "Deleted: $id"
+}
+
+case "${1:-}" in
+  pull)
+    if [ -n "${DOUBLE_DOCKER_PULL_ERREUR:-}" ]; then
+      echo "Error response from daemon: $DOUBLE_DOCKER_PULL_ERREUR" >&2
+      exit 1
+    fi
+    printf '%s\n' "${!#}"
+    ;;
+
+  image)
+    case "${2:-}" in
+      inspect)
+        case "${3:-}" in
+          -f)
+            # image inspect -f <format> <référence> : la sonde et le déploiement
+            case "$4" in
+              *RepoDigests*) printf '%s\n' "${DOUBLE_DOCKER_EMPREINTE:-ghcr.io/edouardzemb/veille-emploi@sha256:$(printf 'a%.0s' {1..64})}" ;;
+              *org.opencontainers.image.revision*) revision_de "$5" ;;
+              *) refuser "image inspect : format inconnu $4" ;;
+            esac
+            ;;
+          --format)
+            # image inspect --format <format du ménage> <id…>
+            [ "${4:-}" = "$FORMAT_IMAGES" ] || refuser "image inspect : format inconnu ${4:-}"
+            [ "$#" -ge 5 ] || refuser "image inspect : identifiant absent"
+            if [ -n "${DOUBLE_DOCKER_IMAGE_INSPECT_ECHEC:-}" ]; then
+              echo "Error response from daemon: inspection impossible" >&2
+              exit 1
+            fi
+            code=0
+            for id in "${@:5}"; do
+              if ligne="$(ligne_d_image "$id")"; then
+                ligne_formatee "$ligne"
+              else
+                echo "Error: No such image: $id" >&2
+                code=1
+              fi
+            done
+            exit "$code"
+            ;;
+          *) refuser "image inspect : attendu -f ou --format" ;;
+        esac
+        ;;
+      ls)
+        case "$ARGUMENTS" in
+          "image ls --all --no-trunc --quiet") tout=1 ;;
+          "image ls --no-trunc --quiet") tout=0 ;;
+          *) refuser "image ls : attendu « image ls [--all] --no-trunc --quiet »" ;;
+        esac
+        if [ -n "${DOUBLE_DOCKER_IMAGE_LS_ECHEC:-}" ]; then
+          echo "Cannot connect to the Docker daemon. Is the docker daemon running?" >&2
+          exit 1
+        fi
+        [ -f "$STOCK_IMAGES" ] || exit 0
+        while IFS='|' read -r id _ noms _; do
+          [ -n "$id" ] || continue
+          read -r -a liste <<<"$noms"
+          if [ -z "${liste[*]}" ]; then
+            [ "$tout" -eq 1 ] || continue
+            liste=(sans-nom)
+          fi
+          for _ in "${liste[@]}"; do
+            printf '%s\n' "$id"
+          done
+        done <"$STOCK_IMAGES"
+        ;;
+      rm)
+        shift 2
+        retirer_image "$@"
+        ;;
+      prune) refuser_retrait 125 "image prune interdit" ;;
+      *) refuser "image : sous-commande inattendue ${2:-}" ;;
+    esac
+    ;;
+
+  rmi) refuser_retrait 125 "rmi interdit" ;;
+
+  system)
+    [ "${2:-}" != prune ] || refuser_retrait 125 "system prune interdit"
+    refuser "system : sous-commande inattendue ${2:-}"
+    ;;
+
+  ps)
+    [ "$ARGUMENTS" = "ps --all --no-trunc --quiet" ] || refuser "ps : attendu « ps --all --no-trunc --quiet »"
+    if [ -n "${DOUBLE_DOCKER_PS_ECHEC:-}" ]; then
+      echo "Cannot connect to the Docker daemon. Is the docker daemon running?" >&2
+      exit 1
+    fi
+    [ -f "$STOCK_CONTENEURS" ] || exit 0
+    while read -r conteneur _; do
+      [ -z "$conteneur" ] || printf '%s\n' "$conteneur"
+    done <"$STOCK_CONTENEURS"
+    ;;
+
+  container)
+    { [ "${2:-}" = inspect ] && [ "${3:-}" = --format ] && [ "$#" -ge 5 ]; } \
+      || refuser "container : attendu « container inspect --format <format> <id…> »"
+    if [ -n "${DOUBLE_DOCKER_CONTAINER_INSPECT_ECHEC:-}" ]; then
+      echo "Error response from daemon: inspection impossible" >&2
+      exit 1
+    fi
+    if [ "$4" = '{{json .Mounts}}' ]; then
+      # Les montages de l'application en service (compose ps -q app : c0ffee) : /donnees, puis ceux
+      # que son `up` a notés (« <point> <true|false> <source> »), en un tableau JSON sur une ligne,
+      # avec les champs de docker que deployer.sh lit.
+      for id in "${@:5}"; do
+        { [ "$id" = c0ffee ] && [ -f "$EN_SERVICE" ]; } || {
+          echo "Error: No such container: $id" >&2
+          exit 1
+        }
+        { printf '/donnees true %s\n' "$(sed -n 's/^VEILLE_EMPLOI_DONNEES=//p' "$EN_SERVICE")"
+          sed -n 's/^MONTAGE=//p' "$EN_SERVICE"; } \
+          | jq -Rcn '[inputs | capture("^(?<d>[^ ]+) (?<rw>true|false) (?<s>.*)$")
+              | {Type: "bind", Source: .s, Destination: .d, RW: (.rw == "true")}]'
+      done
+      exit 0
+    fi
+    [ "$4" = '{{.Image}}' ] || refuser "container inspect : format inconnu $4"
+    code=0
+    for id in "${@:5}"; do
+      image=""
+      if [ -f "$STOCK_CONTENEURS" ]; then
+        while read -r conteneur image_du_conteneur; do
+          if [ "$conteneur" = "$id" ]; then
+            image="$image_du_conteneur"
+            break
+          fi
+        done <"$STOCK_CONTENEURS"
+      fi
+      if [ -n "$image" ]; then
+        printf '%s\n' "$image"
+      else
+        echo "Error: No such container: $id" >&2
+        code=1
+      fi
+    done
+    exit "$code"
+    ;;
+
+  compose)
+    shift
+    fichier_env=""
+    fichiers_compose=()
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        -p) shift 2 ;;
+        -f)
+          fichiers_compose+=("$2")
+          shift 2
+          ;;
+        --env-file)
+          fichier_env="$2"
+          shift 2
+          ;;
+        *) break ;;
+      esac
+    done
+    [ -f "$fichier_env" ] || {
+      echo "couldn't find env file: $fichier_env" >&2
+      exit 1
+    }
+    if [ -z "${VEILLE_EMPLOI_URL_PUBLIQUE:-}" ] && [ -z "$(sed -n 's/^VEILLE_EMPLOI_URL_PUBLIQUE=//p' "$fichier_env")" ]; then
+      echo "required variable VEILLE_EMPLOI_URL_PUBLIQUE is missing a value" >&2
+      exit 1
+    fi
+    case "${1:-}" in
+      ps)
+        # ps -q app : un identifiant si l'application est en service
+        [ ! -f "$EN_SERVICE" ] || echo c0ffee
+        ;;
+      exec)
+        # exec -T app <sauvegarder…> <destination> : la commande de sauvegarde de l'image
+        shift
+        { [ "${1:-}" = -T ] && [ "${2:-}" = app ]; } || refuser "exec : attendu « exec -T app <commande…> »"
+        shift 2
+        [ "$#" -ge 2 ] || refuser "exec : commande ou destination absente"
+        printf '%s\n' "$@" >"$DOSSIER/exec-mots"
+        destination="${!#}"
+        code="${DOUBLE_DOCKER_SAUVEGARDE_CODE:-0}"
+        [ -z "${DOUBLE_DOCKER_SAUVEGARDE_ATTENTE:-}" ] || sleep "$DOUBLE_DOCKER_SAUVEGARDE_ATTENTE"
+        case "$destination" in
+          /sauvegardes/?*) ;;
+          *) refuser "exec : destination hors de /sauvegardes : $destination" ;;
+        esac
+        forme="${DOUBLE_DOCKER_SAUVEGARDE_FORME:-dossier}"
+        if { [ "$code" -eq 0 ] || [ "$forme" = partielle ]; } && [ -z "${DOUBLE_DOCKER_SAUVEGARDE_SANS_FICHIER:-}" ]; then
+          # Comme la commande de l'image : /sauvegardes est le dossier des sauvegardes de
+          # compose.env ; une destination existante est refusée. Le contenu ne dépend pas du nom
+          # provisoire (.partiel) que le script donne à la destination.
+          hote="$(sed -n 's/^VEILLE_EMPLOI_SAUVEGARDES=//p' "$fichier_env")${destination#/sauvegardes}"
+          if [ -e "$hote" ]; then
+            echo "destination existante : $destination"
+            exit 1
+          fi
+          if [ ! -d "$(dirname "$hote")" ]; then
+            echo "dossier parent absent : $(dirname "$destination")"
+            exit 1
+          fi
+          case "$forme" in
+            dossier | lien | physique | apparue)
+              mkdir "$hote" "$hote/sous"
+              echo "instantané de test $(basename "${destination%.partiel}")" >"$hote/donnees.txt"
+              echo "fichier caché" >"$hote/.cachee"
+              echo "fichier profond" >"$hote/sous/profond.txt"
+              [ "$forme" != lien ] || ln -s /etc/hostname "$hote/lien"
+              [ "$forme" != physique ] || ln "$hote/donnees.txt" "$hote/sous/physique.txt"
+              [ "$forme" != apparue ] || mkdir -p "${hote%.partiel}"
+              ;;
+            partielle)
+              mkdir "$hote"
+              echo "instantané de test $(basename "${destination%.partiel}")" >"$hote/donnees.txt"
+              code=1
+              ;;
+            vide) mkdir "$hote" ;;
+            fichier)
+              echo "un fichier" >"$hote"
+              ;;
+            *) refuser "exec : forme inconnue $forme" ;;
+          esac
+          [ -z "${DOUBLE_DOCKER_SAUVEGARDE_VIEILLI:-}" ] || touch -d "$DOUBLE_DOCKER_SAUVEGARDE_VIEILLI days ago" "$hote"
+        fi
+        [ -z "${DOUBLE_DOCKER_SAUVEGARDE_SORTIE+x}" ] || echo "$DOUBLE_DOCKER_SAUVEGARDE_SORTIE"
+        exit "$code"
+        ;;
+      up | start)
+        [ "$1" != start ] || [ -z "${DOUBLE_DOCKER_START_ECHEC:-}" ] || {
+          echo "Error response from daemon: cannot start" >&2
+          exit 1
+        }
+        # Configuration effective : l'environnement d'abord, puis le --env-file (règle de compose).
+        effective="$DOSSIER/effective.env"
+        for cle in VEILLE_EMPLOI_IMAGE VEILLE_EMPLOI_VERSION VEILLE_EMPLOI_ENV VEILLE_EMPLOI_PORT VEILLE_EMPLOI_DONNEES VEILLE_EMPLOI_SAUVEGARDES VEILLE_EMPLOI_URL_PUBLIQUE; do
+          if [ -n "${!cle+x}" ]; then
+            printf '%s=%s\n' "$cle" "${!cle}"
+          else
+            printf '%s=%s\n' "$cle" "$(sed -n "s/^$cle=//p" "$fichier_env")"
+          fi
+        done >"$effective"
+        # Les montages de l'instance : ceux des fichiers de montage reçus, ou, si le conteneur n'est
+        # pas recréé, ceux de l'application en service ; puis ceux qu'ajouterait compose.projet.yml.
+        nieme="$(grep -c '^docker compose .* up -d ' "$APPELS" || true)"
+        if { [ -n "${DOUBLE_DOCKER_MONTAGES_GARDES:-}" ]           || [ "${DOUBLE_DOCKER_MONTAGES_GARDES_AU_UP:-}" = "$nieme" ]; } && [ -f "$EN_SERVICE" ]; then
+          grep '^MONTAGE=' "$EN_SERVICE" >>"$effective" || true
+        else
+          for fichier in "${fichiers_compose[@]}"; do
+            case "${fichier##*/}" in
+              compose.config.yml) cle=VEILLE_EMPLOI_CONFIG point=/config ;;
+              compose.contenu.yml) cle=VEILLE_EMPLOI_CONTENU point=/contenu ;;
+              *) continue ;;
+            esac
+            if [ -n "${!cle+x}" ]; then
+              origine="${!cle}"
+            else
+              origine="$(sed -n "s/^$cle=//p" "$fichier_env")"
+            fi
+            [ -n "$origine" ] || {
+              echo "required variable $cle is missing a value" >&2
+              exit 1
+            }
+            origine="$(printf '%s
+' "$origine" | tr -s /)"
+            [ "$origine" = / ] || origine="${origine%/}"
+            ecriture=false
+            [ -z "${DOUBLE_DOCKER_MONTAGES_EN_ECRITURE:-}" ] || ecriture=true
+            printf 'MONTAGE=%s %s %s\n' "$point" "$ecriture" "$origine" >>"$effective"
+          done
+        fi
+        for montage in ${DOUBLE_DOCKER_MONTAGES_EN_PLUS:-}; do
+          printf 'MONTAGE=%s false %s\n' "${montage%%:*}" "${montage#*:}" >>"$effective"
+        done
+        image="$(sed -n 's/^VEILLE_EMPLOI_IMAGE=//p' "$effective")"
+        if [ "$1" = up ] && [ -n "${DOUBLE_DOCKER_SECRETS:-}" ]; then
+          for cle in $DOUBLE_DOCKER_SECRETS; do
+            [ -z "${!cle:-}" ] || printf '%s\n' "$cle"
+          done >"$DOSSIER/secrets-recus"
+        fi
+        case " ${DOUBLE_DOCKER_UP_ECHEC:-} " in
+          *" $image "*)
+            echo "dependency failed to start: container app is unhealthy" >&2
+            exit 1
+            ;;
+        esac
+        mv -f "$effective" "$EN_SERVICE"
+        ;;
+      stop | down)
+        [ "$1" != stop ] || [ -z "${DOUBLE_DOCKER_STOP_ECHEC:-}" ] || {
+          echo "Error response from daemon: cannot stop" >&2
+          exit 1
+        }
+        rm -f "$EN_SERVICE"
+        ;;
+      *) refuser "compose : sous-commande inattendue ${1:-}" ;;
+    esac
+    ;;
+
+  run)
+    shift
+    detache=0 jetable=0 reseau="" nom="" ports=() volumes=()
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        -d) detache=1 && shift ;;
+        --rm) jetable=1 && shift ;;
+        --read-only) shift ;;
+        --network) reseau="$2" && shift 2 ;;
+        --name) nom="$2" && shift 2 ;;
+        -p) ports+=("$2") && shift 2 ;;
+        -v) volumes+=("$2") && shift 2 ;;
+        --user | --tmpfs | --cap-drop | --security-opt | --memory) shift 2 ;;
+        -*) refuser "run : option inattendue $1" ;;
+        *) break ;;
+      esac
+    done
+    image="${1:-}"
+    [ -n "$image" ] || refuser "run : image absente"
+    shift
+    if [ -n "$reseau" ]; then
+      # La vérification de l'instance : l'image visée, qui n'est pas forcément celle de deploye.
+      { [ "$reseau" = none ] && [ "$jetable" -eq 1 ] && [ "$detache" -eq 0 ] && [ "${#ports[@]}" -eq 0 ]; } \
+        || refuser "run : la vérification de l'instance est un conteneur jetable (--rm), sans réseau ni port"
+      [ "${#volumes[@]}" -ge 1 ] || refuser "run : la vérification de l'instance monte au moins un dossier"
+      for volume in "${volumes[@]}"; do
+        case "$volume" in
+          *:/config:ro | *:/contenu:ro | *:/en-service:ro) ;;
+          *) refuser "run : volume inattendu pour la vérification de l'instance : $volume" ;;
+        esac
+        [ -d "${volume%:/*}" ] || refuser "run : dossier monté absent : ${volume%:/*}"
+      done
+      case " ${DOUBLE_DOCKER_VERIFIER_REFUSE:-} " in
+        *" $image "*)
+          echo "non conforme : $*"
+          exit 2
+          ;;
+      esac
+      echo "conforme : $*"
+      exit "${DOUBLE_DOCKER_VERIFIER_INSTANCE_CODE:-0}"
+    fi
+    deployee=""
+    { read -r deployee _ || true; } <"${VEILLE_EMPLOI_ETAT:?}/deploye"
+    [ "$image" = "$deployee" ] || refuser "run : l'image $image n'est pas celle de deploye ($deployee)"
+    if [ "$#" -ge 3 ] && [ "${*: -2}" = "/actuel /donnees" ]; then
+      # <reporter…> /actuel /donnees : le report de la restauration.
+      { [ "$detache" -eq 0 ] && [ "$jetable" -eq 1 ]; } || refuser "run : le report est un conteneur à usage unique (--rm)"
+      [ "${#ports[@]}" -eq 0 ] || refuser "run : le report ne publie aucun port"
+      [ "${#volumes[@]}" -eq 2 ] || refuser "run : le report monte deux dossiers, /actuel et /donnees"
+      actuel="" nouvelle=""
+      for volume in "${volumes[@]}"; do
+        case "$volume" in
+          *:/actuel) actuel="${volume%:/actuel}" ;;
+          *:/donnees) nouvelle="${volume%:/donnees}" ;;
+          *) refuser "run : volume inattendu pour le report : $volume" ;;
+        esac
+      done
+      { [ "$(dirname "$actuel")" = "${VEILLE_EMPLOI_SAUVEGARDES:?}" ] && [[ "$(basename "$actuel")" =~ ^report-[0-9]{8}T[0-9]{6}Z$ ]]; } \
+        || refuser "run : /actuel n'est pas une copie report-<horodatage> du dossier des sauvegardes : $actuel"
+      { [ -d "$actuel" ] && [ ! -L "$actuel" ]; } || refuser "run : /actuel absent : $actuel"
+      [ "$nouvelle" = "${VEILLE_EMPLOI_DONNEES:?}.nouvelle" ] \
+        || refuser "run : /donnees du report n'est pas la copie de l'instantané (${VEILLE_EMPLOI_DONNEES}.nouvelle) : $nouvelle"
+      [ -d "$nouvelle" ] || refuser "run : copie de l'instantané absente : $nouvelle"
+      [ ! -f "$EN_SERVICE" ] || refuser "run : le report exige l'application arrêtée"
+      printf '%s\n' "$@" >"$DOSSIER/report-mots"
+      stat -c %a "$actuel" >"$DOSSIER/report-mode"
+      rm -rf "$DOSSIER/report-actuel" "$DOSSIER/report-en-service"
+      cp -R "$actuel" "$DOSSIER/report-actuel"
+      cp -R "${VEILLE_EMPLOI_DONNEES}" "$DOSSIER/report-en-service"
+      [ -z "${DOUBLE_DOCKER_REPORT_ATTENTE:-}" ] || sleep "$DOUBLE_DOCKER_REPORT_ATTENTE"
+      printf 'reporté depuis /actuel : %s\n' "$(cat "$actuel/courant.txt" 2>/dev/null)" >"$nouvelle/reporte.txt"
+      [ ! -f "$actuel/courant.txt" ] || echo "écrit par le report" >>"$actuel/courant.txt"
+      echo "écrit par le report" >"$actuel/trace-du-report"
+      rm -rf "$DOSSIER/report-actuel-apres"
+      cp -R "$actuel" "$DOSSIER/report-actuel-apres"
+      case "${DOUBLE_DOCKER_REPORT_FORME:-}" in
+        '') ;;
+        vide) find "$nouvelle" -mindepth 1 -delete ;;
+        lien) ln -s /etc/hostname "$nouvelle/lien" ;;
+        *) refuser "run : forme de report inconnue : $DOUBLE_DOCKER_REPORT_FORME" ;;
+      esac
+      [ -z "${DOUBLE_DOCKER_REPORT_ERREUR+x}" ] || echo "$DOUBLE_DOCKER_REPORT_ERREUR" >&2
+      if [ -n "${DOUBLE_DOCKER_REPORT_SORTIE+x}" ]; then
+        echo "$DOUBLE_DOCKER_REPORT_SORTIE"
+      else
+        echo '{"reportes":1}'
+      fi
+      exit "${DOUBLE_DOCKER_REPORT_CODE:-0}"
+    fi
+    if [ "$detache" -eq 1 ]; then
+      [ -n "$nom" ] || refuser "run -d : un conteneur détaché porte un nom"
+    else
+      [ "$jetable" -eq 1 ] || refuser "run : un conteneur à usage unique est lancé avec --rm"
+    fi
+    [ "${#volumes[@]}" -eq 1 ] || refuser "run : un seul volume attendu"
+    source_hote="${volumes[0]%:/donnees}"
+    [ "$source_hote:/donnees" = "${volumes[0]}" ] || refuser "run : le volume se monte sur /donnees : ${volumes[0]}"
+    [ -d "$source_hote" ] || refuser "run : dossier monté absent : $source_hote"
+    for interdit in "${VEILLE_EMPLOI_SAUVEGARDES:?}" "${VEILLE_EMPLOI_DONNEES:?}"; do
+      case "$source_hote" in
+        "$interdit" | "$interdit"/*) refuser "run : $source_hote est un dossier de la prod" ;;
+      esac
+    done
+    port=""
+    for publication in "${ports[@]}"; do
+      [[ "$publication" =~ ^127\.0\.0\.1:([0-9]+):8460$ ]] || refuser "run : publication interdite $publication"
+      [ "${BASH_REMATCH[1]}" != "${VEILLE_EMPLOI_PORT:?}" ] || refuser "run : le port de la prod ne se publie pas"
+      port="${BASH_REMATCH[1]}"
+    done
+
+    if [ "$detache" -eq 1 ]; then
+      [ -n "$port" ] || refuser "run -d : port absent"
+      [ ! -f "$DOSSIER/conteneur-$nom.env" ] || {
+        echo "docker: Error response from daemon: Conflict. The container name \"/$nom\" is already in use." >&2
+        exit 125
+      }
+      [ -z "${DOUBLE_DOCKER_RUN_ECHEC:-}" ] || {
+        echo "docker: Error response from daemon: $DOUBLE_DOCKER_RUN_ECHEC" >&2
+        exit 125
+      }
+      printf 'PORT=%s\nIMAGE=%s\nDONNEES=%s\n' "$port" "$image" "$source_hote" >"$DOSSIER/conteneur-$nom.env"
+      printf 'cafe%s\n' "$(printf 'b%.0s' {1..60})"
+      exit 0
+    fi
+
+    # <verifier…> /donnees : la vérification d'un instantané monté sur /donnees.
+    { [ "$#" -ge 2 ] && [ "${!#}" = /donnees ]; } || refuser "run : commande inattendue $*"
+    printf '%s\n' "$@" >"$DOSSIER/run-mots"
+    rm -rf "$DOSSIER/verifie"
+    cp -R "$source_hote" "$DOSSIER/verifie"
+    if [ "$(head -c 8 "$source_hote/donnees.txt" 2>/dev/null)" = CORROMPU ]; then
+      echo "instantané non conforme : donnees.txt"
+      exit 2
+    fi
+    [ -z "${DOUBLE_DOCKER_VERIFIER_SORTIE+x}" ] || echo "$DOUBLE_DOCKER_VERIFIER_SORTIE"
+    exit "${DOUBLE_DOCKER_VERIFIER_CODE:-0}"
+    ;;
+
+  stop)
+    # stop [-t <secondes>] <nom>
+    nom="${!#}"
+    [ -f "$DOSSIER/conteneur-$nom.env" ] || {
+      echo "Error response from daemon: No such container: $nom" >&2
+      exit 1
+    }
+    echo ARRET=1 >>"$DOSSIER/conteneur-$nom.env"
+    echo "$nom"
+    ;;
+
+  rm)
+    # rm [-f] <nom>
+    nom="${!#}"
+    [ -z "${DOUBLE_DOCKER_RM_ECHEC:-}" ] || {
+      echo "Error response from daemon: cannot remove container $nom" >&2
+      exit 1
+    }
+    [ -f "$DOSSIER/conteneur-$nom.env" ] || {
+      echo "Error response from daemon: No such container: $nom" >&2
+      exit 1
+    }
+    rm -f "$DOSSIER/conteneur-$nom.env"
+    echo "$nom"
+    ;;
+
+  logs)
+    # logs [--tail <n>] <nom>
+    nom="${!#}"
+    [ -f "$DOSSIER/conteneur-$nom.env" ] || {
+      echo "Error response from daemon: No such container: $nom" >&2
+      exit 1
+    }
+    echo "journal du conteneur $nom"
+    ;;
+
+  *) refuser "commande inattendue ${1:-}" ;;
+esac
+exit 0

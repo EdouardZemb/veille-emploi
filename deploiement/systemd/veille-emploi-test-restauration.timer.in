@@ -1,0 +1,11 @@
+# Rendu de deploiement/systemd/veille-emploi-test-restauration.timer.in par deploiement/installer-unites.sh.
+# Ne pas modifier à la main : la sonde de prod alerte au moindre écart avec ce rendu.
+[Unit]
+Description=veille-emploi : minuterie du test de restauration (@ENV@)
+
+[Timer]
+OnCalendar=@HEURE_TEST@
+Persistent=true
+
+[Install]
+WantedBy=timers.target

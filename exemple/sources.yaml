@@ -1,0 +1,31 @@
+# Sources de collecte de l'exemple. Aucune adresse n'est celle d'une vraie personne.
+france_travail:
+  actif: true
+  recherches:
+    - libelle: "Test & QA - Haut-Rhin"
+      motsCles: "test logiciel,qa,testeur"
+      departement: "68"
+      plafond: 50
+
+    - libelle: "Test & QA - teletravail France entiere"
+      motsCles: "test logiciel teletravail,qa teletravail"
+      plafond: 50
+
+arbeitnow:
+  actif: true
+  pages: 1
+  mots_cles:
+    - "test"
+    - "qa"
+    - "quality"
+
+courriel:
+  mode: expediteurs
+  libelle: "veille-emploi"
+  expediteurs:
+    - "alertes@offres.exemple.invalid"
+
+rss: []
+
+enrichissement:
+  actif: false

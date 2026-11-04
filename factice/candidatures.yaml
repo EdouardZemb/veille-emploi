@@ -1,0 +1,6 @@
+# Les offres auxquelles Camille a déjà répondu (repérées par leur lien).
+candidatures:
+  - url: https://offres.exemple.invalid/o/2003
+    canal: site de l'employeur
+  - url: https://offres.exemple.invalid/o/2009
+    canal: courriel

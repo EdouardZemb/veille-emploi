@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+# Double de `rclone` pour les tests de la sauvegarde : il note chaque appel dans $APPELS (le nom
+# puis les arguments, séparés par des espaces) et tient un « Drive » dans un dossier, à côté de
+# $APPELS : <remote>:<chemin> est le dossier distant/<remote>/<chemin>. Rien ne part sur le réseau.
+#
+# Commandes acceptées (tout le reste est refusé, code 125) :
+#   copy <fichier> <remote>:<chemin>      comme rclone, garde la date de modification du fichier
+#   lsf [--files-only] <remote>:<chemin>
+#   delete --min-age <N>d [--max-depth <N>] [--drive-use-trash=false] [--include <motif>…] <remote>:<chemin>
+#                                         plusieurs --include s'ajoutent, comme dans rclone
+# `sync`, `purge`, `move`, `deletefile` et `cleanup` n'existent pas ici : la sauvegarde n'en a pas
+# besoin, et un script qui les appellerait pourrait effacer plus que ses propres fichiers.
+#
+# Invariants vérifiés à chaque appel (code 125 sinon) : la destination est toujours un dossier
+# précis d'un remote (jamais la racine : « sauvegardes: »), dans un alphabet sans `..` ; `delete`
+# porte toujours un âge minimal.
+#
+# Pilotage :
+#   DOUBLE_RCLONE_COPY_CODE    `copy` échoue avec ce code (défaut : succès)
+#   DOUBLE_RCLONE_COPY_PERDU   `copy` réussit sans rien déposer (lsf ne verra pas le fichier)
+#   DOUBLE_RCLONE_LSF_CODE     `lsf` échoue avec ce code
+#   DOUBLE_RCLONE_DELETE_CODE  `delete` échoue avec ce code
+#   DOUBLE_RCLONE_COPY_ATTENTE `copy` dure autant de secondes avant de répondre (tests de signal)
+{ printf '%s' rclone; for argument in "$@"; do printf ' %s' "$argument"; done; printf '\n'; } >>"${APPELS:?APPELS non défini}"
+
+DISTANT="$(dirname "$APPELS")/distant"
+
+refuser() {
+  echo "double rclone : $*" >&2
+  exit 125
+}
+
+# dossier_de <remote>:<chemin> : le dossier du double, ou refus.
+dossier_de() {
+  local motif='^([A-Za-z0-9_][A-Za-z0-9_.-]*):([A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)*)$'
+  [[ "$1" =~ $motif ]] || refuser "destination hors d'un dossier précis d'un remote : '$1'"
+  printf '%s\n' "$DISTANT/${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+}
+
+commande="${1:-}"
+[ "$#" -eq 0 ] || shift
+
+case "$commande" in
+  copy)
+    [ "$#" -eq 2 ] || refuser "copy : attendu « copy <fichier> <remote>:<chemin> »"
+    [ -f "$1" ] || refuser "copy : fichier source absent : $1"
+    dossier="$(dossier_de "$2")"
+    if [ -n "${DOUBLE_RCLONE_COPY_ATTENTE:-}" ]; then
+      sleep "$DOUBLE_RCLONE_COPY_ATTENTE"
+    fi
+    if [ -n "${DOUBLE_RCLONE_COPY_CODE:-}" ]; then
+      echo "Failed to copy: googleapi: Error 403: rateLimitExceeded" >&2
+      exit "$DOUBLE_RCLONE_COPY_CODE"
+    fi
+    if [ -z "${DOUBLE_RCLONE_COPY_PERDU:-}" ]; then
+      mkdir -p "$dossier"
+      cp -p -- "$1" "$dossier/"
+    fi
+    ;;
+
+  lsf)
+    cible=""
+    for argument in "$@"; do
+      case "$argument" in
+        --files-only) ;;
+        -*) refuser "lsf : option inattendue $argument" ;;
+        *) cible="$argument" ;;
+      esac
+    done
+    dossier="$(dossier_de "$cible")"
+    if [ -n "${DOUBLE_RCLONE_LSF_CODE:-}" ]; then
+      echo "Failed to lsf: couldn't list directory" >&2
+      exit "$DOUBLE_RCLONE_LSF_CODE"
+    fi
+    if [ -d "$dossier" ]; then
+      (cd "$dossier" && ls -1)
+    fi
+    ;;
+
+  delete)
+    age="" cible="" profondeur=""
+    motifs=()
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --min-age)
+          age="$2"
+          shift 2
+          ;;
+        --include)
+          motifs+=("$2")
+          shift 2
+          ;;
+        --max-depth)
+          profondeur="$2"
+          shift 2
+          ;;
+        --drive-use-trash=false) shift ;;
+        -*) refuser "delete : option inattendue $1" ;;
+        *)
+          cible="$1"
+          shift
+          ;;
+      esac
+    done
+    [[ "$age" =~ ^([0-9]+)d$ ]] || refuser "delete : --min-age <N>d obligatoire (reçu : '$age')"
+    jours="${BASH_REMATCH[1]}"
+    dossier="$(dossier_de "$cible")"
+    if [ -n "${DOUBLE_RCLONE_DELETE_CODE:-}" ]; then
+      echo "Failed to delete: googleapi: Error 500" >&2
+      exit "$DOUBLE_RCLONE_DELETE_CODE"
+    fi
+    if [ -d "$dossier" ]; then
+      # Comme le vrai rclone : récursif, sauf avec --max-depth ; sans --include, tout fichier.
+      limite=()
+      [ -z "$profondeur" ] || limite=(-maxdepth "$profondeur")
+      noms=()
+      for motif in "${motifs[@]:-*}"; do
+        [ "${#noms[@]}" -eq 0 ] || noms+=(-o)
+        noms+=(-name "$motif")
+      done
+      find "$dossier" "${limite[@]}" -type f \( "${noms[@]}" \) -mtime "+$jours" -delete
+    fi
+    ;;
+
+  *) refuser "commande inattendue : '$commande'" ;;
+esac
+exit 0

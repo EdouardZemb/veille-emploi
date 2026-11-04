@@ -1,0 +1,89 @@
+.venv/
+donnees/
+config/.env
+config/auth.json
+config/vapid.json
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+
+# ---- ajoute le 2026-10-10, en posant le depot ----
+# Le .gitignore ci-dessus etait deja juste : il excluait .venv, donnees/
+# (base des offres, kit de CV et lettres en chmod 600), config/.env (mot
+# de passe d'application Gmail en clair), config/auth.json, config/vapid.json.
+# Ce qui suit ferme les portes restantes, par PRINCIPE et non parce qu'un
+# fichier precis a ete trouve : une regle qui n'existe que pour le fichier
+# du jour ne protege pas celui de la semaine prochaine.
+
+# Tout fichier d'environnement, ou qu'il soit, sous tous ses noms.
+.env
+.env.*
+*.env
+!*.env.exemple
+!*.env.example
+
+# Secrets et identifiants, par motif de nom.
+*secret*
+*credential*
+*.pem
+*.key
+*.p12
+id_rsa*
+auth.json
+vapid.json
+# Sauf les outils du modele, qui verifient les secrets sans en contenir :
+# masques par *secret*, ils manqueraient au job socle de la CI.
+!scripts/modele/verifier_secrets.py
+!scripts/modele/secrets.ps1
+
+# Documents personnels et sorties engendrees : CV, lettres, exports.
+*.pdf
+*.docx
+*.zip
+donnees/
+dossiers/
+exports/
+sorties/
+
+# Bases de donnees locales et leurs journaux.
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.db
+
+# Caches et environnements.
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+__pycache__/
+*.pyc
+*.egg-info/
+node_modules/
+.gitignore.avant-git-2026-10-10
+*.avant-git-*
+*.avant-declaration-*
+
+# ---- ajoute le 2026-10-17, avec l'alignement sur modele-projet ----
+# Les reglages locaux de Claude Code : propres a chaque poste, jamais partages.
+.claude/settings.local.json
+
+# ---- ajoute le 2026-10-28, avec le passage en cible serveur du modele ----
+# Les fichiers du modele que les motifs ci-dessus masquent (porte des fichiers
+# masques, scripts/modele/masques.py). Aucun ne porte de secret en clair :
+# les env/*.env et projet.env sont publics, les .cles ne nomment que des cles.
+!deploiement/env/prod.env
+!deploiement/env/staging.env
+!deploiement/projet.env
+!tests/deploiement/secrets.bats
+# Le dossier des secrets chiffres : seuls les noms de cles (.cles) et les
+# fichiers chiffres par sops (.env.enc) y sont visibles ; tout autre fichier,
+# un dechiffrement oublie par exemple, reste ignore.
+!deploiement/secrets/
+deploiement/secrets/*
+!deploiement/secrets/*.cles
+!deploiement/secrets/*.env.enc
+# Les fichiers de travail des sessions (plans d'execution, rapports), comme dans
+# le .gitignore du modele : non suivis, ils faisaient voir a copier un arbre sale.
+.superpowers/
