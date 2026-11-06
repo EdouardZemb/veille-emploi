@@ -74,7 +74,7 @@ sessions à distance.
 
 | Où | Quoi |
 |---|---|
-| hook git `pre-commit` | confidentialité du contenu indexé, fichiers UTF-16 compris ; un autre binaire est signalé « non examiné ». La porte suit la nature du dépôt : elle refuse tout constat dans un dépôt de code ; dans un dépôt de données, elle avertit sur ce qui identifie et refuse toujours les secrets (voir plus bas), au hook comme en CI. Dans un dépôt de code, elle refuse aussi les fichiers de l'instance, lus sur leur chemin, et toute clé publique `age` (voir plus bas). Au commit d'un alignement ou d'une mise à jour (celui qui modifie `.copier-answers.yml`), refus d'un fichier du modèle que le `.gitignore` du projet masque |
+| hook git `pre-commit` | confidentialité du contenu indexé, fichiers UTF-16 compris ; un autre binaire est signalé « non examiné ». La porte suit la nature du dépôt : elle refuse tout constat dans un dépôt de code ; dans un dépôt de données, elle avertit sur ce qui identifie et refuse toujours les secrets (voir plus bas), au hook comme en CI. Dans un dépôt de code, elle refuse aussi les fichiers de l'instance, lus sur leur chemin, et toute clé publique `age` (voir plus bas). Au commit d'un alignement ou d'une mise à jour (celui qui modifie `.copier-answers.yml`), refus d'un fichier du modèle, ou d'un secret chiffré que la chaîne lit (en cible `donnees`, sauf `cible_code: aucune`, `secrets/*.env.enc` ; en cible `serveur` à un dépôt, de nature `donnees`, `deploiement/secrets/*.env.enc`), que le `.gitignore` du projet masque. Le remède n'admet que ce que la porte examine, toujours par des lignes ancrées : un dossier du modèle exclu se lève par `!/<dossier>/` ; un dossier mixte, où un fichier local peut vivre à côté d'un fichier examiné, se lève, en exclut le contenu, puis n'admet que ce qu'elle y examine (`!/cles/`, `/cles/*` puis `!/cles/*.pub`), et un ancêtre exclu, de même, suivi des lignes de ses dossiers ; sous un `.gitignore` imbriqué, ces lignes partent de son dossier. Ce que la porte n'examine pas reste masqué, sans refus : dans un dossier mixte, un secret en clair, une clé privée ou un fichier local ; sous un ancêtre levé, un semé du projet (`docs/cadrage.md` sous `docs/`). Sous un dossier du modèle, tout fichier est du modèle, sauf un dossier de secrets ou de clés imbriqué, ou un cache Python : un autre fichier local posé là, même un `.env`, est refusé comme fichier du modèle |
 | hook git `commit-msg` | format Conventional Commits, confidentialité du message |
 | hook git `pre-push` | refus d'envoyer sur la branche principale |
 | hook Claude `PreToolUse` (outils `Bash`, `PowerShell`, `Monitor`, et tout outil MCP qui porte une commande) | bloque `git push` vers la branche principale, tout force-push vers elle, `--no-verify`, toute modification de `core.hooksPath` sauf la réparation `git config core.hooksPath .githooks` (variables `GIT_CONFIG_*` comprises), `gh pr merge` tant que les contrôles ne sont pas tous verts (et toute fusion en mode `edouard`), `gh pr merge --admin`, l'envoi d'une étiquette (`git push --tags`, `--follow-tags`, un refspec `refs/tags/…`, `v1.2.3` ou `donnees-…`) et toute écriture de publication (`gh release` hors `view`, `list`, `download` ; l'API `…/releases`), les alias et extensions de `gh`, ce qui affiche le jeton de `gh` ou les identifiants de git (`gh auth token`, `gh auth status --show-token`, `gh auth git-credential`, `git credential fill`, `git credential-manager get`), et l'effacement, le déplacement ou le renommage de `.githooks` et de `scripts/modele` (`rm`, `mv`, `Remove-Item`, `git rm`…). Il lit aussi les substitutions `$(…)`, même entre guillemets, les blocs PowerShell (`try { … }`, `& { … }`, `% { … }`) et ses affectations (`$x = …`), le texte d'une here-string (`bash <<< '…'`) passée à un interprète, et les enveloppes (`timeout`, `nice -n`, `env -C`, `env -S`, `exec -a`, `Start-Process`, `Start-Process -WorkingDirectory`, `Invoke-Expression`…). Après un retour de dossier qu'il ne suit pas (`cd -`, `cd ~`, `popd`, `Pop-Location`), la branche courante est illisible : un `git push` doit alors nommer sa branche |
@@ -218,7 +218,25 @@ serait la commande. Écrire le texte dans un fichier, puis `git commit -F <fichi
   ferait d'une modification locale un conflit à chaque `copier update`.
 - Changer de cible, c'est changer une réponse puis lancer `copier update`. Les fichiers gérés de
   l'ancienne cible disparaissent, ceux de la nouvelle arrivent. Les fichiers semés de l'ancienne
-  cible restent : le projet les retire à la main dans la même PR.
+  cible que la nouvelle ne rend pas disparaissent aussi, même retouchés, sans conflit ni `.rej` : ce
+  que le projet y a écrit se reprend dans le commit d'avant (`git show <commit>:<chemin>`). Les
+  semés que les deux cibles rendent gardent leur contenu d'avant, même si la nouvelle cible les rend
+  autrement : le projet les refait à la main, ou les retire par `git rm` dans un commit d'avant la
+  mise à jour, car Copier sème à neuf un semé absent du projet. Quand un projet `serveur` à un dépôt
+  devient un dépôt de données, ce sont `.gitignore`, `CLAUDE.md`, `README.md`, `.sops.yaml`,
+  `.github/workflows/ci.yml` et `.github/dependabot.yml`. Sauf `.gitignore`, qui ne se retire
+  jamais : il porte les règles du projet, qui gardent ses fichiers locaux et ses secrets hors du
+  dépôt, et sans lui ces fichiers paraissent en non suivis, ce que Copier refuse comme un arbre
+  sale. Il se corrige à la main : pour un dépôt de données, `!/secrets/`, `/secrets/*` puis
+  `!/secrets/*.env.enc`, à la fin du fichier : les lignes que la porte des masqués donne pour ce
+  dossier mixte, et qu'elle ne demande pas, puisqu'elle ne voit pas un secret chiffré déjà suivi ;
+  puis celles qu'elle demande. Ce que le modèle ne connaît pas reste où il est : les secrets
+  chiffrés de `deploiement/secrets/`, puis `instance/config/` et `instance/contenu/`, se déplacent
+  par `git mv` vers `secrets/`, `config/` et `contenu/`, dans le commit d'avant. Une question
+  nouvelle prend son défaut sous `--defaults` : dans ce passage, `--data cible_code=serveur` est
+  obligatoire. Sans lui, `cible_code` prend `aucune` sans un mot : ni `.sops.yaml`, ni `env/`, ni
+  `cles/`, ni `modele-donnees.yml`, et le domaine, le sous-domaine, le bloc de ports et les clés
+  sortent des réponses.
 
 Dans un fichier géré, un conflit de `copier update` se résout toujours en faveur du modèle. Les PR
 Dependabot qui y montent une version d'action se fusionnent normalement.

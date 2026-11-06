@@ -12,6 +12,9 @@
 - **Amendé** le 2026-10-29, avec le lot 12 : dans un dépôt de code, la porte refuse aussi les
   fichiers de l'instance, lus sur leur chemin, et toute clé publique `age` ; le garde refuse l'envoi
   d'une étiquette de données (M-0006, § 3 et § 6)
+- **Amendé** le 2026-11-04, avec le correctif #94 : en cible `donnees`, la porte des fichiers
+  masqués examine aussi l'instance, dont les secrets chiffrés, et son remède n'admet que ce qu'elle
+  examine, par des lignes ancrées
 - **Contexte amont** : M-0001 (les garde-fous de qualité comme condition d'entrée)
 
 ## Contexte
@@ -103,12 +106,26 @@ pas de la discipline de celui qui travaille ?
   en dire : il n'entre alors dans aucun commit, et le projet n'a pas ce que le modèle lui a donné
   (LE-23). La porte `masques.py` tourne dans le `pre-commit`, avant la confidentialité, et ne
   s'applique qu'au commit qui modifie `.copier-answers.yml` : celui d'un alignement ou d'une mise à
-  jour. Elle nomme chaque fichier et la règle qui le masque ; le remède est une exception nommée
-  au `.gitignore`, `!<chemin>`, ou `!<dossier>/` quand un dossier parent est exclu, car git ne
-  regarde pas dans un dossier exclu. Un fichier local se sort du dossier, et le masque d'un
-  fichier de secrets ne se lève jamais. Le hook est le bon endroit : c'est le seul moment où le
-  fichier manquant se voit encore, avant le commit, et il vaut pour une session comme pour
-  Edouard. La vérification à la main de `docs/aligner.md` reste, la porte refuse si on l'oublie.
+  jour. Elle nomme chaque fichier et la règle qui le masque, et donne son remède, des exceptions au
+  `.gitignore` : `!/<chemin>`, ou les lignes du plus haut dossier exclu, car git ne regarde pas dans
+  un dossier exclu. En cible `donnees`, elle examine aussi `config/README.md` et
+  `contenu/README.md`, et, sauf `cible_code: aucune`, l'instance : `.sops.yaml`, `env/prod.env`,
+  `env/staging.env`, `cles/*.pub` et les secrets chiffrés `secrets/*.env.enc`, que la chaîne lit
+  (amendement du 2026-11-04). En cible `serveur`, elle n'examine sous `deploiement/` que ce que le
+  modèle y écrit, ses fichiers de premier niveau par leur nom, et l'instance et ses secrets chiffrés
+  qu'à un dépôt, en nature `donnees` : un dépôt de code a les siens dans `<nom>-donnees`. Le remède
+  n'admet que ce que la porte examine, toujours par des lignes ancrées : un dossier du modèle se
+  lève par `!/<dossier>/` ; un dossier mixte, où un fichier local peut vivre à côté d'un fichier
+  examiné, se lève, en exclut le contenu, puis n'admet que ce qu'elle y examine, et un ancêtre
+  exclu, de même, suivi des lignes de ses dossiers. Sous un `.gitignore` imbriqué, ces lignes
+  partent de son dossier. Ce que la porte n'examine pas reste masqué, sans refus, un semé du projet
+  sous un ancêtre levé compris, que la vérification de `docs/aligner.md` voit. Sous un dossier du
+  modèle, tout fichier est du modèle, sauf un dossier de secrets ou de clés imbriqué, ou un cache
+  Python : un autre fichier local posé là, même un `.env`, est refusé comme fichier du modèle.
+  Ailleurs, le masque d'un secret en clair ne se lève jamais. Le hook est le bon endroit : c'est le
+  seul moment où le fichier manquant se voit encore, avant le commit, et il vaut pour une session
+  comme pour Edouard. La vérification à la main de `docs/aligner.md` reste, la porte refuse si on
+  l'oublie.
 - **Un hook `SessionStart` affiche ce qui est rouge sur GitHub** (amendement du 2026-10-27). Au
   démarrage et à la reprise, `signaux.py` lit les exécutions de la branche principale, les PR
   ouvertes et les workflows désactivés, et les montre à la session. Il ne bloque jamais : il sort
