@@ -35,6 +35,7 @@ Rien ne peut être collecté avant.
 | [CRITERES.md](docs/CRITERES.md) | Le fichier de critères : un intitulé, un plancher, l'exigence d'allemand, chaque clé |
 | [CANDIDATURE.md](docs/CANDIDATURE.md) | Le bouton « Générer le dossier », brancher ton kit |
 | [DONNEES.md](docs/DONNEES.md) | Où vivent tes données, sauvegarde, effacement |
+| [ENRICHISSEMENT.md](docs/ENRICHISSEMENT.md) | Lire le texte complet d'une annonce : l'étude et ses mesures |
 | [exploitation.md](docs/exploitation.md) | La console en conteneur : le staging, le journal, la sauvegarde, la restauration |
 | [LIMITES.md](docs/LIMITES.md) | Ce que ce dispositif ne fait pas, et pourquoi |
 | [METHODE.md](docs/METHODE.md) | Pourquoi le scoring se teste sur de vraies annonces, tôt |
@@ -162,8 +163,8 @@ Si les deux canaux échouent, `veille etat` l'affiche sur la ligne
 
 ### Services
 
-Ce qui suit est la console du tailnet (systemd). Elle passe en conteneur avec le lot #11 :
-la console, le staging, les journaux et les sauvegardes sont dans
+Ce qui suit est la console du tailnet (systemd), jusqu'à la fin du lot #12. La console en
+conteneur, depuis le lot #11 : le staging, les journaux et les sauvegardes sont dans
 [docs/exploitation.md](docs/exploitation.md).
 
 ```bash
@@ -173,31 +174,60 @@ journalctl --user -u veille-web.service -f
 journalctl --user -u veille-collecte.service -n 50
 ```
 
-La collecte tourne **à 7h15, 12h15 et 18h15**, après les envois d'alertes.
-Modifie `~/.config/systemd/user/veille-collecte.timer` pour changer.
+Par défaut, la collecte tourne **à 7h15, 12h15 et 18h15**, après les envois d'alertes.
+La fréquence se change dans Réglages, depuis la console, parmi celles qu'elle propose :
+sur la console du tailnet, elle vit dans `veille-collecte.timer` ; en conteneur, en base,
+où le planificateur la lit (`src/veille/reglages.py`).
 
 ---
 
 ## Architecture
 
+Un module par responsabilité ; la docstring de chacun dit ce qu'il fait.
+
 ```
 src/veille/
-├── config.py          chargement YAML + normalisation de texte
-├── models.py          Offre, canonisation d'URL, empreintes de déduplication
-├── scoring.py         le moteur de score, une fonction par règle
-├── db.py              SQLite, sans ORM
 ├── app.py             FastAPI — la console et son API JSON
+├── cli.py             la ligne de commande `veille`
+├── config.py          chargement de la configuration (YAML) + normalisation de texte
+├── models.py          Offre, canonisation d'URL, empreintes de déduplication
+├── db.py              SQLite, sans ORM
+├── reglages.py        le seuil et la fréquence de collecte, réglés depuis la console
+├── collecte.py        la collecte : chaque source, puis les notifications
+├── planificateur.py   la collecte et la purge en conteneur, sans minuteur systemd
+├── scoring.py         le moteur de score, une fonction par règle
+├── classement.py      une famille proposée aux offres qui n'en ont aucune
+├── completude.py      ce qu'on sait d'un poste : le score de complétude
+├── enrichissement.py  le texte complet d'une annonce, et le rescore avec lui
+├── verification.py    l'annonce est-elle encore en ligne ?
+├── exigences.py       les exigences d'une annonce collée, que le modèle propose
 ├── auth.py            sessions (180 jours), liens à usage unique, cookie
 ├── passkeys.py        cérémonies WebAuthn (enregistrement, connexion)
+├── debit.py           limite de débit, par clé, en fenêtre glissante
 ├── dossier.py         génération du dossier de candidature
+├── documents.py       ses documents, depuis la console
+├── empreintes.py      le kit a-t-il bougé sans qu'on le dise ?
+├── lettre.py          la lettre comme objet rédigé, et non comme artefact dérivé
+├── assemblage.py      une lettre assemblée de ses phrases et des mots de l'annonce
+├── affinement.py      affiner une lettre assemblée, sur demande seulement
+├── porte.py           la porte de validation, rejouée sur le texte qui part
+├── preferences.py     la lecture du magasin de préférences
+├── rendu.py           la lettre en PDF, sous un nom qu'un recruteur peut recevoir
+├── relance.py         le mot de relance
+├── entretien.py       préparer l'entretien d'une offre, à partir de ses réponses
 ├── notifications.py   push web (VAPID) + repli mail
+├── instantane.py      les instantanés que la sauvegarde du modèle appelle
+├── factice.py         le jeu de données factice du staging
+├── static/            la PWA : app.js, connexion.js, sw.js, style.css, icônes
+├── templates/         connexion.html, index.html, lien.html
 └── collectors/
+    ├── base.py             socle commun aux collecteurs
     ├── france_travail.py   API officielle (OAuth2 client_credentials)
     ├── arbeitnow.py        API publique, sans identifiants
     ├── rss.py              flux déclarés dans sources.yaml
     ├── courriel.py         IMAP — lit UNIQUEMENT le libellé configuré
     ├── liens.py            résolution des redirecteurs de suivi
-    └── parsers/            un parseur par format d'alerte
+    └── parsers/            un parseur par format d'alerte : generique, indeed, jobs_ch, linkedin
 ```
 
 ### Ajouter un site d'alerte mail
