@@ -8,9 +8,9 @@ Pour Edouard seul. La console tourne sur son serveur et se consulte au télépho
 
 ## État
 
-Ce dépôt de code est né le 04/11/2026 d'un seul commit (lot V2, la scission, M-0006 § 7), tiré de l'arbre de `veille-emploi-donnees` à `f6b1189`. Le dépôt privé d'avant la scission, renommé `veille-emploi-donnees`, garde l'historique, l'instance et les issues ouvertes. Les numéros d'issue et de PR d'avant la naissance (#2 à #40) sont les siens. Aligné sur `modele-projet` `v0.8.0` : cible `serveur`, nature `code`, mode de fusion `session` (`docs/modele/methode.md`, « Qui fusionne »).
+Ce dépôt de code est né le 04/11/2026 d'un seul commit (lot V2, la scission, M-0006 § 7), tiré de l'arbre de `veille-emploi-donnees` à `f6b1189`. Le dépôt privé d'avant la scission, renommé `veille-emploi-donnees`, garde l'historique, l'instance et les issues ouvertes. Un numéro d'issue ou de PR cité sans dépôt (jusqu'à #41) est le sien. Ceux de ce dépôt repartent de #1 et se citent `veille-emploi#N`. Aligné sur `modele-projet` `v0.8.1` depuis le 06/11/2026 (`veille-emploi#1`) : cible `serveur`, nature `code`, mode de fusion `session` (`docs/modele/methode.md`, « Qui fusionne »).
 
-L'instance réelle vit au dépôt de données, `veille-emploi-donnees`, privé : sa configuration (`config/`, que la console lit par `VEILLE_CONFIG` sans conteneur, ou par le montage `/config` en conteneur), ses secrets chiffrés, ses fichiers d'environnement, l'état du serveur et ses commandes. La chaîne du modèle déploie un couple : l'image de ce dépôt et un commit des données. Ce dépôt n'en porte rien : la porte de confidentialité le refuse, au hook comme en CI, et relit l'historique chaque semaine.
+L'instance réelle vit au dépôt de données, `veille-emploi-donnees`, privé : sa configuration (`config/`, que la console lit par `VEILLE_CONFIG` sans conteneur, ou par le montage `/config` en conteneur), ses secrets chiffrés, ses fichiers d'environnement, l'état du serveur et ses commandes. La chaîne du modèle déploie un couple : l'image de ce dépôt et un commit des données. Ce dépôt n'en porte rien : la porte de confidentialité le refuse, au hook comme en CI, et relira l'historique chaque semaine, une fois son workflow enregistré (constat EM-2).
 
 L'éditeur de lettre en est à l'étape E1 (PR #2) : l'historique des versions est branché ; l'identité des paragraphes et la porte de validation sont écrites, mais pas encore appelées (voir `docs/pistes.md`). Les 8 tests du traitement des 410 (issue #3) passent depuis le 03/11/2026 : la règle était la bonne, mais le garde-fou anti-panne comptait ses sept jours depuis l'horloge du poste au lieu de l'instant de la vérification, et les tests, figés au 29/09/2026, échouaient une semaine plus tard (constat LE-6).
 
@@ -20,7 +20,9 @@ Le lot #11 (la console en conteneur et le staging ; ADR `docs/decisions/0002-la-
 
 Le lot V1 (#22) est clos le 02/11/2026 : le code tourne par défaut sur `exemple/`, une personne inventée (Camille Exemple). La CI lance `VERIFIER_CONFIG` sur `exemple/` dans l'image construite ; la CI du dépôt de données la lance sur sa `config/`, contre l'image publiée, et la chaîne du modèle sur `/config` avant chaque déploiement de prod.
 
-Prochain : la fin du lot V2 (le staging et la console du tailnet sur les deux dépôts, puis la clôture), puis le #12 (la production et la bascule). La suite de l'éditeur est à placer par Edouard.
+Le lot V2 (la scission, #39) est clos le 06/11/2026. Le staging se déploie à deux dépôts : l'image `:main` de ce dépôt, et `principal` du dépôt de données. La console du tailnet tourne sur deux clones : celui du code, et celui des données, qu'elle lit par `VEILLE_CONFIG`. Ses fichiers locaux, `config/.env` et `config/vapid.json` (les clés des notifications), restent à la racine du clone du code, hors de git (constat LE-9). Un point reste ouvert. GitHub n'a enregistré que `ci.yml` et Dependabot (constat EM-2, modele-projet#102). Tant que ce n'est pas réparé, ni `modele-historique.yml` ni la relecture hebdomadaire de l'historique ne tournent.
+
+Prochain : le #12 (la production et la bascule), puis la fin du mode systemd (`docs/pistes.md`). La suite de l'éditeur est à placer par Edouard.
 
 ## Commandes
 
@@ -32,7 +34,7 @@ Sur le poste, où se fait le travail (un environnement par worktree) :
 
 Sur une console sans conteneur (la console du tailnet), depuis son clone, à la main d'Edouard. Les chemins réels du serveur, et le compte des tests qui y sont sautés, sont dans le `CLAUDE.md` du dépôt de données.
 
-- `git pull --ff-only && ./.venv/bin/pip install -e ".[pdf]" && systemctl --user restart veille-web.service && ./.venv/bin/veille empreintes-kit` : mettre l'outil à jour. La collecte relit le code à chaque passage.
+- `git pull --ff-only && ./.venv/bin/pip install -e ".[pdf,dev]" && systemctl --user restart veille-web.service && ./.venv/bin/veille empreintes-kit` : mettre l'outil à jour. La collecte relit le code à chaque passage. L'extra `dev` porte `pytest`, que demande la suite (constat LE-10).
 - `./.venv/bin/veille etat` : l'état de la console.
 - `SUITE_COMPLETE=1 PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -m pytest -q -rs -p no:cacheprovider` : la suite, entière. Attendu : 0 échec, et des tests sautés exprès. Six se sautent partout : les trois de `test_kit_fige` (« pas de kit ici »), et trois qui lisaient le kit réel : `test_aucun_gabarit_du_kit_ne_porte_de_caractere_douteux`, `test_aucun_gabarit_ne_porte_de_signature_de_mauvais_encodage` et `test_les_deux_cv_restent_telechargeables` (`test_dossier`). La suite ne lit que des fixtures (`VEILLE_ENV` désigne un fichier absent, `VEILLE_KIT` les gabarits de l'exemple) ; le kit réel se vérifie par `./.venv/bin/veille empreintes-kit`. Un échec sur WeasyPrint, systemd ou les groupes de processus est une dépendance perdue sur le serveur, pas un test à faire taire. La suite tourne dans un dossier temporaire, même si une variable `VEILLE_*` est exportée (`tests/test_isolation.py`).
 
@@ -53,7 +55,7 @@ Le reste des commandes est dans `README.md`.
 - Les décisions, ce sont `docs/decisions/` et `docs/modele/decisions/`.
 - La feuille de route, ce sont les issues (une milestone par étape) et `docs/pistes.md`. Les issues ouvertes avant la naissance (#6, #12) sont restées au dépôt de données.
 - Les constats, c'est `docs/registre.md`, celui des deux dépôts : le dépôt de données n'a pas de registre. Les leçons d'avant le modèle sont dans `docs/METHODE.md`.
-- Ce qui tourne sur le tailnet, c'est le clone du serveur, sur `principal` : une correction n'y arrive que par `git pull`.
+- Ce qui tourne sur le tailnet, c'est le clone du code sur le serveur, sur `principal`, avec sa configuration dans un clone du dépôt de données : une correction n'y arrive que par `git pull`.
 - Les critères de score, ce sont le `config/criteres.yaml` du dépôt de données (la configuration de l'instance ; le code tourne par défaut sur `exemple/`) et `docs/CRITERES.md`. Le seuil de notification et la fréquence de collecte se règlent dans Réglages. Le seuil vit en base (table `reglages`), et `seuil_interessant` du YAML n'en est que la graine, importée au premier démarrage. La fréquence vit en base en conteneur, et dans l'unité systemd `veille-collecte.timer` sur la console du tailnet (`src/veille/reglages.py`).
 - Ce qui tourne dans le conteneur, c'est `deploiement/` (les fichiers gérés par le modèle, `projet.env`, `compose.projet.yml`, les `.cles`) et `docs/exploitation.md`.
 - Le mode d'emploi, c'est `README.md` et les documents qu'il liste. Ce qui est propre à l'instance réelle (le serveur, ses chemins et ses adresses, les arbitrages et les constats sur sa base), c'est le dépôt de données : son `CLAUDE.md` et son `docs/`, où chaque document porte le nom de son document d'origine.
