@@ -11,6 +11,8 @@
   `modele-projet`, sous `poste/` (§ 7) ; après un retour arrière par `--retour`, un geste qui ne
   change qu'une moitié de la cible ramène l'autre moitié du couple quitté (§ 6) ; en cible
   `serveur`, le dépôt de code est public (§ 1).
+- **Amendé** le 2026-11-04, avec le correctif #94 : à la scission, `env/` et `cles/` sont rendus à
+  neuf, et `.sops.yaml` se refait pour le nouveau chemin des secrets (§ 6).
 - **S'applique en deux temps.** D'abord la porte par nature et le gabarit de données (§ 1 à 4).
   Ensuite la chaîne à deux dépôts et les règles de chemins (§ 3, dernier point, § 5 à 7). Entre les
   deux, la chaîne lit encore tout dans le clone du code, comme avant.
@@ -262,9 +264,10 @@ décrivent l'instance et le parc, pas l'auteur.
   passe aux versions suivantes du modèle sans attendre sa scission et garde ses réponses. Il monte
   déjà sa configuration et son contenu depuis `instance/config/` et `instance/contenu/`, à côté de
   son code. La prod y prend le commit de la plus haute `vX.Y.Z`, sans série d'étiquettes de données.
-  La scission ne fait ensuite que déplacer ces dossiers, avec `deploiement/env/`, les secrets
-  chiffrés, `.sops.yaml` et `deploiement/cles/`, vers le dépôt de données : le contrat de
-  l'application ne change pas (M-0004, § 8).
+  La scission déplace ensuite ces dossiers et les secrets chiffrés vers le dépôt de données. Le
+  modèle y rend `env/` et `cles/` à la place de `deploiement/env/` et de `deploiement/cles/`, et
+  `.sops.yaml` s'y refait pour le nouveau chemin des secrets (amendement du 2026-11-04). Le
+  contrat de l'application ne change pas (M-0004, § 8).
 
 ### 7. La naissance et la scission
 
