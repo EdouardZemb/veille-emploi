@@ -309,20 +309,21 @@ def _exclu(chemin: str, motifs: list[tuple[bool, re.Pattern[str]]]) -> bool:
     return exclu
 
 
-def _fichiers_suivis(*dossiers: str) -> list[str]:
+def _fichiers_suivis(*dossiers: str, racine: Path = RACINE) -> list[str]:
     """Les fichiers versionnes de ces dossiers : ceux de la copie que construit la
     CI. Un fichier local et ignore (un PDF laisse dans gabarits/ sur le serveur)
-    n'entre dans aucune image publiee. Sans git, tout le dossier."""
+    n'entre dans aucune image publiee. Un dossier ou git ne suit rien rend une liste
+    vide, meme s'il porte des fichiers locaux. Sans git, ou hors d'un depot, tout le dossier."""
     try:
-        r = subprocess.run(["git", "ls-files", "-z", "--", *dossiers], cwd=str(RACINE),
+        r = subprocess.run(["git", "ls-files", "-z", "--", *dossiers], cwd=str(racine),
                            capture_output=True, timeout=60)
     except (OSError, subprocess.SubprocessError):
         r = None
-    if r is not None and r.returncode == 0 and r.stdout:
+    if r is not None and r.returncode == 0:
         return sorted(n for n in r.stdout.decode("utf-8").split("\0") if n)
     return sorted(
-        f.relative_to(RACINE).as_posix()
-        for d in dossiers for f in (RACINE / d).rglob("*")
+        f.relative_to(racine).as_posix()
+        for d in dossiers for f in (racine / d).rglob("*")
         if f.is_file() and "__pycache__" not in f.parts
     )
 
@@ -356,6 +357,17 @@ def test_l_image_garde_ce_que_la_console_lit():
     assert any(c.startswith("exemple/") for c in lus)
     exclus = [c for c in lus if _exclu(c, motifs)]
     assert exclus == [], f"manqueraient dans l'image : {exclus}"
+
+
+def test_un_fichier_local_ignore_n_est_pas_un_fichier_suivi(tmp_path):
+    """La console du tailnet garde config/.env et config/vapid.json a la racine du clone du
+    code, ignores par git : ce ne sont pas des fichiers suivis, et aucune image ne les voit.
+    Quand git ne suit rien dans un dossier, la reponse est vide, pas le contenu du disque."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, timeout=60)
+    (tmp_path / ".gitignore").write_text("config/\n", encoding="utf-8")
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / ".env").write_text("VALEUR_INVENTEE=1\n", encoding="utf-8")
+    assert _fichiers_suivis("config", racine=tmp_path) == []
 
 
 def test_l_image_n_embarque_aucun_dossier_d_instance():
