@@ -94,16 +94,31 @@ présent** :
 **Jamais de tâche planifiée qui navigue sans lui.** Aucune unité systemd,
 aucun cron, aucun déclencheur de ce projet ne doit piloter un navigateur.
 
-Les seules tâches automatiques du dispositif sont `veille-collecte.timer`
-(API, RSS, IMAP) et `veille-web.service` (la console). Ni l'une ni l'autre
-n'ouvre de navigateur.
+Les seules tâches automatiques du dispositif sont le planificateur de la
+console (la purge des sessions et des liens expirés et, en prod, la collecte :
+API, RSS, IMAP) et les minuteries du serveur (la sonde, la sauvegarde et son
+test) ; sur une console sans conteneur, `veille-collecte.timer` collecte et
+`veille-web.service` sert la console. Aucune n'ouvre de navigateur.
 
 ---
 
-## 3. Jamais d'exposition publique
+## 3. Sur l'adresse publique, les passkeys seules gardent la console
 
 La console contient sa recherche d'emploi : candidatures, prétentions
 salariales, notes sur des employeurs.
+
+**La console en conteneur est servie sur l'adresse publique**, par le tunnel du
+serveur (ADR-0002), en prod comme en staging. Seules les passkeys la gardent
+(ADR-0001) : aucun réseau ne trie qui l'atteint (§ 4). Ce qui a précédé
+l'ouverture, la limite de débit, le cookie `__Host-` et la politique de sécurité
+du contenu, est dans l'ADR-0002, § 6.
+
+- Dans le conteneur, `uvicorn` écoute sur toutes ses interfaces, au port 8460 :
+  le tunnel l'atteint par son réseau. L'hôte ne publie ce port que sur
+  `127.0.0.1`, pour la santé locale (`deploiement/compose.yml`).
+
+**La console sans conteneur, jusqu'à son retrait** (ADR-0002, § 10), reste sur
+le tailnet seul :
 
 - `uvicorn` écoute **uniquement sur `127.0.0.1`**. Ne change pas ce `--host`.
 - L'accès passe par **`tailscale serve`**, qui publie sur le tailnet seul.
@@ -116,12 +131,14 @@ salariales, notes sur des employeurs.
 
 ---
 
-## 4. Le tailnet n'est pas une authentification
+## 4. Aucun réseau n'est une authentification
 
-D'autres appareils sont sur le tailnet, et d'autres personnes peuvent le
-rejoindre pour d'autres projets. **La connexion de la console n'est pas décorative** : c'est ce
-qui empêche que sa recherche d'emploi soit lisible par tout appareil du
-réseau. Ne retire pas `Depends(auth.exiger_session)` des routes.
+L'adresse publique est ouverte à tout Internet. Le tailnet a d'autres appareils,
+et d'autres personnes peuvent le rejoindre pour d'autres projets. **La connexion
+de la console n'est pas décorative** : c'est ce qui empêche que sa recherche
+d'emploi soit lisible par quiconque atteint son adresse, publique ou du tailnet.
+Ne retire `Depends(auth.exiger_session)` d'aucune route, et une route nouvelle
+qui lit ou écrit des données la porte aussi.
 
 ---
 

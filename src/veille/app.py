@@ -530,8 +530,6 @@ def api_affiner(offre_id: int):
     `lettre-de-motivation.md`, et la proposition est ecrite a cote. Il doit
     pouvoir revenir en un geste sur un texte qu'il ne reconnait pas.
     """
-    from pathlib import Path as _P
-
     from . import affinement
 
     refus = _refus_sans_configuration_hors_conteneur()
@@ -540,9 +538,9 @@ def api_affiner(offre_id: int):
     offre = db.lire_offre(offre_id)
     if not offre:
         raise HTTPException(404, "offre inconnue")
-    if not offre.get("dossier_chemin"):
+    base = dossier.chemin_du_dossier(offre)
+    if base is None:
         raise HTTPException(400, "genere d'abord le dossier")
-    base = _P(offre["dossier_chemin"])
     source = base / "lettre-de-motivation.md"
     if not source.exists():
         raise HTTPException(404, "lettre introuvable")
@@ -558,17 +556,15 @@ def api_affiner(offre_id: int):
 @app.post("/api/offres/{offre_id}/affiner/appliquer", dependencies=[Depends(auth.exiger_session)])
 def api_appliquer_affinement(offre_id: int):
     """Il a relu et il garde la proposition : elle devient la lettre."""
-    from pathlib import Path as _P
-
     from . import dossier as _dossier
 
     refus = _refus_sans_configuration_hors_conteneur()
     if refus is not None:
         return refus
     offre = db.lire_offre(offre_id)
-    if not offre or not offre.get("dossier_chemin"):
+    base = dossier.chemin_du_dossier(offre) if offre else None
+    if base is None:
         raise HTTPException(404, "aucun dossier")
-    base = _P(offre["dossier_chemin"])
     proposition = base / "lettre-affinee.md"
     if not proposition.exists():
         raise HTTPException(404, "aucune proposition a appliquer")
@@ -602,8 +598,6 @@ def api_appliquer_affinement(offre_id: int):
 @app.post("/api/offres/{offre_id}/affiner/annuler", dependencies=[Depends(auth.exiger_session)])
 def api_annuler_affinement(offre_id: int):
     """Retour a la version assemblee, en un geste."""
-    from pathlib import Path as _P
-
     from . import dossier as _dossier
 
     # Le PDF refait porterait le prefixe de l'exemple (`rendu.prefixe()`).
@@ -611,11 +605,10 @@ def api_annuler_affinement(offre_id: int):
     if refus is not None:
         return refus
     offre = db.lire_offre(offre_id)
-    if not offre or not offre.get("dossier_chemin"):
+    base = dossier.chemin_du_dossier(offre) if offre else None
+    if base is None:
         raise HTTPException(404, "aucun dossier")
     from . import lettre as _lettre
-
-    base = _P(offre["dossier_chemin"])
 
     # LA VERSION ASSEMBLEE, VRAIMENT. On demande a l'historique la derniere
     # version etiquetee `assemblee`, et on ne se rabat sur
@@ -791,11 +784,9 @@ def api_entretien(offre_id: int):
         raise HTTPException(404, "offre inconnue")
 
     pieces: list[str] = []
-    chemin = offre.get("dossier_chemin")
-    if chemin:
-        d = Path(chemin)
-        if d.exists():
-            pieces = sorted(f.name for f in d.iterdir() if f.is_file())
+    d = dossier.chemin_du_dossier(offre)
+    if d is not None and d.exists():
+        pieces = sorted(f.name for f in d.iterdir() if f.is_file())
 
     prep = entretien.preparer(offre, pieces=pieces)
     corps = prep.as_dict()
@@ -848,9 +839,9 @@ def api_dossier(offre_id: int, forcer: bool = False):
 @app.get("/api/offres/{offre_id}/dossier/archive", dependencies=[Depends(auth.exiger_session)])
 def api_archive(offre_id: int, complet: bool = False):
     offre = db.lire_offre(offre_id)
-    if not offre or not offre.get("dossier_chemin"):
+    repertoire = dossier.chemin_du_dossier(offre) if offre else None
+    if repertoire is None:
         raise HTTPException(404, "aucun dossier genere pour cette offre")
-    repertoire = Path(offre["dossier_chemin"])
     # Par defaut on sert le paquet D'ENVOI : celui qui ne contient que les
     # pieces destinees au recruteur, sous les noms qu'il verra. Le dossier
     # complet — avec sa note de preparation — se demande explicitement.
@@ -872,9 +863,10 @@ def api_archive(offre_id: int, complet: bool = False):
 @app.get("/api/offres/{offre_id}/dossier/{nom_fichier}", dependencies=[Depends(auth.exiger_session)])
 def api_fichier_dossier(offre_id: int, nom_fichier: str):
     offre = db.lire_offre(offre_id)
-    if not offre or not offre.get("dossier_chemin"):
+    chemin = dossier.chemin_du_dossier(offre) if offre else None
+    if chemin is None:
         raise HTTPException(404, "aucun dossier genere")
-    base = Path(offre["dossier_chemin"]).resolve()
+    base = chemin.resolve()
     cible = (base / nom_fichier).resolve()
     # Barriere anti-traversee : le fichier demande doit rester dans le dossier.
     if not str(cible).startswith(str(base)) or not cible.is_file():

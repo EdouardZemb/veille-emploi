@@ -24,6 +24,7 @@ import re
 import shutil
 import unicodedata
 import zipfile
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -661,6 +662,24 @@ def regenerer_pdf(repertoire) -> dict[str, Any]:
         for f in pieces:
             z.write(base / f, arcname=rendu.nom_pour_envoi(f))
     return {"ok": True, "marqueurs_restants": r.marqueurs_restants}
+
+
+def chemin_du_dossier(offre: Mapping[str, Any]) -> Path | None:
+    """Ou est le dossier de cette offre, sur cette machine ?
+
+    La base garde le chemin absolu tel que la machine qui a genere le dossier l'a ecrit, et une
+    restauration change de machine : on ne s'y fie donc que pour le dernier segment, retrouve sous
+    `CHEMIN_DOSSIERS`. La barre oblique et la barre inverse separent toutes deux les segments
+    (une base venue de Windows).
+    Rend None si l'offre n'a pas de dossier, ou si ce segment ne nomme rien (`.`, `..`). Ne
+    verifie pas que le dossier existe."""
+    valeur = offre.get("dossier_chemin")
+    if not valeur:
+        return None
+    segments = [s for s in re.split(r"[/\\]", str(valeur)) if s]
+    if not segments or segments[-1] in (".", ".."):
+        return None
+    return CHEMIN_DOSSIERS / segments[-1]
 
 
 def generer(offre: dict[str, Any]) -> ResultatDossier:

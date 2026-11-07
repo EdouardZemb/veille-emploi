@@ -886,6 +886,23 @@ def compter_passkeys() -> int:
         return int(cx.execute("SELECT COUNT(*) FROM passkeys").fetchone()[0])
 
 
+TABLES_D_ACCES = ("passkeys", "sessions", "liens_connexion", "abonnements_push")
+
+
+def compter_acces() -> dict[str, int]:
+    """Le nombre de lignes de chaque table liee a une adresse."""
+    with connexion() as cx:
+        return {t: int(cx.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0])
+                for t in TABLES_D_ACCES}
+
+
+def effacer_acces() -> dict[str, int]:
+    """Efface toutes les lignes de ces tables, en une seule transaction, et rend le
+    nombre de lignes effacees par table."""
+    with connexion() as cx:
+        return {t: cx.execute(f"DELETE FROM {t}").rowcount for t in TABLES_D_ACCES}
+
+
 def lister_passkeys() -> list[dict]:
     """De quoi reconnaitre chaque passkey, sans sa cle publique ni son identifiant."""
     with connexion() as cx:

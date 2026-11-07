@@ -1323,3 +1323,27 @@ def test_les_deux_cv_restent_telechargeables():
         pytest.skip(SANS_KIT_REEL)
     presents = {f.name for f in kit.iterdir()}
     assert {"cv.fr.pdf", "cv.en.pdf", "cv.ch.en.pdf"} <= presents, sorted(presents)
+
+
+def test_le_dossier_se_retrouve_par_son_nom_sous_chemin_dossiers(monkeypatch, tmp_path):
+    monkeypatch.setattr(dossier, "CHEMIN_DOSSIERS", tmp_path / "sortie")
+    offre = {"dossier_chemin": "/home/ailleurs/console/donnees/dossiers/2026-10-01-testeuse"}
+    assert dossier.chemin_du_dossier(offre) == tmp_path / "sortie" / "2026-10-01-testeuse"
+
+
+def test_un_chemin_windows_donne_aussi_son_nom(monkeypatch, tmp_path):
+    monkeypatch.setattr(dossier, "CHEMIN_DOSSIERS", tmp_path / "sortie")
+    offre = {"dossier_chemin": "C:\\donnees\\dossiers\\2026-10-01-testeuse"}
+    assert dossier.chemin_du_dossier(offre) == tmp_path / "sortie" / "2026-10-01-testeuse"
+
+
+def test_un_nom_seul_reste_sous_chemin_dossiers(monkeypatch, tmp_path):
+    monkeypatch.setattr(dossier, "CHEMIN_DOSSIERS", tmp_path / "sortie")
+    assert dossier.chemin_du_dossier({"dossier_chemin": "2026-10-01-testeuse"}) == (
+        tmp_path / "sortie" / "2026-10-01-testeuse"
+    )
+
+
+@pytest.mark.parametrize("valeur", [None, "", ".", "..", "/", "dossiers/..", "\\"])
+def test_une_valeur_qui_ne_nomme_pas_de_dossier_ne_donne_rien(valeur):
+    assert dossier.chemin_du_dossier({"dossier_chemin": valeur}) is None

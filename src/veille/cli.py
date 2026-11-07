@@ -99,6 +99,27 @@ def cmd_lien(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_oublier_adresse(args: argparse.Namespace) -> int:
+    """Efface les passkeys, les sessions, les liens de connexion et les abonnements push.
+
+    Une passkey est liee au nom d'hote, un abonnement push et une session a
+    l'origine : apres la restauration d'une base servie ailleurs, aucun ne vaut
+    plus (ADR-0002, § 10, etape 4). Sans --oui, la commande compte et n'efface rien.
+    """
+    from . import db
+
+    db.initialiser()
+    if not args.oui:
+        for nom, n in db.compter_acces().items():
+            print(f"{nom} : {n}")
+        print("Rien n'est effacé sans --oui.")
+        return 64
+    for nom, n in db.effacer_acces().items():
+        print(f"{nom} effacé(s) : {n}")
+    print("`veille lien` enregistre la passkey de la nouvelle adresse.")
+    return 0
+
+
 def cmd_passkeys(args: argparse.Namespace) -> int:
     """Liste les passkeys ; `--retirer` en retire une et ferme toutes les sessions.
 
@@ -866,6 +887,14 @@ def principal(argv: list[str] | None = None) -> int:
     pk.add_argument("--retirer", type=int, metavar="ID",
                     help="retire cette passkey et ferme toutes les sessions")
     pk.set_defaults(fonction=cmd_passkeys)
+
+    oa = sp.add_parser("oublier-adresse",
+                       help="efface passkeys, sessions, liens et abonnements push (--oui)",
+                       description="Efface tous les accès, sans tri : passkeys, sessions, liens de "
+                                   "connexion et abonnements push. Après la restauration d'une base, "
+                                   "tous viennent de l'ancienne adresse. Sans --oui, compte seulement.")
+    oa.add_argument("--oui", action="store_true", help="efface pour de bon (sinon, compte seulement)")
+    oa.set_defaults(fonction=cmd_oublier_adresse)
 
     c = sp.add_parser("collecter", help="lance les collecteurs")
     c.add_argument("--source", action="append", choices=["france_travail", "courriel", "rss", "arbeitnow"])

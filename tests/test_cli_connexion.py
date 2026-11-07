@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from tests.authentificateur import b64url
 from veille import auth, cli, config, db
+from veille.models import Offre
 
 CREEE_LE = "2026-11-02T09:00:00+00:00"
 
@@ -145,3 +146,65 @@ def test_retirer_une_passkey_tout_ou_rien():
             cx.execute("DROP TRIGGER sessions_intouchables")
     assert auth.retirer_passkey(perdue) is True
     assert auth.lire_session(jeton) is None
+
+
+def _base_avec_acces(tmp_path, monkeypatch) -> None:
+    """Une base propre au test, avec une passkey, une session, un lien et un abonnement :
+    ces tests effacent des tables entieres, la base de la suite n'est pas la leur."""
+    monkeypatch.setattr(db, "CHEMIN_DB", tmp_path / "veille.sqlite3")
+    db.initialiser()
+    _passkey("Android")
+    auth.ouvrir_session("Android")
+    auth.creer_lien("serveur")
+    db.enregistrer_abonnement("https://push.exemple/abo", "cle", "secret")
+
+
+def test_oublier_adresse_sans_oui_compte_et_n_efface_rien(tmp_path, monkeypatch, capsys):
+    _base_avec_acces(tmp_path, monkeypatch)
+    avant = db.compter_acces()
+    assert avant == {"passkeys": 1, "sessions": 1, "liens_connexion": 1, "abonnements_push": 1}
+    assert cli.principal(["oublier-adresse"]) == 64
+    assert db.compter_acces() == avant
+    sortie = capsys.readouterr().out
+    for nom in avant:
+        assert f"{nom} : 1" in sortie
+    assert "Rien n'est effacé sans --oui." in sortie
+
+
+def test_oublier_adresse_avec_oui_efface_les_quatre(tmp_path, monkeypatch, capsys):
+    _base_avec_acces(tmp_path, monkeypatch)
+    db.enregistrer_offre(Offre(titre="Une offre", source="test", url="https://exemple.test/1"))
+    db.ecrire_reglage("seuil", "60")
+    offres = len(db.lister_offres())
+    reglage = db.lire_reglage("seuil")
+    assert offres == 1
+    assert cli.principal(["oublier-adresse", "--oui"]) == 0
+    assert db.compter_acces() == {"passkeys": 0, "sessions": 0, "liens_connexion": 0,
+                                  "abonnements_push": 0}
+    assert len(db.lister_offres()) == offres
+    assert db.lire_reglage("seuil") == reglage
+    assert "`veille lien` enregistre la passkey de la nouvelle adresse." in capsys.readouterr().out
+
+
+def test_oublier_adresse_sur_une_base_vide(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "CHEMIN_DB", tmp_path / "veille.sqlite3")
+    db.initialiser()
+    assert db.compter_acces() == {"passkeys": 0, "sessions": 0, "liens_connexion": 0,
+                                  "abonnements_push": 0}
+    assert cli.principal(["oublier-adresse", "--oui"]) == 0
+
+
+def test_oublier_adresse_tout_ou_rien(tmp_path, monkeypatch):
+    """Un echec sur la derniere table ne laisse rien d'efface."""
+    _base_avec_acces(tmp_path, monkeypatch)
+    avant = db.compter_acces()
+    with db.connexion() as cx:
+        cx.execute("CREATE TRIGGER abonnements_intouchables BEFORE DELETE ON abonnements_push"
+                   " BEGIN SELECT RAISE(ABORT, 'abonnements intouchables'); END")
+    try:
+        with pytest.raises(sqlite3.Error):
+            db.effacer_acces()
+        assert db.compter_acces() == avant
+    finally:
+        with db.connexion() as cx:
+            cx.execute("DROP TRIGGER abonnements_intouchables")
