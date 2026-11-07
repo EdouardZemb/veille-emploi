@@ -134,3 +134,8 @@ jobs:
               )
               sys.exit(1)
           FIN
+      - name: La documentation de la racine (licence, carte)
+        env:
+          DEPOT_PRIVE: ${{ github.event.repository.private }}
+          BRANCHE_DEFAUT: ${{ github.event.repository.default_branch }}
+        run: python scripts/modele/documentation.py

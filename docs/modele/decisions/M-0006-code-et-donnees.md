@@ -11,8 +11,8 @@
   `modele-projet`, sous `poste/` (§ 7) ; après un retour arrière par `--retour`, un geste qui ne
   change qu'une moitié de la cible ramène l'autre moitié du couple quitté (§ 6) ; en cible
   `serveur`, le dépôt de code est public (§ 1).
-- **Amendé** le 2026-11-04, avec le correctif #94 : à la scission, `env/` et `cles/` sont rendus à
-  neuf, et `.sops.yaml` se refait pour le nouveau chemin des secrets (§ 6).
+- **Amendé** le 2026-11-04, avec le correctif modele-projet#94 : à la scission, `env/` et `cles/`
+  sont rendus à neuf, et `.sops.yaml` se refait pour le nouveau chemin des secrets (§ 6).
 - **S'applique en deux temps.** D'abord la porte par nature et le gabarit de données (§ 1 à 4).
   Ensuite la chaîne à deux dépôts et les règles de chemins (§ 3, dernier point, § 5 à 7). Entre les
   deux, la chaîne lit encore tout dans le clone du code, comme avant.

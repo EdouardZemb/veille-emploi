@@ -45,3 +45,7 @@ Pour une vraie recherche, [ce que tu dois faire, toi](docs/DEMARRAGE.md) vient d
 ## Contribuer
 
 Projet personnel : aucune contribution n'est attendue.
+
+## Licence
+
+[MIT](LICENSE)
