@@ -172,17 +172,19 @@ def _chemin_contenu(base: Path, nom: str) -> Path:
 
 def lister_dossiers() -> list[dict[str, Any]]:
     """Les dossiers produits, du plus recent au plus ancien, avec leur offre."""
-    from . import db
+    from . import db, dossier
 
     if not CHEMIN_DOSSIERS.exists():
         return []
 
     # On rattache chaque dossier a son offre quand c'est possible : le nom
-    # seul ne dit pas le score ni le statut de la candidature.
+    # seul ne dit pas le score ni le statut de la candidature. Le nom est celui
+    # que retrouve `chemin_du_dossier` : une barre inverse separe aussi.
     par_chemin = {}
     for o in db.lister_offres(limite=1000, inclure_ecartees=True):
-        if o.get("dossier_chemin"):
-            par_chemin[Path(o["dossier_chemin"]).name] = o
+        chemin = dossier.chemin_du_dossier(o)
+        if chemin is not None:
+            par_chemin[chemin.name] = o
 
     resultats = []
     for repertoire in sorted(CHEMIN_DOSSIERS.iterdir(), reverse=True):

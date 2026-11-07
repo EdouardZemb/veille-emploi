@@ -194,6 +194,30 @@ def test_un_dossier_genere_apparait_et_se_telecharge(client, kit, tmp_path, monk
     assert r.headers["content-disposition"].startswith("attachment")
 
 
+def test_un_dossier_ecrit_en_barres_inverses_retrouve_son_offre(client, tmp_path, monkeypatch):
+    """Une base venue de Windows : la liste rattache le dossier a son offre par son nom, comme
+    `dossier.chemin_du_dossier` le retrouve. Le serveur est sous Linux, ou la barre inverse
+    n'est pas un separateur : `PurePosixPath` y tient lieu de `Path`, sous Windows aussi."""
+    from pathlib import PurePosixPath
+
+    from veille.models import Offre
+    from veille.scoring import scorer
+
+    nom = "2026-10-01_exemplia_test-engineer"
+    (tmp_path / "sortie" / nom).mkdir(parents=True)
+    (tmp_path / "sortie" / nom / "fiche-offre.md").write_text("Fiche", encoding="utf-8")
+    offre = scorer(Offre(titre="Test Engineer", employeur="Exemplia", lieu="Basel",
+                         description="You will own the test strategy with us.", source="test"))
+    oid, _ = db.enregistrer_offre(offre)
+    db.maj_champs(oid, dossier_chemin="C:\\donnees\\dossiers\\" + nom)
+    monkeypatch.setattr(documents, "Path", PurePosixPath)
+
+    liste = client.get("/api/documents/dossiers").json()["dossiers"]
+    entree = next(d for d in liste if d["dossier"] == nom)
+    assert entree["offre_id"] == oid
+    assert entree["titre"] == "Test Engineer"
+
+
 def test_aucun_chemin_ne_sort_des_dossiers_generes(client, tmp_path, monkeypatch):
     monkeypatch.setattr(documents, "CHEMIN_DOSSIERS", tmp_path / "sortie")
     (tmp_path / "sortie").mkdir(exist_ok=True)
