@@ -7,6 +7,8 @@ tests unitaires ne voyaient rien, seul un appel HTTP reel le montrait.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -228,6 +230,24 @@ def test_dossier_refuse_de_sortir_de_son_repertoire(connecte):
     connecte.post(f"/api/offres/{oid}/dossier")
     r = connecte.get(f"/api/offres/{oid}/dossier/..%2F..%2F..%2Fetc%2Fpasswd")
     assert r.status_code == 404
+
+
+def test_un_dossier_d_une_autre_arborescence_s_ouvre_par_son_nom(connecte):
+    oid = connecte.get("/api/offres?inclure_ecartees=true").json()["offres"][0]["id"]
+    connecte.post(f"/api/offres/{oid}/dossier")
+    nom = Path(db.lire_offre(oid)["dossier_chemin"]).name
+    db.maj_champs(oid, dossier_chemin="/ailleurs/donnees/dossiers/" + nom)
+    archive = connecte.get(f"/api/offres/{oid}/dossier/archive")
+    assert archive.status_code == 200
+    assert archive.content.startswith(b"PK")
+    assert connecte.get(f"/api/offres/{oid}/dossier/fiche-offre.md").status_code == 200
+
+
+def test_un_dossier_nomme_point_point_est_introuvable(connecte):
+    oid = connecte.get("/api/offres?inclure_ecartees=true").json()["offres"][0]["id"]
+    db.maj_champs(oid, dossier_chemin="..")
+    assert connecte.get(f"/api/offres/{oid}/dossier/archive").status_code == 404
+    assert connecte.get(f"/api/offres/{oid}/dossier/fiche-offre.md").status_code == 404
 
 
 # --------------------------------------------------------------------------

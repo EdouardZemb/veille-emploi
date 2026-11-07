@@ -20,7 +20,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tests.test_instantane import source  # noqa: F401  (la fixture : des données vivantes)
-from veille import collecte, config, db, instantane, planificateur
+from veille import collecte, config, db, dossier, instantane, planificateur
 from veille.app import app
 
 RACINE = config.RACINE
@@ -377,20 +377,22 @@ GESTES_SUR_UNE_OFFRE = (
 )
 
 
-def _une_offre(dossier: Path | None = None) -> int:
-    """Une offre en base ; avec `dossier`, un dossier déjà généré, sa lettre et une proposition
-    d'affinement : sans refus, chaque geste irait jusqu'à son travail."""
+def _une_offre(nom_dossier: str | None = None) -> int:
+    """Une offre en base ; avec `nom_dossier`, un dossier déjà généré sous `CHEMIN_DOSSIERS` (la
+    console le retrouve par son nom), sa lettre et une proposition d'affinement : sans refus,
+    chaque geste irait jusqu'à son travail."""
     from veille.models import Offre
 
     offre_id, _ = db.enregistrer_offre(Offre(
         titre="Testeuse logiciel", employeur="Entreprise d'essai", lieu="Ville d'essai",
         description="Tests fonctionnels.", url="https://offres.exemple.invalid/1"))
-    if dossier is not None:
-        dossier.mkdir()
+    if nom_dossier is not None:
+        repertoire = dossier.CHEMIN_DOSSIERS / nom_dossier
+        repertoire.mkdir(parents=True)
         for nom in ("lettre-de-motivation.md", "lettre-assemblee.md", "lettre-affinee.md"):
-            (dossier / nom).write_text("Madame, Monsieur,\n\nUne lettre d'essai.\n",
+            (repertoire / nom).write_text("Madame, Monsieur,\n\nUne lettre d'essai.\n",
                                        encoding="utf-8")
-        db.maj_champs(offre_id, dossier_chemin=str(dossier))
+        db.maj_champs(offre_id, dossier_chemin=str(repertoire))
     return offre_id
 
 
@@ -414,7 +416,7 @@ def test_sans_conteneur_ni_configuration_une_offre_ne_se_travaille_pas(
                             lambda *_a, _nom=nom, **_k: appels.append(_nom))
     with TestClient(app, follow_redirects=False) as c:
         connecter(c)
-        offre_id = _une_offre(tmp_path / "dossier")
+        offre_id = _une_offre(tmp_path.name)
         r = c.request(methode, chemin.format(id=offre_id), json=_avec_l_offre(corps, offre_id))
     assert r.status_code == 409, r.text
     assert r.json() == {"erreur": "configuration_non_designee"}
