@@ -9,6 +9,13 @@ Trois lectures par `gh`, lancées ensemble, dans un budget total de BUDGET secon
 Ce qu'un fork peut écrire (le titre d'une PR, le nom d'un workflow absent de la copie) n'est pas
 recopié : il entrerait dans le contexte de Claude.
 
+Puis une section « documentation », pendant que les lectures tournent : le gabarit resté vide,
+`gabarits_vides` de `documentation.py`, lu dans la racine du dépôt sans sous-processus. Un constat
+donne la ligne `documentation : <constat>`, plusieurs un titre `documentation :` et une ligne
+`- <constat>` chacun, au plus MAX_ELEMENTS ; rien à signaler n'ajoute rien. Ses lignes suivent
+celles de la CI et nomment des chemins, jamais un contenu. Une erreur du contrôle donne
+`documentation : non lue (erreur)`, et laisse les signaux de la CI.
+
 Le script écrit sur la sortie standard un seul objet JSON (`systemMessage` pour l'utilisateur,
 `additionalContext` pour Claude) et rend toujours 0 : il ne bloque jamais une session, exception
 comprise. Le texte tient en PLAFOND caractères. Une lecture impossible est dite, jamais passée
@@ -28,8 +35,10 @@ import shutil
 import subprocess
 import sys
 import time
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 BUDGET = 10.0  # secondes, pour tous les sous-processus d'une invocation (délai du hook : 30)
 # `datetime.UTC` n'existe qu'à partir de Python 3.11.
@@ -216,10 +225,19 @@ def _compte(n: int, singulier: str, pluriel: str) -> str:
     return f"{n} {singulier if n < 2 else pluriel}"
 
 
-def composer(branche: str, runs, prs, workflows, maintenant: datetime, racine: str = ".") -> str:
+def composer(
+    branche: str,
+    runs,
+    prs,
+    workflows,
+    maintenant: datetime,
+    racine: str = ".",
+    documentation: Sequence[str] = (),
+) -> str:
     """Le texte du message ; chaque lecture est le couple (liste ou None, motif) de `lire`.
 
-    Les chemins des workflows se lisent dans `racine`. Le texte ne dépasse pas PLAFOND."""
+    Les chemins des workflows se lisent dans `racine`. Les constats de `documentation` suivent les
+    lignes de la CI, quelle que soit leur forme. Le texte ne dépasse pas PLAFOND."""
     lignes: list[str] = []
     comptes: list[str] = []  # ceux des lectures faites seulement
     if runs[0] is not None:
@@ -263,6 +281,13 @@ def composer(branche: str, runs, prs, workflows, maintenant: datetime, racine: s
             )
             sortie.append(f"- non lues : {groupes}")
         texte = "\n".join(sortie)
+    if len(documentation) == 1:
+        texte += "\n" + _borner(f"documentation : {documentation[0]}")
+    elif documentation:
+        suite = ["documentation :", *(f"- {c}" for c in documentation[:MAX_ELEMENTS])]
+        if len(documentation) > MAX_ELEMENTS:
+            suite.append(f"… et {len(documentation) - MAX_ELEMENTS} de plus")
+        texte += "\n" + "\n".join(map(_borner, suite))
     return texte if len(texte) <= PLAFOND else texte[: PLAFOND - 1] + "…"
 
 
@@ -296,6 +321,17 @@ def _racine_du_depot(echeance: float) -> str:
     return "."
 
 
+def _documentation(racine: str) -> list[str]:
+    """Les constats du gabarit resté vide dans `racine`, sans sous-processus ; `non lue (erreur)`
+    sur toute exception, celle de l'import comprise. `documentation` n'est importé qu'ici."""
+    try:
+        import documentation
+
+        return documentation.gabarits_vides(Path(racine))
+    except Exception:  # noqa: BLE001 - une erreur du contrôle laisse les signaux de la CI
+        return ["non lue (erreur)"]
+
+
 class _Analyseur(argparse.ArgumentParser):
     def error(self, message: str):
         raise ValueError(message)  # jamais de sortie ni de SystemExit : main rend toujours son JSON
@@ -326,8 +362,12 @@ def main(argv: list[str] | None = None) -> int:
         ]  # fmt: skip
         with ThreadPoolExecutor(max_workers=3) as pool:
             futurs = [pool.submit(lire, a, cwd, echeance) for a in lectures]
+            documentation = _documentation(cwd)  # pendant les lectures de gh
             runs, prs, workflows = (f.result() for f in futurs)
-        texte = composer(branche, runs, prs, workflows, datetime.now(UTC), racine=cwd)
+        maintenant = datetime.now(UTC)
+        texte = composer(
+            branche, runs, prs, workflows, maintenant, racine=cwd, documentation=documentation
+        )
     except Exception:  # noqa: BLE001 - jamais d'exception vers la session
         texte = "signaux de la CI : non lus (erreur interne)"
     print(sortie_hook(texte))

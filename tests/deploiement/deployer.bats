@@ -1272,7 +1272,8 @@ exit 0
 }
 
 # Une autre racine, que charger_env vient de créer vide : le refus dit « changé », pas « vide », et
-# le journal donne les deux chemins. C'est le cas premier de l'issue #49, une racine mal réglée.
+# le journal donne les deux chemins. C'est le cas premier de l'issue modele-projet#49, une racine
+# mal réglée.
 @test "une_autre_racine_vide_est_dite_changee" {
   local racine="$VEILLE_EMPLOI_RACINE_DONNEES" autre="$BATS_TEST_TMPDIR/autre" ancien
   deployer prod "$ANCIENNE" 0.1.0

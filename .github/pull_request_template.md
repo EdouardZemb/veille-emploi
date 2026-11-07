@@ -9,6 +9,7 @@
 - [ ] Tests verts
 - [ ] CI verte
 - [ ] `CLAUDE.md` et ADR à jour si la PR change une règle ou une décision
+- [ ] README relu, à la clôture d'un lot (`docs/modele/documentation.md`)
 
 ## Reste ouvert
 

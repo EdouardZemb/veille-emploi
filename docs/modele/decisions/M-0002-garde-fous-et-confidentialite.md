@@ -12,9 +12,11 @@
 - **Amendé** le 2026-10-29, avec le lot 12 : dans un dépôt de code, la porte refuse aussi les
   fichiers de l'instance, lus sur leur chemin, et toute clé publique `age` ; le garde refuse l'envoi
   d'une étiquette de données (M-0006, § 3 et § 6)
-- **Amendé** le 2026-11-04, avec le correctif #94 : en cible `donnees`, la porte des fichiers
-  masqués examine aussi l'instance, dont les secrets chiffrés, et son remède n'admet que ce qu'elle
-  examine, par des lignes ancrées
+- **Amendé** le 2026-11-04, avec le correctif modele-projet#94 : en cible `donnees`, la porte des
+  fichiers masqués examine aussi l'instance, dont les secrets chiffrés, et son remède n'admet que ce
+  qu'elle examine, par des lignes ancrées
+- **Amendé** le 2026-11-06, avec le lot 14 : la CI refuse aussi la licence et la carte de la racine,
+  et le hook `SessionStart` signale un gabarit resté vide que le README lie
 - **Contexte amont** : M-0001 (les garde-fous de qualité comme condition d'entrée)
 
 ## Contexte
@@ -135,7 +137,17 @@ pas de la discipline de celui qui travaille ?
   PR ou un workflow venus d'ailleurs que le dépôt s'affichent sans le texte qu'ils portent. Une PR
   d'un fork paraît ainsi sans titre ni nom de contrôle, un workflow absent de la copie, sans son
   nom. La CI du socle exige ce hook comme elle exige le garde : sans lui, un rouge passerait
-  inaperçu jusqu'à la prochaine PR.
+  inaperçu jusqu'à la prochaine PR. Il signale aussi un gabarit resté vide que le README lie, et un
+  README qui ne lie aucun document du dépôt (amendement du 2026-11-06) : personne n'ouvre une
+  exécution verte, et ce hook est le seul canal qu'une session lit. Ce contrôle avertit, sans
+  jamais refuser, et lit la copie sans lancer de sous-processus.
+- **La CI refuse la licence et la carte de la racine** (amendement du 2026-11-06), par
+  `scripts/modele/documentation.py`, à la dernière étape du job `confidentialite` du socle, déjà
+  requis par la règle de protection. En nature `code`, `LICENSE` doit être présent et non vide ; la
+  nature s'y lit comme la lit la porte, jamais dans la PR. Dans tout dépôt, chaque fichier `.md` de
+  la racine, sauf `README.md`, est lié par un lien Markdown, `CLAUDE.md` depuis le README, un autre
+  depuis le README ou depuis « Ce qui fait foi » de `CLAUDE.md` : un nom entre accents graves ne se
+  suit pas ; `README.md` et `CLAUDE.md` doivent exister.
 - **Le modèle lui-même est public.** Rien de ce qu'il contient ne nomme le serveur, son utilisateur
   ou son réseau.
 - **Un refus se corrige, il ne se contourne jamais.**
