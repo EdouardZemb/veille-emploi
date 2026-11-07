@@ -36,6 +36,7 @@ Sur une console sans conteneur (la console du tailnet), depuis son clone, à la 
 
 - `git pull --ff-only && ./.venv/bin/pip install -e ".[pdf,dev]" && systemctl --user restart veille-web.service && ./.venv/bin/veille empreintes-kit` : mettre l'outil à jour. La collecte relit le code à chaque passage. L'extra `dev` porte `pytest`, que demande la suite (constat LE-10).
 - `./.venv/bin/veille etat` : l'état de la console.
+- `systemctl --user status veille-web.service`, `systemctl --user list-timers veille-collecte.timer`, `journalctl --user -u veille-web.service -f` et `journalctl --user -u veille-collecte.service -n 50` : les deux services et leurs journaux.
 - `SUITE_COMPLETE=1 PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -m pytest -q -rs -p no:cacheprovider` : la suite, entière. Attendu : 0 échec, et des tests sautés exprès. Six se sautent partout : les trois de `test_kit_fige` (« pas de kit ici »), et trois qui lisaient le kit réel : `test_aucun_gabarit_du_kit_ne_porte_de_caractere_douteux`, `test_aucun_gabarit_ne_porte_de_signature_de_mauvais_encodage` et `test_les_deux_cv_restent_telechargeables` (`test_dossier`). La suite ne lit que des fixtures (`VEILLE_ENV` désigne un fichier absent, `VEILLE_KIT` les gabarits de l'exemple) ; le kit réel se vérifie par `./.venv/bin/veille empreintes-kit`. Un échec sur WeasyPrint, systemd ou les groupes de processus est une dépendance perdue sur le serveur, pas un test à faire taire. La suite tourne dans un dossier temporaire, même si une variable `VEILLE_*` est exportée (`tests/test_isolation.py`).
 
 Pour le conteneur (voir `docs/exploitation.md`) :
@@ -45,7 +46,14 @@ Pour le conteneur (voir `docs/exploitation.md`) :
 - `sh tests/deploiement/lancer.sh` : le banc de tests du déploiement, qui demande Docker.
 - `copier update` sous Git Bash demande `MSYS_NO_PATHCONV=1`, sinon `/sante` est réécrit en chemin Windows. Le dossier `.superpowers/` est à sortir du dépôt le temps de la mise à jour : copier le prend pour un arbre sale.
 
-Le reste des commandes est dans `README.md`.
+La ligne de commande, `veille`, sur toute console (`veille --help` les liste toutes) :
+
+- `veille servir` : la console, sur `127.0.0.1:8460` par défaut.
+- `veille collecter` (tous les collecteurs ; `--source courriel --jours 3` pour une seule) et `veille rescorer` (après un changement de critères) : ils refusent sans configuration désignée, puisqu'ils noteraient les offres avec l'exemple.
+- `veille etat` : le résumé de la base. Sa ligne `notification` dit si le push et le repli mail ont échoué.
+- `veille config verifier <dossier>` : la configuration est-elle saine ? 0, 2 ou 64.
+- `veille tester-sources`, `veille tester-mail`, `veille tester-notification [--envoyer]` et `veille kit` : ce qui marche déjà et ce qui attend une action, source par source ; le canal IMAP, étape par étape ; le push et le repli mail ; ce qui partirait dans un dossier.
+- `veille lien` : un lien à usage unique (24 h) pour enregistrer une passkey. `veille passkeys` les liste, et `--retirer <n°>` révoque celle d'un appareil perdu.
 
 ## Ce qui fait foi
 
@@ -58,7 +66,8 @@ Le reste des commandes est dans `README.md`.
 - Ce qui tourne sur le tailnet, c'est le clone du code sur le serveur, sur `principal`, avec sa configuration dans un clone du dépôt de données : une correction n'y arrive que par `git pull`.
 - Les critères de score, ce sont le `config/criteres.yaml` du dépôt de données (la configuration de l'instance ; le code tourne par défaut sur `exemple/`) et `docs/CRITERES.md`. Le seuil de notification et la fréquence de collecte se règlent dans Réglages. Le seuil vit en base (table `reglages`), et `seuil_interessant` du YAML n'en est que la graine, importée au premier démarrage. La fréquence vit en base en conteneur, et dans l'unité systemd `veille-collecte.timer` sur la console du tailnet (`src/veille/reglages.py`).
 - Ce qui tourne dans le conteneur, c'est `deploiement/` (les fichiers gérés par le modèle, `projet.env`, `compose.projet.yml`, les `.cles`) et `docs/exploitation.md`.
-- Le mode d'emploi, c'est `README.md` et les documents qu'il liste. Ce qui est propre à l'instance réelle (le serveur, ses chemins et ses adresses, les arbitrages et les constats sur sa base), c'est le dépôt de données : son `CLAUDE.md` et son `docs/`, où chaque document porte le nom de son document d'origine.
+- Le besoin de départ, ce sont [le brief](docs/00-brief-initial.md) et [le cadrage](docs/cadrage.md), figés. Le projet est antérieur au modèle : ils disent quels documents en tiennent lieu.
+- Le mode d'emploi, c'est [le README](README.md) et les documents qu'il liste. Ce qui est propre à l'instance réelle (le serveur, ses chemins et ses adresses, les arbitrages et les constats sur sa base), c'est le dépôt de données : son `CLAUDE.md` et son `docs/`, où chaque document porte le nom de son document d'origine.
 
 ## Invariants — ne jamais violer
 
