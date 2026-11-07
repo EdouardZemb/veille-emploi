@@ -42,7 +42,7 @@ Sur une console sans conteneur (la console du tailnet), depuis son clone, à la 
 Pour le conteneur (voir `docs/exploitation.md`) :
 
 - `veille instantane creer <dossier>` et `veille instantane verifier <dossier>` : l'instantané de `/donnees` que le modèle sauvegarde et restaure (`deploiement/projet.env`). `verifier` rend 0 (sain), 2 (non sain) ou 64 (usage).
-- `veille oublier-adresse [--oui]` : efface les passkeys, les sessions, les liens de connexion et les abonnements push, liés à l'adresse d'où vient une base restaurée (`docs/exploitation.md`, « La bascule depuis une console sans conteneur »). Sans `--oui`, elle les compte, n'efface rien et rend 64 ; avec, elle les efface en une transaction et rend 0.
+- `veille oublier-adresse [--oui]` : efface tous les accès, sans tri : toutes les passkeys, les sessions, les liens de connexion et les abonnements push. En prod, juste après la restauration d'une base servie à une autre adresse, tous viennent de cette ancienne adresse (`docs/exploitation.md`, « La bascule depuis une console sans conteneur »). Sans `--oui`, elle les compte, n'efface rien et rend 64 ; avec, elle efface toutes leurs lignes en une transaction et rend 0.
 - `veille factice` : charge le jeu de `factice/` dans une base vide (le staging le fait seul au démarrage).
 - `sh tests/deploiement/lancer.sh` : le banc de tests du déploiement, qui demande Docker.
 - `copier update` sous Git Bash demande `MSYS_NO_PATHCONV=1`, sinon `/sante` est réécrit en chemin Windows. Le dossier `.superpowers/` est à sortir du dépôt le temps de la mise à jour : copier le prend pour un arbre sale.

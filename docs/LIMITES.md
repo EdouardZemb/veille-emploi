@@ -94,9 +94,11 @@ présent** :
 **Jamais de tâche planifiée qui navigue sans lui.** Aucune unité systemd,
 aucun cron, aucun déclencheur de ce projet ne doit piloter un navigateur.
 
-Les seules tâches automatiques du dispositif sont `veille-collecte.timer`
-(API, RSS, IMAP) et `veille-web.service` (la console). Ni l'une ni l'autre
-n'ouvre de navigateur.
+Les seules tâches automatiques du dispositif sont le planificateur de la
+console (la purge des sessions et des liens expirés et, en prod, la collecte :
+API, RSS, IMAP) et les minuteries du serveur (la sonde, la sauvegarde et son
+test) ; sur une console sans conteneur, `veille-collecte.timer` collecte et
+`veille-web.service` sert la console. Aucune n'ouvre de navigateur.
 
 ---
 

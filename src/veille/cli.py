@@ -890,7 +890,9 @@ def principal(argv: list[str] | None = None) -> int:
 
     oa = sp.add_parser("oublier-adresse",
                        help="efface passkeys, sessions, liens et abonnements push (--oui)",
-                       description="Efface les accès liés à une ancienne adresse ; sans --oui, compte seulement.")
+                       description="Efface tous les accès, sans tri : passkeys, sessions, liens de "
+                                   "connexion et abonnements push. Après la restauration d'une base, "
+                                   "tous viennent de l'ancienne adresse. Sans --oui, compte seulement.")
     oa.add_argument("--oui", action="store_true", help="efface pour de bon (sinon, compte seulement)")
     oa.set_defaults(fonction=cmd_oublier_adresse)
 

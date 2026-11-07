@@ -1339,7 +1339,9 @@ def test_un_chemin_windows_donne_aussi_son_nom(monkeypatch, tmp_path):
 
 def test_un_nom_seul_reste_sous_chemin_dossiers(monkeypatch, tmp_path):
     monkeypatch.setattr(dossier, "CHEMIN_DOSSIERS", tmp_path / "sortie")
-    assert dossier.chemin_du_dossier({"dossier_chemin": "2026-10-01-testeuse"}) ==         tmp_path / "sortie" / "2026-10-01-testeuse"
+    assert dossier.chemin_du_dossier({"dossier_chemin": "2026-10-01-testeuse"}) == (
+        tmp_path / "sortie" / "2026-10-01-testeuse"
+    )
 
 
 @pytest.mark.parametrize("valeur", [None, "", ".", "..", "/", "dossiers/..", "\\"])
