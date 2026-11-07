@@ -68,6 +68,8 @@ node_modules/
 # ---- ajoute le 2026-10-17, avec l'alignement sur modele-projet ----
 # Les reglages locaux de Claude Code : propres a chaque poste, jamais partages.
 .claude/settings.local.json
+# Les consignes locales de Claude Code, comme dans le .gitignore seme du modele (v0.9.0).
+CLAUDE.local.md
 
 # ---- ajoute le 2026-10-28, avec le passage en cible serveur du modele ----
 # Les fichiers du modele que les motifs ci-dessus masquent (porte des fichiers
