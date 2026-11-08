@@ -1,6 +1,6 @@
 # ADR-0003 — Le parcours jusqu'à la candidature : une file, une fiche par état, un bouton
 
-- **Statut** : proposé le 2026-11-08
+- **Statut** : accepté le 2026-11-08, proposé le même jour
 - **Contexte amont** : la demande d'Edouard du 2026-11-08, « simplifier le système et le rendre plus
   direct sur les fonctionnalités, jusqu'à une candidature », cadrée le même jour (13 questions, les
   réponses par défaut retenues) ; `docs/CANDIDATURE.md` ; `docs/FONCTIONNEMENT.md` ; ADR-0002 (la
