@@ -53,6 +53,29 @@ jobs:
           SUITE_COMPLETE: "1"
         run: python -m pytest -q -rs -p no:cacheprovider
 
+  # La mutation des états du parcours (ADR-0003) : un mutant qui survit fait échouer le job, et
+  # chaque survivant appelle un test de plus. mutmut ne tourne pas sous Windows : ce job est la
+  # seule vérification.
+  mutation:
+    name: mutation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - name: Installer
+        run: pip install -e ".[dev]" "mutmut==3.8.1"
+      - name: Mutation de src/veille/etats.py
+        run: mutmut run
+      - name: Aucun mutant ne survit
+        run: |
+          mutmut results | tee resultats.txt
+          ! grep -E ': (survived|no tests|timeout|suspicious)$' resultats.txt
+
   navigateur:
     name: navigateur
     runs-on: ubuntu-latest

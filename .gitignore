@@ -89,3 +89,6 @@ deploiement/secrets/*
 # Les fichiers de travail des sessions (plans d'execution, rapports), comme dans
 # le .gitignore du modele : non suivis, ils faisaient voir a copier un arbre sale.
 .superpowers/
+
+# La copie mutée que mutmut écrit (la mutation tourne en CI, pas sous Windows).
+/mutants/

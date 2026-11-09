@@ -46,3 +46,8 @@ veille = ["static/*", "templates/*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.mutmut]
+paths_to_mutate = ["src/veille/etats.py"]
+pytest_add_cli_args_test_selection = ["tests/test_etats.py"]
+also_copy = ["exemple"]
