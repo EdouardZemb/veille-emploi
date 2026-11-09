@@ -155,3 +155,47 @@ def test_les_candidatures_se_groupent():
     assert _ids(g["envoyee"]) == [4, 3, 5]
     assert _ids(g["entretien"]) == [6]
     assert all(o["etat"] for liste in g.values() for o in liste)
+
+
+def test_les_entretiens_se_trient_par_score_puis_par_collecte():
+    offres = [
+        _o(1, "entretien", 40),
+        _o(2, "entretien", 80),
+        _o(3, "entretien", 40, date_collecte="2026-11-05T08:00:00"),
+    ]
+    assert _ids(etats.grouper_candidatures(offres)["entretien"]) == [2, 3, 1]
+
+
+def test_les_je_postule_se_trient_par_score_puis_par_collecte():
+    offres = [
+        _o(1, "interessante", 40),
+        _o(2, "interessante", 80),
+        _o(3, "interessante", 40, date_collecte="2026-11-05T08:00:00"),
+    ]
+    assert _ids(etats.grouper_candidatures(offres)["je_postule"]) == [2, 3, 1]
+
+
+def test_les_envoyees_a_echeance_egale_le_meilleur_score_d_abord():
+    offres = [
+        _o(1, "candidature_envoyee", 30, date_relance_due="2026-11-25"),
+        _o(2, "relance_envoyee", 70, date_relance_due="2026-11-25"),
+        _o(3, "reponse_recue", 20),
+        _o(4, "reponse_recue", 90),
+    ]
+    assert _ids(etats.grouper_candidatures(offres)["envoyee"]) == [2, 1, 4, 3]
+
+
+def test_une_a_traiter_sous_le_seuil_reste_dans_plus_tard():
+    file = etats.composer_a_faire([_o(1, "a_traiter", 10)], 45, AUJ)
+    assert _ids(file["plus_tard"]) == [1]
+    assert file["a_voir"] == []
+
+
+def test_une_offre_sans_date_de_collecte_se_trie_apres_celle_qui_en_a_une():
+    sans = {"id": 1, "statut": "nouveau", "score": 60}
+    avec = _o(2, "nouveau", 60)
+    file = etats.composer_a_faire([sans, avec], 45, AUJ)
+    assert _ids(file["a_voir"]) == [2, 1]
+    sans_none = {**sans, "date_collecte": None}
+    file = etats.composer_a_faire([sans_none, avec], 45, AUJ)
+    assert _ids(file["a_voir"]) == [2, 1]
