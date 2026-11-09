@@ -69,7 +69,8 @@ def _par_relance(offres: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Échéance croissante, les dates absentes en dernier ; puis le meilleur score."""
     return sorted(
         _par_score(offres),
-        key=lambda o: (o.get("date_relance_due") is None, o.get("date_relance_due") or ""),  # pragma: no mutate
+        # Le 1er élément sépare date absente et présente : None n'est jamais comparé à une chaîne.
+        key=lambda o: (o.get("date_relance_due") is None, o.get("date_relance_due")),
     )
 
 
