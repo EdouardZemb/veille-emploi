@@ -232,7 +232,7 @@ def cmd_verifier(args: argparse.Namespace) -> int:
               f"(tu les as triees ou tu as genere un dossier).")
     if r.archivees:
         print()
-        print(f"{len(r.archivees)} offre(s) archivees. Onglet Archive pour les voir, "
+        print(f"{len(r.archivees)} offre(s) archivees. Plus › Archive pour les voir, "
               f"« Remettre dans le flux » si l'une y est a tort.")
     else:
         print()

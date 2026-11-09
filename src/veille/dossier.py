@@ -567,7 +567,7 @@ def _choisir_lettre(offre: dict[str, Any]) -> tuple[Path | None, str]:
             f"ete generee : une lettre dans la mauvaise langue est "
             f"eliminatoire, un dossier incomplet ne l'est pas. "
             f"Si tu veux repondre quand meme, ecris-la a la main — ou "
-            f"telecharge les pieces depuis l'onglet Documents et compose "
+            f"telecharge les pieces depuis Plus › Documents et compose "
             f"l'envoi toi-meme."
         )
     return None, (
@@ -780,17 +780,17 @@ def generer(offre: dict[str, Any]) -> ResultatDossier:
             f"AUCUNE PIECE ETIQUETEE PAR LANGUE N'A ETE JOINTE : l'annonce est "
             f"en {langue_lisible(langue)}, et tes pieces sont etiquetees fr ou "
             f"en. Ecartees : {', '.join(ecartees)}. Tu peux les telecharger "
-            f"depuis l'onglet Documents si tu decides de repondre quand meme."
+            f"depuis Plus › Documents si tu decides de repondre quand meme."
         )
     if supplantees:
         avertissements.append(
             f"Version moins spécifique non jointe : {', '.join(supplantees)}. "
-            f"Si tu préfères l'autre, télécharge-la depuis l'onglet Documents."
+            f"Si tu préfères l'autre, télécharge-la depuis Plus › Documents."
         )
     if manuelles:
         avertissements.append(
-            f"Jamais jointe automatiquement, téléchargeable depuis l'onglet "
-            f"Documents si on te la demande : {', '.join(manuelles)}"
+            f"Jamais jointe automatiquement, téléchargeable depuis "
+            f"Plus › Documents si on te la demande : {', '.join(manuelles)}"
         )
     if not any(f.lower().endswith(".pdf") for f in fichiers):
         avertissements.append("Aucun CV PDF retenu pour cette offre : à vérifier avant envoi.")
