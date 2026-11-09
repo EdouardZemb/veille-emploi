@@ -199,3 +199,29 @@ def test_une_offre_sans_date_de_collecte_se_trie_apres_celle_qui_en_a_une():
     sans_none = {**sans, "date_collecte": None}
     file = etats.composer_a_faire([sans_none, avec], 45, AUJ)
     assert _ids(file["a_voir"]) == [2, 1]
+
+
+def test_un_statut_inconnu_est_nomme_dans_l_erreur():
+    with pytest.raises(ValueError, match="statut sans état.*'inconnu'"):
+        etats.etat_de({"statut": "inconnu"})
+
+
+def test_un_score_absent_passe_apres_un_score_fractionnaire():
+    offres = [_o(1, "entretien", None), _o(2, "entretien", 0.5)]
+    assert _ids(etats.grouper_candidatures(offres)["entretien"]) == [2, 1]
+
+
+def test_la_limite_de_a_voir_vaut_cinquante_par_defaut():
+    offres = [_o(i, "nouveau", 50) for i in range(51)]
+    file = etats.composer_a_faire(offres, 45, AUJ)
+    assert len(file["a_voir"]) == 50
+    assert file["a_voir_restantes"] == 1
+
+
+def test_une_offre_archivee_n_arrete_pas_la_composition():
+    offres = [_o(1, "nouveau", 80, archivee_le="2026-11-10"),
+              _o(2, "nouveau", 70),
+              _o(3, "interessante")]
+    file = etats.composer_a_faire(offres, 45, AUJ)
+    assert _ids(file["a_voir"]) == [2]
+    assert _ids(file["a_finir"]) == [3]
