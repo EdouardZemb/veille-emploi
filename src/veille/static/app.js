@@ -62,20 +62,33 @@ const niveau = s => (s >= SEUIL ? 'bonne' : s >= SEUIL / 2 ? 'moyenne' : 'faible
 // Rendu d'une offre
 // ---------------------------------------------------------------------------
 
+// Le salaire publié, ou son absence : la carte d'une offre et celle de « À voir ».
+function etiquetteSalaire(o) {
+  if (!o.salaire_min && !o.salaire_max) {
+    return '<span class="etiquette alerte">salaire non publie</span>';
+  }
+  const s = o.salaire_min && o.salaire_max && o.salaire_min !== o.salaire_max
+    ? `${Math.round(o.salaire_min).toLocaleString('fr-FR')} - ${Math.round(o.salaire_max).toLocaleString('fr-FR')}`
+    : Math.round(o.salaire_max || o.salaire_min).toLocaleString('fr-FR');
+  return `<span class="etiquette">${s} ${echapper(o.salaire_devise || '')}</span>`;
+}
+
+// Les lignes de « Pourquoi ce score » : une par contribution de `o.explication`.
+function listeContributions(o) {
+  return (o.explication || []).map(c => {
+    const cls = c.points > 0 ? 'plus' : c.points < 0 ? 'moins' : 'zero';
+    const signe = c.points > 0 ? '+' : '';
+    return `<li><span class="pts ${cls}">${signe}${c.points}</span>
+      <span><b>${echapper(c.libelle)}</b>${c.detail ? ` <span class="contrib-detail">${echapper(c.detail)}</span>` : ''}</span></li>`;
+  }).join('');
+}
+
 function carteOffre(o) {
   const n = niveau(o.score);
   const meta = [o.employeur, o.lieu, o.type_contrat, o.date_publication, o.source]
     .filter(Boolean).map(x => `<span>${echapper(x)}</span>`).join('');
 
-  const etiquettes = [];
-  if (o.salaire_min || o.salaire_max) {
-    const s = o.salaire_min && o.salaire_max && o.salaire_min !== o.salaire_max
-      ? `${Math.round(o.salaire_min).toLocaleString('fr-FR')} - ${Math.round(o.salaire_max).toLocaleString('fr-FR')}`
-      : Math.round(o.salaire_max || o.salaire_min).toLocaleString('fr-FR');
-    etiquettes.push(`<span class="etiquette">${s} ${echapper(o.salaire_devise || '')}</span>`);
-  } else {
-    etiquettes.push('<span class="etiquette alerte">salaire non publie</span>');
-  }
+  const etiquettes = [etiquetteSalaire(o)];
   // L'atout mis en avant (choisi dans la configuration) passe en premier.
   if (ATOUT && (o.atouts || []).includes(ATOUT.cle)) {
     etiquettes.unshift(`<span class="etiquette atout-fort" title="${echapper(ATOUT.titre)}">${echapper(ATOUT.libelle)}</span>`);
@@ -96,12 +109,7 @@ function carteOffre(o) {
     etiquettes.push(`<span class="etiquette">relance le ${echapper(o.date_relance_due)}</span>`);
   }
 
-  const contribs = (o.explication || []).map(c => {
-    const cls = c.points > 0 ? 'plus' : c.points < 0 ? 'moins' : 'zero';
-    const signe = c.points > 0 ? '+' : '';
-    return `<li><span class="pts ${cls}">${signe}${c.points}</span>
-      <span><b>${echapper(c.libelle)}</b>${c.detail ? ` <span class="contrib-detail">${echapper(c.detail)}</span>` : ''}</span></li>`;
-  }).join('');
+  const contribs = listeContributions(o);
 
   const titre = o.url
     ? `<a href="${echapper(o.url)}" target="_blank" rel="noopener noreferrer">${echapper(o.titre)}</a>`
@@ -205,9 +213,9 @@ async function constater(id, enLigne) {
   // fait croire a des archivages qui n'avaient pas eu lieu.
   await api(`/api/offres/${id}/constat?en_ligne=${enLigne ? 'true' : 'false'}`,
             { method: 'POST' });
-  chargerOffres();
-  compterArchiveNouvelles();
-  message(enLigne ? 'Notée encore en ligne.' : 'Archivée — annulable dans l\'onglet Archive.');
+  // La vue courante, pas la liste des offres : le geste vient aussi de « À faire ».
+  rafraichir();
+  message(enLigne ? 'Notée encore en ligne.' : 'Archivée — annulable dans Plus › Archive.');
 }
 
 // ---------------------------------------------------------------------------
@@ -712,6 +720,179 @@ function demanderCanal(id) {
 }
 
 // ---------------------------------------------------------------------------
+// La file « À faire » (ADR-0003, § 3)
+//
+// Ce qui attend un geste, puis les offres à voir au-dessus du seuil, puis celles
+// remises à plus tard. Une offre à voir se décide d'un toucher : Je postule, Plus
+// tard ou Non. Rien à montrer se dit en une phrase, jamais par un écran blanc.
+// ---------------------------------------------------------------------------
+
+const RAISONS = {
+  relance_due: 'Relance due',
+  a_envoyer: 'Dossier prêt à envoyer',
+  a_preparer: 'Dossier à préparer',
+};
+
+// Les cinq états, et la mise de côté, tels que l'écran les nomme (`etats.py` les lit).
+const LIBELLES_ETAT = {
+  a_voir: 'À voir',
+  je_postule: 'Je postule',
+  envoyee: 'Envoyée',
+  entretien: 'Entretien',
+  close: 'Close',
+  mise_de_cote: 'Mise de côté',
+};
+
+// Un geste neuf ne part qu'une fois : son bouton se désactive avant toute attente, et ne
+// revient qu'en cas d'échec. Un succès recharge la vue, qui remplace le bouton.
+function gesteNeuf(bouton, geste) {
+  bouton.disabled = true;
+  geste().catch(e => { bouton.disabled = false; message(e.message, true); });
+}
+
+function ligneAFinir(o) {
+  return `<button class="offre ligne-a-finir" data-action="fiche" data-id="${Number(o.id)}">
+    <span class="raison ${echapper(o.raison)}">${echapper(RAISONS[o.raison] || o.raison)}</span>
+    <span class="offre-titre">${echapper(o.titre)}</span>
+    ${o.employeur ? `<span class="menu">${echapper(o.employeur)}</span>` : ''}
+  </button>`;
+}
+
+// De quoi décider, et rien de plus. Remise à plus tard, l'offre perd son bouton « Plus tard ».
+function carteAVoir(o) {
+  const n = niveau(o.score);
+  const plusTard = o.statut === 'a_traiter';
+  const meta = [o.employeur, o.lieu].filter(Boolean)
+    .map(x => `<span>${echapper(x)}</span>`).join('');
+  const fortes = (o.explication || []).filter(c => c.points > 0)
+    .sort((a, b) => b.points - a.points).slice(0, 2);
+  const contribs = listeContributions({ explication: fortes });
+  return `
+  <article class="offre ${plusTard ? 'carte-plus-tard' : 'carte-a-voir'} ${n}" data-id="${Number(o.id)}">
+    <div class="offre-haut">
+      <button class="offre-titre" data-action="fiche">${echapper(o.titre)}</button>
+      <span class="score ${n}">${echapper(o.score)}</span>
+    </div>
+    <div class="meta">${meta}</div>
+    <div class="etiquettes">${etiquetteSalaire(o)}</div>
+    ${contribs ? `<ul class="contribs">${contribs}</ul>` : ''}
+    <div class="actions">
+      <button data-action="postuler">Je postule</button>
+      ${plusTard ? '' : '<button class="discret" data-action="plus-tard">Plus tard</button>'}
+      <button class="discret" data-action="non">Non</button>
+    </div>
+  </article>`;
+}
+
+// Les offres que la file ne montre pas, au-dessus du seuil au-delà des premières, ou
+// dessous : « Toutes les offres », filtrée sur les nouvelles.
+function liensVersToutes(d) {
+  const textes = [];
+  if (d.a_voir_restantes) {
+    textes.push(d.a_voir_restantes === 1 ? "Voir l'autre offre au-dessus du seuil ›"
+      : `Voir les ${Number(d.a_voir_restantes)} autres au-dessus du seuil ›`);
+  }
+  if (d.sous_le_seuil) {
+    textes.push(d.sous_le_seuil === 1 ? "Voir l'offre sous le seuil ›"
+      : `Voir les ${Number(d.sous_le_seuil)} sous le seuil ›`);
+  }
+  if (!textes.length) return '';
+  return `<div class="vers-toutes">${textes.map(t =>
+    `<button data-vers-toutes>${echapper(t)}</button>`).join('')}</div>`;
+}
+
+async function chargerAFaire() {
+  const cible = $('#contenu-a-faire');
+  try {
+    const d = await api('/api/a-faire');
+    const seuil = echapper(d.seuil);
+    // Un rechargement après un geste ne referme pas « Plus tard ».
+    const plusTardOuvert = Boolean($('details.plus-tard', cible)?.open);
+    let html;
+    if (!d.a_finir.length && !d.a_voir.length && !d.plus_tard.length) {
+      html = `<p class="resume">Rien à faire pour l'instant : aucune offre au-dessus du seuil de ${seuil}.</p>`
+        + liensVersToutes(d);
+    } else {
+      html = '';
+      if (d.a_finir.length) {
+        html += `<h2 class="titre-groupe">À finir</h2>
+          <div class="liste">${d.a_finir.map(ligneAFinir).join('')}</div>`;
+      }
+      html += '<h2 class="titre-groupe">À voir</h2>';
+      html += d.a_voir.length
+        ? `<div class="liste">${d.a_voir.map(carteAVoir).join('')}</div>`
+        : `<p class="resume">Aucune offre au-dessus du seuil de ${seuil}.</p>`;
+      html += liensVersToutes(d);
+      if (d.plus_tard.length) {
+        html += `<details class="plus-tard"${plusTardOuvert ? ' open' : ''}>
+          <summary>Plus tard (${d.plus_tard.length})</summary>
+          <div class="liste">${d.plus_tard.map(carteAVoir).join('')}</div></details>`;
+      }
+    }
+    cible.innerHTML = html;
+    $$('[data-vers-toutes]', cible).forEach(b => {
+      b.onclick = () => {
+        $('#f-statut').value = 'nouveau';
+        synchroniserFiltres();
+        afficherVue('offres');
+      };
+    });
+  } catch (e) {
+    message(e.message, true);
+    if (!cible.children.length) {
+      cible.innerHTML = `<p class="avert">La file n'a pas pu se charger : ${echapper(e.message)}</p>`;
+    }
+  }
+}
+
+// « Non » : le motif reste obligatoire, c'est lui qui dit ce que le score rate. Les plus
+// fréquents se choisissent d'un toucher. Une annonce disparue s'archive, sans motif.
+async function demanderNon(id) {
+  let motifs = [];
+  try { motifs = (await api('/api/motifs?limite=6')).motifs || []; }
+  catch (e) { /* sans les motifs fréquents, le champ libre suffit */ }
+  $('#fenetre-contenu').innerHTML = `
+    <h2>Pourquoi non ?</h2>
+    <p class="resume">Le motif est obligatoire : c'est lui qui dira ce que le score rate.</p>
+    ${motifs.length ? `<div class="motifs">${motifs.map(m =>
+      `<button class="discret" data-motif="${echapper(m)}">${echapper(m)}</button>`).join('')}</div>` : ''}
+    <textarea id="motif-non" placeholder="Ou écris-le : trop junior, stack sans rapport…"></textarea>
+    <div class="actions">
+      <button id="btn-ecarter-non">Écarter</button>
+      <button class="discret" id="btn-plus-en-ligne">N'est plus en ligne</button>
+      <button class="discret" id="btn-annuler-non">Annuler</button>
+    </div>`;
+  const fenetre = $('#fenetre');
+  if (!fenetre.open) fenetre.showModal();
+  $$('#fenetre-contenu [data-motif]').forEach(b => {
+    b.onclick = () => { $('#motif-non').value = b.dataset.motif; };
+  });
+  $('#btn-annuler-non').onclick = () => fenetre.close();
+  $('#btn-ecarter-non').onclick = ev => {
+    const motif = $('#motif-non').value.trim();
+    if (!motif) { message('Un motif est nécessaire.', true); return; }
+    gesteNeuf(ev.currentTarget, async () => {
+      await changerStatut(id, 'ecartee', motif);
+      fenetre.close();
+    });
+  };
+  $('#btn-plus-en-ligne').onclick = ev => gesteNeuf(ev.currentTarget, async () => {
+    await constater(id, false);
+    fenetre.close();
+  });
+}
+
+// « Plus » : les pastilles de ses lignes, à chaque ouverture.
+async function chargerPlus() {
+  compterArchiveNouvelles();
+  try {
+    const [r, c] = await Promise.all([api('/api/relances'), api('/api/classement')]);
+    $('#pastille-relances').textContent = r.relances.length || '';
+    $('#pastille-classer').textContent = c.propositions.length || '';
+  } catch (e) { message(e.message, true); }
+}
+
+// ---------------------------------------------------------------------------
 // Texte complet de l'annonce
 //
 // La plupart des offres au-dessus du seuil n'ont qu'un extrait : les critères
@@ -1058,7 +1239,10 @@ async function ouvrirDetail(id) {
 document.addEventListener('click', ev => {
   const bouton = ev.target.closest('[data-action]');
   if (!bouton) return;
-  const id = Number(bouton.closest('.offre').dataset.id);
+  // Une action vit dans une offre (sa carte, sa ligne, sa fiche) : c'est elle qui porte l'id.
+  const offre = bouton.closest('.offre[data-id]');
+  if (!offre) return;
+  const id = Number(offre.dataset.id);
   const a = bouton.dataset.action;
   if (a === 'dossier') genererDossier(id, bouton);
   else if (a === 'statut') changerStatut(id, bouton.dataset.statut).catch(e => message(e.message, true));
@@ -1068,6 +1252,10 @@ document.addEventListener('click', ev => {
   else if (a === 'entretien') ouvrirEntretien(id);
   else if (a === 'detail') ouvrirDetail(id);
   else if (a === 'obsolete') constater(id, false).catch(e => message(e.message, true));
+  else if (a === 'postuler') gesteNeuf(bouton, () => changerStatut(id, 'interessante'));
+  else if (a === 'plus-tard') gesteNeuf(bouton, () => changerStatut(id, 'a_traiter'));
+  else if (a === 'non') demanderNon(id);
+  else if (a === 'fiche') ouvrirDetail(id);
 });
 
 // ---------------------------------------------------------------------------
@@ -1388,7 +1576,7 @@ function brancherVerification(id) {
         ${r.archivee ? '<br>Archivée.' : ''}`;
       bouton.disabled = false;
       bouton.textContent = 'Vérifier maintenant';
-      if (r.archivee) { chargerOffres(); compterArchiveNouvelles(); }
+      if (r.archivee) rafraichir();
     };
   }
   const retiree = $('#btn-retiree');
@@ -1533,6 +1721,8 @@ async function ouvrirRelance(id) {
 }
 
 const CHARGEURS = {
+  'a-faire': chargerAFaire,
+  plus: chargerPlus,
   offres: chargerOffres,
   archive: chargerArchive,
   relances: chargerRelances,
@@ -1547,13 +1737,29 @@ function rafraichir() {
   (CHARGEURS[vueCourante] || chargerOffres)();
 }
 
-$$('.onglet').forEach(o => o.onclick = () => {
-  $$('.onglet').forEach(x => x.classList.remove('actif'));
-  o.classList.add('actif');
-  vueCourante = o.dataset.vue;
-  $$('.vue').forEach(v => v.classList.add('cachee'));
-  $(`#vue-${vueCourante}`).classList.remove('cachee');
+// Les anciens écrans vivent sous « Plus » : ils gardent son onglet allumé.
+const ONGLET_DE_VUE = {
+  offres: 'plus', relances: 'plus', archive: 'plus', classer: 'plus',
+  pilotage: 'plus', documents: 'plus', reglages: 'plus',
+};
+
+function afficherVue(nom) {
+  const vue = $(`#vue-${nom}`);
+  if (!vue) return;
+  vueCourante = nom;
+  const onglet = ONGLET_DE_VUE[nom] || nom;
+  $$('.onglet').forEach(o => o.classList.toggle('actif', o.dataset.vue === onglet));
+  $$('.vue').forEach(v => v.classList.toggle('cachee', v !== vue));
+  // Un écran s'ouvre par le haut : un lien touché au bas de la file ne mène pas au
+  // milieu de la liste suivante.
+  window.scrollTo(0, 0);
   rafraichir();
+}
+
+// Tout `[data-vue]` mène à son écran : les onglets, les lignes de « Plus », « ‹ Plus ».
+document.addEventListener('click', ev => {
+  const lien = ev.target.closest('[data-vue]');
+  if (lien) afficherVue(lien.dataset.vue);
 });
 
 // ---------------------------------------------------------------------------
@@ -1718,9 +1924,15 @@ if ('serviceWorker' in navigator && window.isSecureContext) {
 
 // ---------------------------------------------------------------------------
 
+// La notification ouvre `/?filtre=nouveau` : la file, qu'elle annonce. Un autre filtre, ou
+// un atout, mène à « Toutes les offres », filtrée comme avant.
 const params = new URLSearchParams(location.search);
-if (params.get('filtre')) $('#f-statut').value = params.get('filtre');
-if (params.get('atout')) $('#f-atout').value = params.get('atout');
+const filtreDemande = params.get('filtre');
+const atoutDemande = params.get('atout');
+const versOffres = Boolean((filtreDemande && filtreDemande !== 'nouveau') || atoutDemande);
+if (versOffres) {
+  if (filtreDemande) $('#f-statut').value = filtreDemande;
+  if (atoutDemande) $('#f-atout').value = atoutDemande;
+}
 synchroniserFiltres();
-chargerOffres();
-chargerRelances();
+afficherVue(versOffres ? 'offres' : 'a-faire');

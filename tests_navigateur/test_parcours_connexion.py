@@ -27,7 +27,8 @@ def test_parcours_complet(serveur, navigateur):
     page.wait_for_url(f"{url}/")
 
     # 3. Les Reglages montrent la passkey, puis on cree un lien pour un second appareil.
-    page.click('button.onglet[data-vue="reglages"]')
+    page.click('button.onglet[data-vue="plus"]')
+    page.click('button.lien-plus[data-vue="reglages"]')
     page.wait_for_selector("#liste-passkeys .ligne-passkey")
     assert page.locator("#liste-passkeys .ligne-passkey").count() == 1
     # Pas de feuille de partage : on veut le champ en lecture seule.
