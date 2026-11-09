@@ -16,9 +16,15 @@ from veille.scoring import scorer
 from tests.aide_session import connecter
 
 
-@pytest.fixture(scope="module")
-def client():
+@pytest.fixture(autouse=True)
+def _base_propre(tmp_path, monkeypatch):
+    """Une base neuve par test : les offres ne restent pas pour les autres fichiers."""
+    monkeypatch.setattr(db, "CHEMIN_DB", tmp_path / "veille.sqlite3")
     db.initialiser()
+
+
+@pytest.fixture
+def client(_base_propre):
     with TestClient(app, follow_redirects=False) as c:
         yield c
 
