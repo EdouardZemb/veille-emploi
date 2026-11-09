@@ -849,15 +849,14 @@ async function chargerAFaire() {
 
 // « Non » : le motif reste obligatoire, c'est lui qui dit ce que le score rate. Les plus
 // fréquents se choisissent d'un toucher. Une annonce disparue s'archive, sans motif.
-async function demanderNon(id) {
-  let motifs = [];
-  try { motifs = (await api('/api/motifs?limite=6')).motifs || []; }
-  catch (e) { /* sans les motifs fréquents, le champ libre suffit */ }
+// Le panneau s'ouvre tout de suite, au nom de l'offre : rien ne le lie à une autre offre
+// touchée pendant que les motifs fréquents arrivent.
+function demanderNon(id, titre) {
   $('#fenetre-contenu').innerHTML = `
     <h2>Pourquoi non ?</h2>
+    <p class="titre-panneau">${echapper(titre)}</p>
     <p class="resume">Le motif est obligatoire : c'est lui qui dira ce que le score rate.</p>
-    ${motifs.length ? `<div class="motifs">${motifs.map(m =>
-      `<button class="discret" data-motif="${echapper(m)}">${echapper(m)}</button>`).join('')}</div>` : ''}
+    <div class="motifs" data-pour="${Number(id)}"></div>
     <textarea id="motif-non" placeholder="Ou écris-le : trop junior, stack sans rapport…"></textarea>
     <div class="actions">
       <button id="btn-ecarter-non">Écarter</button>
@@ -866,9 +865,7 @@ async function demanderNon(id) {
     </div>`;
   const fenetre = $('#fenetre');
   if (!fenetre.open) fenetre.showModal();
-  $$('#fenetre-contenu [data-motif]').forEach(b => {
-    b.onclick = () => { $('#motif-non').value = b.dataset.motif; };
-  });
+  remplirMotifs(id);
   $('#btn-annuler-non').onclick = () => fenetre.close();
   $('#btn-ecarter-non').onclick = ev => {
     const motif = $('#motif-non').value.trim();
@@ -881,6 +878,21 @@ async function demanderNon(id) {
   $('#btn-plus-en-ligne').onclick = ev => gesteNeuf(ev.currentTarget, async () => {
     await constater(id, false);
     fenetre.close();
+  });
+}
+
+// Les motifs fréquents ne vont qu'au panneau de leur offre, s'il est encore affiché : un
+// « Non » touché entre-temps sur une autre offre a pris sa place.
+async function remplirMotifs(id) {
+  let motifs;
+  try { motifs = (await api('/api/motifs?limite=6')).motifs || []; }
+  catch (e) { return; /* sans les motifs fréquents, le champ libre suffit */ }
+  const zone = $(`#fenetre-contenu .motifs[data-pour="${Number(id)}"]`);
+  if (!zone || !$('#fenetre').open) return;
+  zone.innerHTML = motifs.map(m =>
+    `<button class="discret" data-motif="${echapper(m)}">${echapper(m)}</button>`).join('');
+  $$('[data-motif]', zone).forEach(b => {
+    b.onclick = () => { $('#motif-non').value = b.dataset.motif; };
   });
 }
 
@@ -1405,7 +1417,8 @@ document.addEventListener('click', ev => {
   else if (a === 'postuler') gesteNeuf(bouton, () => changerStatutPuisFiche(id, 'interessante'));
   else if (a === 'plus-tard') gesteNeuf(bouton, () => (dansFiche
     ? changerStatutPuisFiche(id, 'a_traiter') : changerStatut(id, 'a_traiter')));
-  else if (a === 'non') demanderNon(id);
+  // Le panneau « Non » nomme l'offre : l'intitulé de sa carte, ou de sa fiche.
+  else if (a === 'non') demanderNon(id, $('.offre-titre', offre)?.textContent.trim() || '');
   else if (a === 'reponse') gesteNeuf(bouton, () => changerStatutPuisFiche(id, bouton.dataset.statut));
   else if (a === 'revenir') gesteNeuf(bouton, () => changerStatutPuisFiche(id, 'nouveau'));
   else if (a === 'notes') gesteNeuf(bouton, () => enregistrerNotes(id, bouton));

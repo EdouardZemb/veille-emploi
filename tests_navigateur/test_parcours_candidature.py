@@ -20,6 +20,9 @@ SOURCE = "parcours"
 MOTIF = "motif inventé du parcours"
 # Un intitulé de 200 caractères sans espace : il ne se coupe que si la page le permet.
 LONG = ("Ingénieurqualitélogicielleinventé" * 7)[:200]
+# Les deux offres du double « Non ».
+PREMIERE = "Première offre inventée du panneau Non"
+SECONDE = "Seconde offre inventée du panneau Non"
 # Dans le désordre : la carte montre les deux contributions positives les plus fortes.
 EXPLICATION = [
     {"libelle": "Raison inventée faible", "points": 5, "detail": ""},
@@ -122,6 +125,45 @@ def fiches(parcours, tmp_path_factory):
         db.changer_statut(ids[cle], statut, motif=MOTIF if statut == "ecartee" else None)
     db.maj_champs(ids["pret"], dossier_chemin=str(tmp_path_factory.mktemp("dossier-pret")))
     return ids
+
+
+def _inventer(titres: list[str], chemin: str, statut: str) -> list[int]:
+    """Des offres inventées de la source `parcours`, au-dessus du seuil, dans `statut`."""
+    from veille import db, reglages
+    from veille.collectors.base import ingerer
+    from veille.models import Offre
+
+    adresses = [f"https://exemple.invalid/parcours/{chemin}/{n}" for n in range(1, len(titres) + 1)]
+    ingerer(
+        [
+            Offre(
+                titre=titre,
+                employeur=f"Employeur inventé {chemin} {n}",
+                lieu="Lieu inventé",
+                description="Tests automatisés, inventés pour le parcours.",
+                url=adresse,
+            )
+            for n, (titre, adresse) in enumerate(zip(titres, adresses), 1)
+        ],
+        SOURCE,
+    )
+    ids = []
+    with db.connexion() as cx:
+        for adresse in adresses:
+            offre_id = cx.execute("SELECT id FROM offres WHERE url = ?", (adresse,)).fetchone()["id"]
+            cx.execute("UPDATE offres SET score = ?, explication = ? WHERE id = ?",
+                       (reglages.lire_seuil() + 20,
+                        json.dumps(EXPLICATION, ensure_ascii=False), offre_id))
+            ids.append(offre_id)
+    for offre_id in ids:
+        db.changer_statut(offre_id, statut)
+    return ids
+
+
+@pytest.fixture(scope="module")
+def deux_non(parcours):
+    """Deux offres à voir, pour deux « Non » de suite."""
+    return _inventer([PREMIERE, SECONDE], "non", "nouveau")
 
 
 @pytest.fixture
@@ -275,6 +317,48 @@ def test_n_est_plus_en_ligne_archive(telephone, parcours):
     expect(fenetre).to_be_hidden()
     expect(telephone.locator(f'#vue-a-faire [data-id="{offre_id}"]')).to_have_count(0)
     assert db.lire_offre(offre_id)["archivee_le"]
+
+
+def test_non_nomme_l_offre_et_ecarte_la_bonne(telephone, parcours, deux_non):
+    """« Non » sur une offre, puis sur une autre, et les motifs fréquents qui arrivent dans le
+    désordre : le panneau nomme la seconde, et « Écarter » écarte la seconde. Chaque réponse
+    porte un motif à elle, pour savoir laquelle a rempli le panneau."""
+    from veille import db
+
+    premiere, seconde = deux_non
+    retenues: list = []
+    telephone.route("**/api/motifs*", lambda route: retenues.append(route))
+    _ouvrir(telephone, parcours["url"])
+    _carte(telephone, premiere).locator('[data-action="non"]').click()
+    # Le panneau de la première, s'il s'est ouvert, se referme.
+    telephone.keyboard.press("Escape")
+    _carte(telephone, seconde).locator('[data-action="non"]').click()
+    for _ in range(100):
+        if len(retenues) == 2:
+            break
+        telephone.wait_for_timeout(50)
+    assert len(retenues) == 2
+
+    def motifs(texte: str) -> dict:
+        return {"status": 200, "content_type": "application/json",
+                "body": json.dumps({"motifs": [texte]}, ensure_ascii=False)}
+
+    fenetre = telephone.locator("#fenetre")
+    retenues[1].fulfill(**motifs("motif inventé de la seconde"))
+    expect(fenetre).to_contain_text(SECONDE)
+    expect(fenetre.get_by_role("button", name="motif inventé de la seconde")).to_be_visible()
+    with telephone.expect_response("**/api/motifs*"):
+        retenues[0].fulfill(**motifs("motif inventé de la première"))
+
+    fenetre.get_by_role("button", name="motif inventé de la seconde").click()
+    expect(fenetre.locator("textarea")).to_have_value("motif inventé de la seconde")
+    fenetre.get_by_role("button", name="Écarter", exact=True).click()
+    expect(fenetre).to_be_hidden()
+    assert db.lire_offre(seconde)["statut"] == "ecartee"
+    assert db.lire_offre(seconde)["motif_ecartement"] == "motif inventé de la seconde"
+    assert db.lire_offre(premiere)["statut"] == "nouveau"
+    expect(fenetre.get_by_role("button", name="motif inventé de la première")).to_have_count(0)
+    assert PREMIERE not in fenetre.inner_text()
 
 
 def _servir_a_faire(page, corps: dict) -> None:

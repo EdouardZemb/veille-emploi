@@ -192,6 +192,10 @@ details.plus-tard > .liste{margin-top:6px}
 /* Les motifs du panneau « Non » : un motif long passe à la ligne dans son bouton. */
 .motifs{display:flex;flex-wrap:wrap;gap:7px;margin:4px 0 10px}
 .motifs button{text-align:left;overflow-wrap:anywhere}
+/* Avant que les motifs arrivent, ou s'il n'y en a aucun, leur zone ne prend pas de place. */
+.motifs:empty{display:none}
+/* Le panneau nomme l'offre qu'il écarte ; un intitulé sans espace s'y coupe. */
+.titre-panneau{margin:0 0 4px;font-weight:600;overflow-wrap:anywhere}
 
 /* ---------- la fiche par état ---------- */
 /* La fiche vit dans la fenêtre : pas de cadre de carte. Un intitulé sans espace s'y coupe,
