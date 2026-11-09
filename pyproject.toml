@@ -52,4 +52,6 @@ pythonpath = ["src"]
 source_paths = ["src"]
 only_mutate = ["src/veille/etats.py"]
 pytest_add_cli_args_test_selection = ["tests/test_etats.py"]
+# Les tests lisent la configuration de l'exemple, que `tests/conftest.py` désigne à côté de
+# `tests/` : dans la copie où mutmut les lance, `mutants/`, elle doit être aussi.
 also_copy = ["exemple"]
