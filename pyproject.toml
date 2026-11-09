@@ -48,6 +48,8 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 
 [tool.mutmut]
-paths_to_mutate = ["src/veille/etats.py"]
+# Tout `src` est copié (etats.py importe son paquet) ; seul etats.py est muté.
+source_paths = ["src"]
+only_mutate = ["src/veille/etats.py"]
 pytest_add_cli_args_test_selection = ["tests/test_etats.py"]
 also_copy = ["exemple"]
