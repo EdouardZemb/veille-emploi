@@ -662,6 +662,8 @@ function afficherCompletudeInsuffisante(id, c, bouton) {
 }
 
 async function genererDossier(id, bouton) {
+  // Le libellé revient tel qu'il était : « Générer » ou « Régénérer le dossier » (la fiche).
+  const libelle = bouton.textContent;
   bouton.disabled = true;
   bouton.textContent = 'Generation...';
   try {
@@ -675,7 +677,7 @@ async function genererDossier(id, bouton) {
     message(e.message, true);
   } finally {
     bouton.disabled = false;
-    bouton.textContent = 'Generer le dossier';
+    bouton.textContent = libelle;
   }
 }
 
@@ -890,6 +892,150 @@ async function chargerPlus() {
     $('#pastille-relances').textContent = r.relances.length || '';
     $('#pastille-classer').textContent = c.propositions.length || '';
   } catch (e) { message(e.message, true); }
+}
+
+// ---------------------------------------------------------------------------
+// La fiche par état (ADR-0003, § 4)
+//
+// L'offre, son état, et une seule ligne d'actions : celle de cet état. Le reste attend,
+// replié : pourquoi ce score, les notes, les autres actions. Un geste fait depuis la fiche
+// la rouvre sur le nouvel état ; ceux qui ouvrent leur propre fenêtre (le dossier, le canal,
+// la relance, l'entretien, « Non ») y prennent sa place.
+// ---------------------------------------------------------------------------
+
+// La réponse du recruteur, d'un toucher : chaque bouton écrit son statut.
+function boutonsReponse(reponses) {
+  return '<span class="libelle-reponse">Réponse :</span>' + reponses.map(([statut, texte]) =>
+    `<button class="discret" data-action="reponse" data-statut="${statut}">${texte}</button>`).join('');
+}
+
+function actionsDeFiche(o) {
+  switch (o.etat) {
+    case 'a_voir':
+    case 'mise_de_cote':
+      // Remise à plus tard, l'offre perd « Plus tard », comme sa carte.
+      return `<button data-action="postuler">Je postule</button>
+        ${o.statut === 'a_traiter' ? '' : '<button class="discret" data-action="plus-tard">Plus tard</button>'}
+        <button class="discret" data-action="non">Non</button>`;
+    case 'je_postule':
+      // Au lot 1, sans dossier, le geste actuel : « Préparer ma candidature » vient au lot 2.
+      if (!o.dossier_chemin) return '<button data-action="dossier">Générer le dossier</button>';
+      return `<button data-action="envoyee">Je l'ai envoyée</button>
+        <a href="/api/offres/${Number(o.id)}/dossier/archive" download>Paquet d'envoi (.zip)</a>
+        <button class="discret" data-action="dossier">Régénérer le dossier</button>`;
+    case 'envoyee':
+      return `<button data-action="relance">Mot de relance</button>
+        ${boutonsReponse([['entretien', 'Entretien'], ['refus', 'Refus'], ['accepte', 'Acceptée']])}
+        ${o.date_relance_due ? `<span class="menu">Relance le ${echapper(o.date_relance_due)}</span>` : ''}`;
+    case 'entretien':
+      return `<button data-action="entretien">Préparer l'entretien</button>
+        ${boutonsReponse([['refus', 'Refus'], ['accepte', 'Acceptée']])}`;
+    default:
+      // Close : aucune action, le motif s'il existe.
+      return o.motif_ecartement ? `<p class="motif">${echapper(o.motif_ecartement)}</p>` : '';
+  }
+}
+
+function contenuFiche(o) {
+  const n = niveau(o.score);
+  const meta = [o.employeur, o.lieu].filter(Boolean)
+    .map(x => `<span>${echapper(x)}</span>`).join('');
+  const annonce = o.url
+    ? `<a class="lien-annonce" href="${echapper(o.url)}" target="_blank" rel="noopener noreferrer">Voir l'annonce ›</a>`
+    : '';
+  const contribs = listeContributions(o);
+  return `
+  <div class="offre fiche" data-id="${Number(o.id)}">
+    <div class="offre-haut">
+      <h2 class="offre-titre">${echapper(o.titre)}</h2>
+      <span class="score ${n}">${echapper(o.score)}</span>
+    </div>
+    <div class="meta">${meta}</div>
+    <div class="etat-et-annonce">
+      <span class="etat-fiche">${echapper(LIBELLES_ETAT[o.etat] || o.etat)}</span>
+      ${annonce}
+    </div>
+    <div class="actions ligne-actions">${actionsDeFiche(o)}</div>
+    <details class="repli" data-repli="score">
+      <summary>Pourquoi ce score</summary>
+      <ul class="contribs">${contribs || '<li>aucune contribution</li>'}</ul>
+    </details>
+    <details class="repli" data-repli="notes">
+      <summary>Notes</summary>
+      <textarea id="notes-fiche" aria-label="Notes">${echapper(o.notes || '')}</textarea>
+      <div class="actions"><button data-action="notes">Enregistrer</button></div>
+    </details>
+    <details class="repli" data-repli="autres">
+      <summary>Autres actions</summary>
+      <div class="actions">
+        <button class="discret" data-action="detail">Texte, exigences, vérification, historique ›</button>
+        ${o.etat === 'a_voir' ? '' : '<button class="discret" data-action="revenir">Revenir à « À voir »</button>'}
+      </div>
+    </details>
+  </div>`;
+}
+
+async function ouvrirFiche(id) {
+  const o = await api(`/api/offres/${id}`);
+  const fenetre = $('#fenetre');
+  const contenu = $('#fenetre-contenu');
+  // Rouverte sur la même offre, après un geste, elle garde ouverts les volets qu'on avait ouverts.
+  const avant = fenetre.open ? $('.fiche', contenu) : null;
+  const ouverts = avant && Number(avant.dataset.id) === Number(o.id)
+    ? $$('details[open]', avant).map(d => d.dataset.repli) : [];
+  contenu.innerHTML = contenuFiche(o);
+  $$('details[data-repli]', contenu).forEach(d => { d.open = ouverts.includes(d.dataset.repli); });
+  if (!fenetre.open) fenetre.showModal();
+}
+
+// Le statut, puis la fiche sur le nouvel état ; `changerStatut` recharge la vue de derrière.
+async function changerStatutPuisFiche(id, statut) {
+  await changerStatut(id, statut);
+  await ouvrirFiche(id);
+}
+
+async function enregistrerNotes(id, bouton) {
+  const notes = $('textarea', bouton.closest('.fiche')).value;
+  await api(`/api/offres/${id}`, { method: 'POST', body: JSON.stringify({ notes }) });
+  message('Notes enregistrées.');
+  await ouvrirFiche(id);
+}
+
+// ---------------------------------------------------------------------------
+// « Candidatures » (ADR-0003, § 4)
+//
+// Les offres Je postule, Envoyée et Entretien, chacune avec ce qui la situe : son dossier,
+// ou sa date de relance. Les candidatures closes n'y sont pas. Une ligne ouvre la fiche.
+// ---------------------------------------------------------------------------
+
+const GROUPES_CANDIDATURES = ['je_postule', 'envoyee', 'entretien'];
+
+function ligneCandidature(o, groupe) {
+  let repere = '';
+  if (groupe === 'je_postule') repere = o.dossier ? 'dossier prêt' : 'à préparer';
+  else if (groupe === 'envoyee' && o.date_relance_due) repere = `relance le ${o.date_relance_due}`;
+  return `<button class="offre ligne-candidature" data-action="fiche" data-id="${Number(o.id)}">
+    <span class="offre-titre">${echapper(o.titre)}</span>
+    ${o.employeur ? `<span class="menu">${echapper(o.employeur)}</span>` : ''}
+    ${repere ? `<span class="repere">${echapper(repere)}</span>` : ''}
+  </button>`;
+}
+
+async function chargerCandidatures() {
+  const cible = $('#contenu-candidatures');
+  try {
+    const d = await api('/api/candidatures');
+    const groupes = GROUPES_CANDIDATURES.filter(cle => (d[cle] || []).length);
+    cible.innerHTML = groupes.length
+      ? groupes.map(cle => `<h2 class="titre-groupe">${LIBELLES_ETAT[cle]}</h2>
+          <div class="liste" data-groupe="${cle}">${d[cle].map(o => ligneCandidature(o, cle)).join('')}</div>`).join('')
+      : '<p class="resume">Aucune candidature en cours.</p>';
+  } catch (e) {
+    message(e.message, true);
+    if (!cible.children.length) {
+      cible.innerHTML = `<p class="avert">Les candidatures n'ont pas pu se charger : ${echapper(e.message)}</p>`;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1244,6 +1390,8 @@ document.addEventListener('click', ev => {
   if (!offre) return;
   const id = Number(offre.dataset.id);
   const a = bouton.dataset.action;
+  // Un geste fait depuis la fiche la rouvre sur le nouvel état.
+  const dansFiche = offre.classList.contains('fiche');
   if (a === 'dossier') genererDossier(id, bouton);
   else if (a === 'statut') changerStatut(id, bouton.dataset.statut).catch(e => message(e.message, true));
   else if (a === 'ecarter') demanderMotif(id);
@@ -1252,10 +1400,14 @@ document.addEventListener('click', ev => {
   else if (a === 'entretien') ouvrirEntretien(id);
   else if (a === 'detail') ouvrirDetail(id);
   else if (a === 'obsolete') constater(id, false).catch(e => message(e.message, true));
-  else if (a === 'postuler') gesteNeuf(bouton, () => changerStatut(id, 'interessante'));
-  else if (a === 'plus-tard') gesteNeuf(bouton, () => changerStatut(id, 'a_traiter'));
+  else if (a === 'postuler') gesteNeuf(bouton, () => changerStatutPuisFiche(id, 'interessante'));
+  else if (a === 'plus-tard') gesteNeuf(bouton, () => (dansFiche
+    ? changerStatutPuisFiche(id, 'a_traiter') : changerStatut(id, 'a_traiter')));
   else if (a === 'non') demanderNon(id);
-  else if (a === 'fiche') ouvrirDetail(id);
+  else if (a === 'reponse') gesteNeuf(bouton, () => changerStatutPuisFiche(id, bouton.dataset.statut));
+  else if (a === 'revenir') gesteNeuf(bouton, () => changerStatutPuisFiche(id, 'nouveau'));
+  else if (a === 'notes') gesteNeuf(bouton, () => enregistrerNotes(id, bouton));
+  else if (a === 'fiche') ouvrirFiche(id).catch(e => message(e.message, true));
 });
 
 // ---------------------------------------------------------------------------
@@ -1722,6 +1874,7 @@ async function ouvrirRelance(id) {
 
 const CHARGEURS = {
   'a-faire': chargerAFaire,
+  candidatures: chargerCandidatures,
   plus: chargerPlus,
   offres: chargerOffres,
   archive: chargerArchive,

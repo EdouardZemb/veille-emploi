@@ -26,6 +26,7 @@
 
 <nav class="onglets">
   <button class="onglet actif" data-vue="a-faire">À faire</button>
+  <button class="onglet" data-vue="candidatures">Candidatures</button>
   <button class="onglet" data-vue="plus">Plus</button>
 </nav>
 </div>
@@ -45,6 +46,13 @@
      du seuil, puis celles remises à plus tard. La console s'ouvre ici. -->
 <section id="vue-a-faire" class="vue">
   <div id="contenu-a-faire"></div>
+</section>
+
+<!-- ------------------------------------------------------------------ -->
+<!-- Les candidatures en cours (ADR-0003, § 4) : Je postule, Envoyée, Entretien. Une
+     ligne ouvre la fiche de l'offre ; les candidatures closes n'y sont pas. -->
+<section id="vue-candidatures" class="vue cachee">
+  <div id="contenu-candidatures"></div>
 </section>
 
 <!-- ------------------------------------------------------------------ -->

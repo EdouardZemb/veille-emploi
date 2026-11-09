@@ -1,4 +1,5 @@
-"""La file « À faire », le panneau « Non » et l'onglet « Plus », au téléphone (ADR-0003, §§ 2 et 3).
+"""La file « À faire », le panneau « Non », la fiche par état et les onglets « Candidatures » et
+« Plus », au téléphone (ADR-0003, §§ 2 à 4).
 
 Même forme que `test_cibles_tactiles.py` : Chromium à la taille d'un téléphone, une session
 ouverte par `auth.ouvrir_session`, aucune erreur dans la console. La base est partagée par
@@ -28,6 +29,20 @@ EXPLICATION = [
 ]
 VIDE = {"a_finir": [], "a_voir": [], "a_voir_restantes": 0, "plus_tard": [],
         "sous_le_seuil": 0, "seuil": 45}
+# Les offres de la fiche et de « Candidatures », et le statut que reçoit chacune. Les tests
+# de la file n'y touchent pas ; un test qui change un statut a la sienne.
+FICHES = {
+    "parcours": "nouveau",
+    "a_voir": "nouveau",
+    "plus_tard": "a_traiter",
+    "de_cote": "differee",
+    "a_preparer": "interessante",
+    "pret": "interessante",
+    "envoyee": "candidature_envoyee",
+    "revenir": "relance_envoyee",
+    "entretien": "entretien",
+    "close": "ecartee",
+}
 
 
 @pytest.fixture(scope="module")
@@ -72,6 +87,41 @@ def parcours(serveur):
     plus_tard, non, en_ligne, temoin, long = a_voir
     return {"url": serveur, "plus_tard": plus_tard, "non": non, "en_ligne": en_ligne,
             "temoin": temoin, "long": long}
+
+
+@pytest.fixture(scope="module")
+def fiches(parcours, tmp_path_factory):
+    """Une offre inventée par entrée de `FICHES`, créée après celles de la file. « pret » a
+    un dossier : un dossier temporaire, comme le test du parcours le pose (décision 7)."""
+    from veille import db, reglages
+    from veille.collectors.base import ingerer
+    from veille.models import Offre
+
+    adresses = {cle: f"https://exemple.invalid/parcours/{n}" for n, cle in enumerate(FICHES, 11)}
+    ingerer(
+        [
+            Offre(
+                titre=f"Candidature inventée du parcours, {cle}",
+                employeur=f"Employeur inventé {cle}",
+                lieu="Lieu inventé",
+                description="Tests automatisés, inventés pour la fiche.",
+                url=adresse,
+            )
+            for cle, adresse in adresses.items()
+        ],
+        SOURCE,
+    )
+    ids = {}
+    with db.connexion() as cx:
+        for cle, adresse in adresses.items():
+            ids[cle] = cx.execute("SELECT id FROM offres WHERE url = ?", (adresse,)).fetchone()["id"]
+            cx.execute("UPDATE offres SET score = ?, explication = ? WHERE id = ?",
+                       (reglages.lire_seuil() + 20,
+                        json.dumps(EXPLICATION, ensure_ascii=False), ids[cle]))
+    for cle, statut in FICHES.items():
+        db.changer_statut(ids[cle], statut, motif=MOTIF if statut == "ecartee" else None)
+    db.maj_champs(ids["pret"], dossier_chemin=str(tmp_path_factory.mktemp("dossier-pret")))
+    return ids
 
 
 @pytest.fixture
@@ -254,3 +304,216 @@ def test_a_faire_tient_dans_l_ecran(telephone, parcours):
     expect(_carte(telephone, parcours["long"])).to_be_visible()
     largeur = telephone.evaluate("document.documentElement.scrollWidth")
     assert largeur <= TELEPHONE["viewport"]["width"]
+
+
+# ---------------------------------------------------------------------------
+# La fiche par état et l'onglet « Candidatures » (ADR-0003, § 4)
+# ---------------------------------------------------------------------------
+
+
+def _fiche(page, offre_id: int):
+    return page.locator(f'#fenetre .offre.fiche[data-id="{offre_id}"]')
+
+
+def _fermer(page) -> None:
+    page.locator("#fenetre").get_by_role("button", name="Fermer").click()
+    expect(page.locator("#fenetre")).to_be_hidden()
+
+
+def _ouvrir_candidatures(page, url: str) -> None:
+    _ouvrir(page, url)
+    page.locator('.onglet[data-vue="candidatures"]').click()
+    expect(page.locator("#contenu-candidatures")).not_to_be_empty()
+
+
+def _ligne_candidature(page, groupe: str, offre_id: int):
+    return page.locator(f'#vue-candidatures [data-groupe="{groupe}"] '
+                        f'button.offre[data-action="fiche"][data-id="{offre_id}"]')
+
+
+def _actions(fiche) -> list[str]:
+    return fiche.locator(".ligne-actions [data-action]").evaluate_all(
+        "es => es.map(e => e.dataset.action)")
+
+
+def _statut_ecrit(page):
+    return page.expect_response(
+        lambda r: r.request.method == "POST" and r.url.endswith("/statut"))
+
+
+def test_le_parcours_de_la_file_a_l_entretien(telephone, parcours, fiches, tmp_path):
+    """De la carte « À voir » à l'entretien, chaque geste sur la fiche de l'état atteint."""
+    from veille import db
+
+    offre_id = fiches["parcours"]
+    _ouvrir(telephone, parcours["url"])
+    _carte(telephone, offre_id).locator('[data-action="postuler"]').click()
+    fiche = _fiche(telephone, offre_id)
+    expect(fiche.locator(".etat-fiche")).to_have_text("Je postule")
+    expect(fiche.locator('[data-action="dossier"]')).to_have_count(1)
+    assert db.lire_offre(offre_id)["statut"] == "interessante"
+
+    # La génération est testée en Python ; ici, le dossier est simulé (décision 7 du plan).
+    db.maj_champs(offre_id, dossier_chemin=str(tmp_path))
+    _fermer(telephone)
+    telephone.locator('.onglet[data-vue="a-faire"]').click()
+    ligne = telephone.locator(f'#vue-a-faire .ligne-a-finir[data-id="{offre_id}"]')
+    expect(ligne).to_contain_text("Dossier prêt à envoyer")
+    ligne.click()
+    expect(fiche.locator('[data-action="envoyee"]')).to_have_count(1)
+
+    fiche.locator('[data-action="envoyee"]').click()
+    with _statut_ecrit(telephone):
+        telephone.locator("#fenetre").get_by_role("button", name="LinkedIn", exact=True).click()
+    assert db.lire_offre(offre_id)["statut"] == "candidature_envoyee"
+
+    telephone.locator('.onglet[data-vue="candidatures"]').click()
+    _ligne_candidature(telephone, "envoyee", offre_id).click()
+    with _statut_ecrit(telephone):
+        fiche.locator('[data-action="reponse"][data-statut="entretien"]').click()
+    expect(fiche.locator('[data-action="entretien"]')).to_have_count(1)
+    expect(fiche.locator(".etat-fiche")).to_have_text("Entretien")
+    assert db.lire_offre(offre_id)["statut"] == "entretien"
+
+
+def test_la_fiche_ne_montre_que_les_actions_de_son_etat(telephone, parcours, fiches):
+    offre_id = fiches["envoyee"]
+    _ouvrir_candidatures(telephone, parcours["url"])
+    _ligne_candidature(telephone, "envoyee", offre_id).click()
+    fiche = _fiche(telephone, offre_id)
+    expect(fiche.locator('[data-action="relance"]')).to_have_count(1)
+    expect(fiche.locator('[data-action="reponse"]')).to_have_count(3)
+    expect(fiche.locator('[data-action="postuler"]')).to_have_count(0)
+    expect(fiche.locator('[data-action="dossier"]')).to_have_count(0)
+    statuts = fiche.locator('[data-action="reponse"]').evaluate_all(
+        "bs => bs.map(b => b.dataset.statut)")
+    assert statuts == ["entretien", "refus", "accepte"]
+
+
+def test_chaque_etat_a_sa_ligne_d_actions(telephone, parcours, fiches):
+    """Le tableau de la fiche (ADR-0003, § 4), statut par statut ; « Revenir à « À voir » »
+    est dans « Autres actions », hors de l'état « À voir »."""
+    from veille import db
+
+    attendu = {
+        "a_voir": ("À voir", ["postuler", "plus-tard", "non"], False),
+        "de_cote": ("Mise de côté", ["postuler", "plus-tard", "non"], True),
+        "plus_tard": ("À voir", ["postuler", "non"], False),
+        "a_preparer": ("Je postule", ["dossier"], True),
+        "pret": ("Je postule", ["envoyee", "dossier"], True),
+        "envoyee": ("Envoyée", ["relance", "reponse", "reponse", "reponse"], True),
+        "entretien": ("Entretien", ["entretien", "reponse", "reponse"], True),
+        "close": ("Close", [], True),
+    }
+    _ouvrir(telephone, parcours["url"])
+    for cle, (libelle, actions, revenir) in attendu.items():
+        offre_id = fiches[cle]
+        telephone.evaluate("id => ouvrirFiche(id)", offre_id)
+        fiche = _fiche(telephone, offre_id)
+        expect(fiche.locator(".etat-fiche")).to_have_text(libelle)
+        assert _actions(fiche) == actions, cle
+        expect(fiche.locator('[data-action="revenir"]')).to_have_count(1 if revenir else 0)
+
+    telephone.evaluate("id => ouvrirFiche(id)", fiches["pret"])
+    expect(_fiche(telephone, fiches["pret"]).locator(".ligne-actions a[download]")).to_have_attribute(
+        "href", f"/api/offres/{fiches['pret']}/dossier/archive")
+    telephone.evaluate("id => ouvrirFiche(id)", fiches["envoyee"])
+    relance = db.lire_offre(fiches["envoyee"])["date_relance_due"]
+    expect(_fiche(telephone, fiches["envoyee"]).locator(".ligne-actions")).to_contain_text(relance)
+    telephone.evaluate("id => ouvrirFiche(id)", fiches["close"])
+    expect(_fiche(telephone, fiches["close"]).locator(".ligne-actions")).to_contain_text(MOTIF)
+
+
+def test_les_boutons_de_la_fiche_se_touchent_du_doigt(telephone, parcours, fiches):
+    _ouvrir(telephone, parcours["url"])
+    for cle in ("a_voir", "pret", "envoyee", "entretien"):
+        telephone.evaluate("id => ouvrirFiche(id)", fiches[cle])
+        fiche = _fiche(telephone, fiches[cle])
+        expect(fiche).to_be_visible()
+        cibles = fiche.locator(".ligne-actions button, .ligne-actions a, .lien-annonce, summary")
+        mesures = cibles.evaluate_all(
+            "es => es.map(e => [e.textContent.trim(), e.getBoundingClientRect().height])")
+        assert len(mesures) >= 5, cle
+        for texte, hauteur in mesures:
+            assert hauteur >= DOIGT, (cle, texte, hauteur)
+
+
+def test_candidatures_groupent_les_offres_par_etat(telephone, parcours, fiches):
+    from veille import db
+
+    _ouvrir_candidatures(telephone, parcours["url"])
+    titres = telephone.locator("#vue-candidatures .titre-groupe").all_text_contents()
+    assert titres == ["Je postule", "Envoyée", "Entretien"]
+    expect(_ligne_candidature(telephone, "je_postule", fiches["pret"])).to_contain_text(
+        "dossier prêt")
+    expect(_ligne_candidature(telephone, "je_postule", fiches["a_preparer"])).to_contain_text(
+        "à préparer")
+    relance = db.lire_offre(fiches["envoyee"])["date_relance_due"]
+    expect(_ligne_candidature(telephone, "envoyee", fiches["envoyee"])).to_contain_text(
+        f"relance le {relance}")
+    expect(_ligne_candidature(telephone, "entretien", fiches["entretien"])).to_be_visible()
+    for cle in ("a_voir", "plus_tard", "de_cote", "close"):
+        expect(telephone.locator(f'#vue-candidatures [data-id="{fiches[cle]}"]')).to_have_count(0)
+
+
+def test_candidatures_vides_le_dit(telephone, parcours):
+    telephone.route("**/api/candidatures", lambda route: route.fulfill(
+        status=200, content_type="application/json",
+        body=json.dumps({"je_postule": [], "envoyee": [], "entretien": []})))
+    _ouvrir(telephone, parcours["url"])
+    telephone.locator('.onglet[data-vue="candidatures"]').click()
+    expect(telephone.locator("#vue-candidatures")).to_contain_text("Aucune candidature en cours.")
+    expect(_actif(telephone)).to_have_attribute("data-vue", "candidatures")
+
+
+def test_revenir_puis_plus_tard_rouvrent_la_fiche(telephone, parcours, fiches):
+    from veille import db
+
+    offre_id = fiches["revenir"]
+    _ouvrir_candidatures(telephone, parcours["url"])
+    _ligne_candidature(telephone, "envoyee", offre_id).click()
+    fiche = _fiche(telephone, offre_id)
+    fiche.locator("summary", has_text="Autres actions").click()
+    with _statut_ecrit(telephone):
+        fiche.get_by_role("button", name="Revenir à « À voir »").click()
+    expect(fiche.locator(".etat-fiche")).to_have_text("À voir")
+    assert _actions(fiche) == ["postuler", "plus-tard", "non"]
+    assert db.lire_offre(offre_id)["statut"] == "nouveau"
+
+    with _statut_ecrit(telephone):
+        fiche.locator('.ligne-actions [data-action="plus-tard"]').click()
+    expect(fiche.locator('.ligne-actions [data-action="plus-tard"]')).to_have_count(0)
+    assert _actions(fiche) == ["postuler", "non"]
+    assert db.lire_offre(offre_id)["statut"] == "a_traiter"
+
+
+def test_les_notes_s_enregistrent_depuis_la_fiche(telephone, parcours, fiches):
+    from veille import db
+
+    offre_id = fiches["pret"]
+    note = "Note inventée du parcours"
+    _ouvrir_candidatures(telephone, parcours["url"])
+    _ligne_candidature(telephone, "je_postule", offre_id).click()
+    fiche = _fiche(telephone, offre_id)
+    fiche.locator("summary", has_text="Notes").click()
+    fiche.locator("textarea").fill(note)
+    with telephone.expect_response(lambda r: r.request.method == "POST"
+                                   and r.url.endswith(f"/api/offres/{offre_id}")):
+        fiche.get_by_role("button", name="Enregistrer").click()
+    expect(telephone.locator(".message", has_text="Notes enregistrées.")).to_be_visible()
+    # Rouverte, la fiche garde ouvert le volet des notes, et les montre.
+    expect(fiche.locator('details[data-repli="notes"]')).to_have_attribute("open", "")
+    expect(fiche.locator("textarea")).to_have_value(note)
+    assert db.lire_offre(offre_id)["notes"] == note
+
+
+def test_la_fiche_tient_dans_l_ecran(telephone, parcours):
+    """L'intitulé de 200 caractères ne fait défiler de côté ni la page ni la fenêtre."""
+    _ouvrir(telephone, parcours["url"])
+    _carte(telephone, parcours["long"]).locator('[data-action="fiche"]').click()
+    fiche = _fiche(telephone, parcours["long"])
+    expect(fiche.locator(".offre-titre")).to_have_text(LONG)
+    largeur = telephone.evaluate("document.documentElement.scrollWidth")
+    assert largeur <= TELEPHONE["viewport"]["width"]
+    # La fenêtre défile pour son compte : la page ne verrait pas son débordement.
+    assert telephone.eval_on_selector("#fenetre", "f => f.scrollWidth <= f.clientWidth")
