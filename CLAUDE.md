@@ -32,7 +32,7 @@ Sur le poste, où se fait le travail (un environnement par worktree) :
 
 - `python -m venv .venv`, puis `.venv\Scripts\python -m pip install -e .[dev]` : l'environnement. Ajouter l'extra `pdf` là où WeasyPrint s'installe.
 - `.venv\Scripts\python -m pytest -q` : la suite. Sous Windows, les tests qui demandent WeasyPrint, systemd utilisateur ou les groupes de processus POSIX se sautent ; la CI et le serveur les font tourner, avec `SUITE_COMPLETE=1`, qui leur interdit de se sauter (`tests/sauts.py`).
-- `.venv\Scripts\python -m pip install -e .[dev,navigateur]`, puis `.venv\Scripts\python -m playwright install chromium`, puis `.venv\Scripts\python -m pytest -q -p no:cacheprovider tests_navigateur` : le parcours de connexion dans un vrai navigateur (`tests_navigateur/`). La CI le fait dans le job `navigateur` ; la suite du serveur ne le collecte pas.
+- `.venv\Scripts\python -m pip install -e .[dev,navigateur]`, puis `.venv\Scripts\python -m playwright install chromium`, puis `.venv\Scripts\python -m pytest -q -p no:cacheprovider tests_navigateur` : dans un vrai navigateur, le parcours de connexion, le parcours de candidature (la file, la fiche par état, « Candidatures » et « Plus ») et les cibles tactiles (`tests_navigateur/`). La CI le fait dans le job `navigateur` ; la suite du serveur ne le collecte pas.
 
 Sur une console sans conteneur (la console du tailnet), depuis son clone, à la main d'Edouard. Les chemins réels du serveur, et le compte des tests qui y sont sautés, sont dans le `CLAUDE.md` du dépôt de données.
 

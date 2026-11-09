@@ -199,7 +199,7 @@ non.
 
 ## Après l'envoi
 
-Clique **« Candidature envoyée »** et choisis le canal. La console :
+Dans la fiche de l'offre, touche **« Je l'ai envoyée »** et choisis le canal. La console :
 
 - horodate l'envoi ;
 - programme la **relance à 10 jours**, qui apparaît dans *Plus › Relances* (et dans « À finir », sous « À faire ») ;
