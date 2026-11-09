@@ -944,6 +944,8 @@ function contenuFiche(o) {
     ? `<a class="lien-annonce" href="${echapper(o.url)}" target="_blank" rel="noopener noreferrer">Voir l'annonce ›</a>`
     : '';
   const contribs = listeContributions(o);
+  // Remise à plus tard, l'offre reste « À voir », mais s'affiche « Plus tard » (ADR-0003, § 1).
+  const etat = o.statut === 'a_traiter' ? 'Plus tard' : (LIBELLES_ETAT[o.etat] || o.etat);
   return `
   <div class="offre fiche" data-id="${Number(o.id)}">
     <div class="offre-haut">
@@ -952,7 +954,7 @@ function contenuFiche(o) {
     </div>
     <div class="meta">${meta}</div>
     <div class="etat-et-annonce">
-      <span class="etat-fiche">${echapper(LIBELLES_ETAT[o.etat] || o.etat)}</span>
+      <span class="etat-fiche">${echapper(etat)}</span>
       ${annonce}
     </div>
     <div class="actions ligne-actions">${actionsDeFiche(o)}</div>

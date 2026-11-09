@@ -398,7 +398,7 @@ def test_chaque_etat_a_sa_ligne_d_actions(telephone, parcours, fiches):
     attendu = {
         "a_voir": ("À voir", ["postuler", "plus-tard", "non"], False),
         "de_cote": ("Mise de côté", ["postuler", "plus-tard", "non"], True),
-        "plus_tard": ("À voir", ["postuler", "non"], False),
+        "plus_tard": ("Plus tard", ["postuler", "non"], False),
         "a_preparer": ("Je postule", ["dossier"], True),
         "pret": ("Je postule", ["envoyee", "dossier"], True),
         "envoyee": ("Envoyée", ["relance", "reponse", "reponse", "reponse"], True),
@@ -483,6 +483,7 @@ def test_revenir_puis_plus_tard_rouvrent_la_fiche(telephone, parcours, fiches):
     with _statut_ecrit(telephone):
         fiche.locator('.ligne-actions [data-action="plus-tard"]').click()
     expect(fiche.locator('.ligne-actions [data-action="plus-tard"]')).to_have_count(0)
+    expect(fiche.locator(".etat-fiche")).to_have_text("Plus tard")
     assert _actions(fiche) == ["postuler", "non"]
     assert db.lire_offre(offre_id)["statut"] == "a_traiter"
 
