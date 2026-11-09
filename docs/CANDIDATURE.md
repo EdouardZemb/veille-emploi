@@ -62,7 +62,7 @@ provisoires de la configuration (`gabarits/`) et **l'écrit à chaque générati
 
 ## Consulter tes documents depuis ton téléphone
 
-Onglet **Documents** de la console. Deux sections :
+Dans **Plus › Documents** de la console. Deux sections :
 
 **Ton kit**, rangé par catégorie — CV, dossier de candidature, lettres,
 préparation d'entretien, stratégie, annexes et certifications. Chaque pièce
@@ -116,7 +116,7 @@ Une pièce n'est jointe que si **toutes** ses étiquettes conviennent à l'offre
 pour le pays. Plus deux étiquettes spéciales :
 
 - **`manuel`** — la pièce n'est **jamais** jointe automatiquement, mais reste
-  téléchargeable depuis l'onglet *Documents*.
+  téléchargeable depuis *Plus › Documents*.
 - aucune étiquette — pièce **universelle**, jointe partout.
 
 Les pièces écartées sont **annoncées** à la génération :
@@ -151,14 +151,14 @@ enveloppe**. La console ne garde donc qu'**une pièce par famille** — la famil
 **le plus d'étiquettes** qui l'emporte :
 
 > *Version moins spécifique non jointe : cv.en.pdf (au profit de cv.ch.en.pdf).
-> Si tu préfères l'autre, télécharge-la depuis l'onglet Documents.*
+> Si tu préfères l'autre, télécharge-la depuis Plus › Documents.*
 
 C'est le même principe que partout ailleurs dans ce projet — le plus spécifique
 d'abord — et c'est celui qui a corrigé le choix de la lettre.
 
 **Les trois CV restent dans le kit et téléchargeables**, quelle que soit la
 règle : si un recruteur demande explicitement un CV sans photo sur une offre
-suisse, ou l'inverse, tu prends l'autre dans l'onglet *Documents*.
+suisse, ou l'inverse, tu prends l'autre dans *Plus › Documents*.
 
 ### Vérifier avant la première candidature
 
@@ -202,7 +202,7 @@ non.
 Clique **« Candidature envoyée »** et choisis le canal. La console :
 
 - horodate l'envoi ;
-- programme la **relance à 10 jours**, qui apparaît dans l'onglet *Relances* ;
+- programme la **relance à 10 jours**, qui apparaît dans *Plus › Relances* (et dans « À finir », sous « À faire ») ;
 - compte ce canal dans l'entonnoir, pour que tu voies lesquels répondent.
 
 Le délai de relance se règle dans `db.changer_statut(delai_relance_jours=…)`.

@@ -22,6 +22,8 @@ Le lot V1 (#22) est clos le 02/11/2026 : le code tourne par défaut sur `exemple
 
 Le lot V2 (la scission, #39) est clos le 06/11/2026. Le staging se déploie à deux dépôts : l'image `:main` de ce dépôt, et `principal` du dépôt de données. La console du tailnet tourne sur deux clones : celui du code, et celui des données, qu'elle lit par `VEILLE_CONFIG`. Ses fichiers locaux, `config/.env` et `config/vapid.json` (les clés des notifications), restent à la racine du clone du code, hors de git (constat LE-9). Au premier envoi, GitHub n'avait enregistré que `ci.yml` et Dependabot. Les trois autres workflows le sont depuis le 06/11/2026, par une bascule aller-retour de la branche par défaut (constat EM-2, clos ; modele-projet#102). `modele-version.yml` publie l'image `:X.Y.Z` quand une étiquette `vX.Y.Z` est posée. Il est enregistré, mais n'a jamais tourné : à la première étiquette du #12, vérifier que l'image `:X.Y.Z` est publiée avant que la prod la tire.
 
+Le lot 1 du parcours (ADR-0003, `veille-emploi#13`) donne à la console trois onglets : « À faire », « Candidatures » et « Plus », qui mène aux anciens écrans (Toutes les offres, Relances, Archive, À classer, Pilotage, Documents, Réglages) jusqu'au lot 3. `src/veille/etats.py` lit les cinq états (À voir, Je postule, Envoyée, Entretien, Close) sur les onze statuts, sans migration ; `differee` reste hors de la file. Le jeu factice a une offre par état, et un job CI `mutation` passe mutmut sur `etats.py`. Le détail est dans `docs/FONCTIONNEMENT.md`.
+
 Prochain : le #12 (la production et la bascule), puis la fin du mode systemd (`docs/pistes.md`). La suite de l'éditeur est à placer par Edouard.
 
 ## Commandes

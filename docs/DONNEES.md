@@ -53,7 +53,7 @@ le `docs/DONNEES.md` du dépôt de données.
 **La connexion est dans la base.** Les sessions (leur empreinte SHA-256, jamais
 le jeton), les liens à usage unique (leur empreinte) et les passkeys (leurs
 clés publiques) y sont : la sauvegarde de la base les couvre, et aucun fichier
-de `config/` ne sert plus à se connecter. **Déconnecter** (onglet **Réglages**,
+de `config/` ne sert plus à se connecter. **Déconnecter** (**Plus › Réglages**,
 bloc **Appareils**) ferme une session ; la passkey d'un appareil perdu se retire
 sur le serveur, par `veille passkeys --retirer <n°>` (`DEMARRAGE.md`, §4).
 

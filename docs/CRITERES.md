@@ -678,7 +678,7 @@ section venue.
 
 ## La boucle de correction, au bout de trente offres
 
-L'onglet **Pilotage** agrège tes motifs d'écartement. C'est la donnée la plus
+**Plus › Pilotage** agrège tes motifs d'écartement. C'est la donnée la plus
 utile du dispositif : elle dit ce que le scoring rate.
 
 Lis la colonne **score moyen** de ce tableau :
