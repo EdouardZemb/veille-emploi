@@ -21,6 +21,7 @@ SOURCE = "parcours"
 MOTIF = "motif inventé du parcours"
 # Un intitulé de 200 caractères sans espace : il ne se coupe que si la page le permet.
 LONG = ("Ingénieurqualitélogicielleinventé" * 7)[:200]
+LONGUE = ("Candidatureinventéetrèslongue" * 8)[:200]
 # Les deux offres du double « Non ».
 PREMIERE = "Première offre inventée du panneau Non"
 SECONDE = "Seconde offre inventée du panneau Non"
@@ -174,6 +175,13 @@ def _inventer(titres: list[str], chemin: str, statut: str) -> list[int]:
 def deux_non(parcours):
     """Deux offres à voir, pour deux « Non » de suite."""
     return _inventer([PREMIERE, SECONDE], "non", "nouveau")
+
+
+@pytest.fixture(scope="module")
+def longue_candidature(parcours):
+    """Une candidature envoyée à l'intitulé de 200 caractères sans espace."""
+    (offre_id,) = _inventer([LONGUE], "longue", "candidature_envoyee")
+    return offre_id
 
 
 @pytest.fixture
@@ -371,6 +379,24 @@ def test_non_nomme_l_offre_et_ecarte_la_bonne(telephone, parcours, deux_non):
     assert PREMIERE not in fenetre.inner_text()
 
 
+def test_le_panneau_non_se_touche_du_doigt(telephone, parcours):
+    """Les motifs fréquents, « Écarter », « N'est plus en ligne », « Annuler » et « Fermer »."""
+    _ouvrir(telephone, parcours["url"])
+    _carte(telephone, parcours["temoin"]).locator('[data-action="non"]').click()
+    fenetre = telephone.locator("#fenetre")
+    expect(fenetre).to_contain_text("Testeur inventé du parcours 4")
+    expect(fenetre.get_by_role("button", name=MOTIF, exact=True)).to_be_visible()
+    mesures = fenetre.locator("button").evaluate_all(
+        "bs => bs.map(b => [b.textContent.trim(), b.getBoundingClientRect().height])")
+    textes = [texte for texte, _ in mesures]
+    for attendu in (MOTIF, "Écarter", "N'est plus en ligne", "Annuler", "Fermer"):
+        assert attendu in textes
+    for texte, hauteur in mesures:
+        assert hauteur >= DOIGT, (texte, hauteur)
+    fenetre.get_by_role("button", name="Annuler").click()
+    expect(fenetre).to_be_hidden()
+
+
 def _servir_a_faire(page, corps: dict) -> None:
     page.route("**/api/a-faire", lambda route: route.fulfill(
         status=200, content_type="application/json", body=json.dumps(corps)))
@@ -398,6 +424,31 @@ def test_a_faire_tient_dans_l_ecran(telephone, parcours):
     expect(_carte(telephone, parcours["long"])).to_be_visible()
     largeur = telephone.evaluate("document.documentElement.scrollWidth")
     assert largeur <= TELEPHONE["viewport"]["width"]
+
+
+def test_les_cibles_de_a_faire_se_touchent_du_doigt(telephone, parcours):
+    """Une ligne d'« À finir », « Voir les N autres… », « Voir les M sous le seuil » et le
+    volet « Plus tard » (ADR-0003, § 7). Plus de 50 offres au-dessus du seuil ne se créent
+    pas ici : la file est servie."""
+    plus_tard = {"id": parcours["temoin"], "titre": "Offre inventée remise à plus tard",
+                 "employeur": "Employeur inventé", "lieu": "Lieu inventé", "score": 65,
+                 "statut": "a_traiter", "explication": EXPLICATION}
+    a_finir = {"id": parcours["temoin"], "titre": "Offre inventée à finir",
+               "employeur": "Employeur inventé", "raison": "a_preparer"}
+    _servir_a_faire(telephone, {**VIDE, "a_finir": [a_finir], "plus_tard": [plus_tard],
+                                "a_voir_restantes": 3, "sous_le_seuil": 2})
+    telephone.goto(f"{parcours['url']}/")
+    expect(telephone.locator("#vue-a-faire .ligne-a-finir")).to_be_visible()
+    mesures = telephone.locator(
+        "#vue-a-faire .ligne-a-finir, #vue-a-faire .vers-toutes button, "
+        "#vue-a-faire details.plus-tard > summary").evaluate_all(
+        "es => es.map(e => [e.textContent.trim(), e.getBoundingClientRect().height])")
+    textes = [" ".join(texte.split()) for texte, _ in mesures]
+    assert textes == ["Dossier à préparer Offre inventée à finir Employeur inventé",
+                      "Voir les 3 autres au-dessus du seuil ›", "Voir les 2 sous le seuil ›",
+                      "Plus tard (1)"]
+    for texte, hauteur in mesures:
+        assert hauteur >= DOIGT, (texte, hauteur)
 
 
 # ---------------------------------------------------------------------------
@@ -695,3 +746,33 @@ def test_une_fiche_qui_ne_se_recharge_pas_se_ferme(telephone, parcours, fiches):
     expect(telephone.locator(".message.erreur")).to_contain_text("fiche")
     assert len(envois) == 1
     assert db.lire_offre(offre_id)["statut"] == "refus"
+
+
+def test_candidatures_se_touchent_du_doigt_et_tiennent_dans_l_ecran(
+        telephone, parcours, fiches, longue_candidature):
+    """Chaque ligne de « Candidatures » fait 44 px, et un intitulé de 200 caractères sans
+    espace ne fait pas défiler l'écran de côté (ADR-0003, § 7)."""
+    _ouvrir_candidatures(telephone, parcours["url"])
+    expect(_ligne_candidature(telephone, "envoyee", longue_candidature)).to_contain_text(LONGUE)
+    hauteurs = telephone.locator("#vue-candidatures .ligne-candidature").evaluate_all(
+        "es => es.map(e => e.getBoundingClientRect().height)")
+    assert len(hauteurs) >= 5
+    assert min(hauteurs) >= DOIGT
+    assert telephone.evaluate("document.documentElement.scrollWidth") <= TELEPHONE["viewport"]["width"]
+
+
+def test_plus_se_touche_du_doigt_et_tient_dans_l_ecran(telephone, parcours):
+    """Les lignes de « Plus », et « ‹ Plus » sur un ancien écran (ADR-0003, § 7)."""
+    _ouvrir(telephone, parcours["url"])
+    telephone.get_by_role("button", name="Plus", exact=True).click()
+    expect(telephone.locator("#vue-plus")).to_be_visible()
+    hauteurs = telephone.locator("#vue-plus .lien-plus").evaluate_all(
+        "es => es.map(e => e.getBoundingClientRect().height)")
+    assert len(hauteurs) == 7
+    assert min(hauteurs) >= DOIGT
+    assert telephone.evaluate("document.documentElement.scrollWidth") <= TELEPHONE["viewport"]["width"]
+
+    telephone.get_by_role("button", name="Toutes les offres").click()
+    retour = telephone.locator("#vue-offres .retour-plus")
+    expect(retour).to_be_visible()
+    assert retour.evaluate("e => e.getBoundingClientRect().height") >= DOIGT

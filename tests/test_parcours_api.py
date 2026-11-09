@@ -127,7 +127,11 @@ def test_les_motifs_frequents_sans_les_automatiques(connecte):
 
 
 def test_la_limite_des_motifs_est_bornee(connecte):
-    assert len(connecte.get("/api/motifs?limite=99").json()["motifs"]) <= 20
+    """21 motifs distincts : la limite demandée est ramenée entre 1 et 20."""
+    for n in range(21):
+        _offre("ecartee", motif=f"motif inventé {n:02d}")
+    assert len(connecte.get("/api/motifs?limite=99").json()["motifs"]) == 20
+    assert len(connecte.get("/api/motifs?limite=0").json()["motifs"]) == 1
 
 
 def test_l_offre_porte_son_etat(connecte):
