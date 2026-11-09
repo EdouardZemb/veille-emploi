@@ -78,7 +78,7 @@ function listeContributions(o) {
   return (o.explication || []).map(c => {
     const cls = c.points > 0 ? 'plus' : c.points < 0 ? 'moins' : 'zero';
     const signe = c.points > 0 ? '+' : '';
-    return `<li><span class="pts ${cls}">${signe}${c.points}</span>
+    return `<li><span class="pts ${cls}">${signe}${echapper(c.points)}</span>
       <span><b>${echapper(c.libelle)}</b>${c.detail ? ` <span class="contrib-detail">${echapper(c.detail)}</span>` : ''}</span></li>`;
   }).join('');
 }
@@ -657,6 +657,8 @@ function afficherCompletudeInsuffisante(id, c, bouton) {
     try {
       const d = await api(`/api/offres/${id}/dossier?forcer=true`, { method: 'POST' });
       afficherDossier(id, d);
+      // La vue de derrière dit encore « Dossier à préparer » : elle se recharge.
+      rafraichir();
     } catch (e) { message(e.message, true); }
   };
 }
@@ -673,6 +675,8 @@ async function genererDossier(id, bouton) {
       return;
     }
     afficherDossier(id, d);
+    // La vue de derrière dit encore « Dossier à préparer » : elle se recharge.
+    rafraichir();
   } catch (e) {
     message(e.message, true);
   } finally {
@@ -735,7 +739,7 @@ const RAISONS = {
   a_preparer: 'Dossier à préparer',
 };
 
-// Les cinq états, et la mise de côté, tels que l'écran les nomme (`etats.py` les lit).
+// Les cinq états, et la mise de côté, tels que l'écran les nomme (`etats.py` produit ces clés).
 const LIBELLES_ETAT = {
   a_voir: 'À voir',
   je_postule: 'Je postule',
@@ -744,6 +748,13 @@ const LIBELLES_ETAT = {
   close: 'Close',
   mise_de_cote: 'Mise de côté',
 };
+
+// Seules une candidature et une relance envoyées attendent une relance (`db.relances_dues`).
+// Une réponse reçue garde en base la date de son envoi : l'écran ne la montre pas.
+function relanceAttendue(o) {
+  return (o.statut === 'candidature_envoyee' || o.statut === 'relance_envoyee')
+    && Boolean(o.date_relance_due);
+}
 
 // Un geste neuf ne part qu'une fois : son bouton se désactive avant toute attente, et ne
 // revient qu'en cas d'échec. Un succès recharge la vue, qui remplace le bouton.
@@ -938,13 +949,15 @@ function actionsDeFiche(o) {
     case 'envoyee':
       return `<button data-action="relance">Mot de relance</button>
         ${boutonsReponse([['entretien', 'Entretien'], ['refus', 'Refus'], ['accepte', 'Acceptée']])}
-        ${o.date_relance_due ? `<span class="menu">Relance le ${echapper(o.date_relance_due)}</span>` : ''}`;
+        ${relanceAttendue(o) ? `<span class="menu">Relance le ${echapper(o.date_relance_due)}</span>` : ''}`;
     case 'entretien':
       return `<button data-action="entretien">Préparer l'entretien</button>
         ${boutonsReponse([['refus', 'Refus'], ['accepte', 'Acceptée']])}`;
     default:
-      // Close : aucune action, le motif s'il existe.
-      return o.motif_ecartement ? `<p class="motif">${echapper(o.motif_ecartement)}</p>` : '';
+      // Close : aucune action. Le motif d'une écartée, s'il existe ; un refus ou une
+      // acceptation peut garder en base le motif d'un ancien écartement, qui ne dit plus rien.
+      return o.statut === 'ecartee' && o.motif_ecartement
+        ? `<p class="motif">${echapper(o.motif_ecartement)}</p>` : '';
   }
 }
 
@@ -1003,9 +1016,16 @@ async function ouvrirFiche(id) {
 }
 
 // Le statut, puis la fiche sur le nouvel état ; `changerStatut` recharge la vue de derrière.
+// Si la fiche ne se recharge pas, le statut est pourtant écrit : la fiche d'avant, périmée,
+// se ferme, et son bouton ne se réactive pas (un second toucher réécrirait le statut).
 async function changerStatutPuisFiche(id, statut) {
   await changerStatut(id, statut);
-  await ouvrirFiche(id);
+  try {
+    await ouvrirFiche(id);
+  } catch (e) {
+    $('#fenetre').close();
+    message(`Statut enregistré, mais la fiche n'a pas pu se recharger : ${e.message}`, true);
+  }
 }
 
 async function enregistrerNotes(id, bouton) {
@@ -1027,7 +1047,7 @@ const GROUPES_CANDIDATURES = ['je_postule', 'envoyee', 'entretien'];
 function ligneCandidature(o, groupe) {
   let repere = '';
   if (groupe === 'je_postule') repere = o.dossier ? 'dossier prêt' : 'à préparer';
-  else if (groupe === 'envoyee' && o.date_relance_due) repere = `relance le ${o.date_relance_due}`;
+  else if (groupe === 'envoyee' && relanceAttendue(o)) repere = `relance le ${o.date_relance_due}`;
   return `<button class="offre ligne-candidature" data-action="fiche" data-id="${Number(o.id)}">
     <span class="offre-titre">${echapper(o.titre)}</span>
     ${o.employeur ? `<span class="menu">${echapper(o.employeur)}</span>` : ''}

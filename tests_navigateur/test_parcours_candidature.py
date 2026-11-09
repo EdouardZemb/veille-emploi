@@ -10,6 +10,7 @@ test qui change un statut a son offre à lui.
 from __future__ import annotations
 
 import json
+from datetime import date, timedelta
 
 import pytest
 from playwright.sync_api import expect
@@ -45,6 +46,13 @@ FICHES = {
     "revenir": "relance_envoyee",
     "entretien": "entretien",
     "close": "ecartee",
+    "generer": "interessante",
+    # Elle garde la date de relance de son envoi : la fixture la pose, comme `changer_statut`
+    # la laisse quand une réponse arrive.
+    "reponse": "reponse_recue",
+    # Écartée, puis refusée : le motif de l'écartement reste en base (la fixture la refuse).
+    "refus": "ecartee",
+    "recharge": "candidature_envoyee",
 }
 
 
@@ -124,6 +132,8 @@ def fiches(parcours, tmp_path_factory):
     for cle, statut in FICHES.items():
         db.changer_statut(ids[cle], statut, motif=MOTIF if statut == "ecartee" else None)
     db.maj_champs(ids["pret"], dossier_chemin=str(tmp_path_factory.mktemp("dossier-pret")))
+    db.maj_champs(ids["reponse"], date_relance_due=(date.today() + timedelta(days=10)).isoformat())
+    db.changer_statut(ids["refus"], "refus")
     return ids
 
 
@@ -602,3 +612,86 @@ def test_la_fiche_tient_dans_l_ecran(telephone, parcours):
     assert largeur <= TELEPHONE["viewport"]["width"]
     # La fenêtre défile pour son compte : la page ne verrait pas son débordement.
     assert telephone.eval_on_selector("#fenetre", "f => f.scrollWidth <= f.clientWidth")
+
+
+def test_generer_le_dossier_recharge_a_finir(telephone, parcours, fiches, tmp_path):
+    """Derrière la fenêtre du dossier, « À finir » ne dit plus « Dossier à préparer ». La
+    génération est simulée (décision 7 du plan) : la route pose le dossier en base, puis
+    répond comme `api_generer_dossier`."""
+    from veille import db
+
+    offre_id = fiches["generer"]
+
+    def generer(route):
+        db.maj_champs(offre_id, dossier_chemin=str(tmp_path))
+        route.fulfill(status=200, content_type="application/json", body=json.dumps({
+            "ok": True, "dossier": tmp_path.name, "fichiers": [], "gabarit_lettre": None,
+            "kit_provisoire": False, "avertissements": [], "completude": None,
+            "pieces_envoi": [], "archive": f"/api/offres/{offre_id}/dossier/archive",
+            "archive_complete": f"/api/offres/{offre_id}/dossier/archive?complet=true"}))
+
+    telephone.route(f"**/api/offres/{offre_id}/dossier", generer)
+    _ouvrir(telephone, parcours["url"])
+    ligne = telephone.locator(f'#vue-a-faire .ligne-a-finir[data-id="{offre_id}"]')
+    expect(ligne).to_contain_text("Dossier à préparer")
+    ligne.click()
+    _fiche(telephone, offre_id).locator('[data-action="dossier"]').click()
+    expect(telephone.locator("#fenetre h2")).to_have_text("Dossier genere")
+    expect(ligne).to_contain_text("Dossier prêt à envoyer")
+
+
+def test_une_reponse_recue_ne_montre_pas_de_relance(telephone, parcours, fiches):
+    """Sa relance n'est jamais due (`db.relances_dues`) : ni « Candidatures » ni sa fiche ne
+    la datent, même si la date de l'envoi reste en base."""
+    from veille import db
+
+    offre_id = fiches["reponse"]
+    relance = db.lire_offre(offre_id)["date_relance_due"]
+    assert relance
+    _ouvrir_candidatures(telephone, parcours["url"])
+    ligne = _ligne_candidature(telephone, "envoyee", offre_id)
+    expect(ligne).to_be_visible()
+    expect(ligne).not_to_contain_text(relance)
+    ligne.click()
+    fiche = _fiche(telephone, offre_id)
+    expect(fiche.locator(".etat-fiche")).to_have_text("Envoyée")
+    expect(fiche.locator(".ligne-actions")).not_to_contain_text(relance)
+
+
+def test_une_close_ne_montre_que_le_motif_d_un_ecartement(telephone, parcours, fiches):
+    """Écartée puis refusée, l'offre garde son ancien motif en base : sa fiche ne le montre
+    pas (une écartée le montre, `test_chaque_etat_a_sa_ligne_d_actions`)."""
+    from veille import db
+
+    offre_id = fiches["refus"]
+    assert db.lire_offre(offre_id)["motif_ecartement"] == MOTIF
+    _ouvrir(telephone, parcours["url"])
+    telephone.evaluate("id => ouvrirFiche(id)", offre_id)
+    fiche = _fiche(telephone, offre_id)
+    expect(fiche.locator(".etat-fiche")).to_have_text("Close")
+    expect(fiche).not_to_contain_text(MOTIF)
+
+
+def test_une_fiche_qui_ne_se_recharge_pas_se_ferme(telephone, parcours, fiches):
+    """Le statut est écrit, puis la fiche ne se recharge pas (une réponse illisible, comme
+    la page d'erreur d'un intermédiaire) : elle se ferme, un message le dit, et rien ne
+    reste à toucher sur une fiche périmée, où un second toucher réécrirait le statut."""
+    from veille import db
+
+    offre_id = fiches["recharge"]
+    envois: list[str] = []
+    telephone.on("request", lambda r: envois.append(r.url)
+                 if r.method == "POST" and r.url.endswith("/statut") else None)
+    _ouvrir(telephone, parcours["url"])
+    telephone.evaluate("id => ouvrirFiche(id)", offre_id)
+    fiche = _fiche(telephone, offre_id)
+    expect(fiche).to_be_visible()
+    telephone.route(f"**/api/offres/{offre_id}", lambda route: route.fulfill(
+        status=200, content_type="text/html", body="<p>panne inventée</p>")
+        if route.request.method == "GET" else route.continue_())
+    with _statut_ecrit(telephone):
+        fiche.locator('[data-action="reponse"][data-statut="refus"]').click()
+    expect(telephone.locator("#fenetre")).to_be_hidden()
+    expect(telephone.locator(".message.erreur")).to_contain_text("fiche")
+    assert len(envois) == 1
+    assert db.lire_offre(offre_id)["statut"] == "refus"
