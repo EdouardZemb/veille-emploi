@@ -315,3 +315,53 @@ def test_la_commande_factice(pdf_bouchon, capsys):
     assert "Jeu factice chargé" in capsys.readouterr().out
     assert cli.principal(["factice"]) == 1
     assert "déjà des offres" in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------
+# le jeu couvre le parcours (ADR-0003)
+# --------------------------------------------------------------------------
+
+
+def _offres_du_jeu() -> list[dict]:
+    with db.connexion() as cx:
+        return [dict(r) for r in cx.execute("SELECT * FROM offres")]
+
+
+def test_le_jeu_factice_couvre_chaque_etat(pdf_bouchon):
+    from veille.etats import etat_de
+
+    factice.charger()
+    offres = _offres_du_jeu()
+    etats = {etat_de(o) for o in offres}
+    assert {"a_voir", "je_postule", "envoyee", "entretien"} <= etats
+    assert any(o["statut"] == "a_traiter" for o in offres)
+
+
+def test_le_jeu_factice_a_une_relance_due(pdf_bouchon):
+    from datetime import date
+
+    factice.charger()
+    dues = [
+        o for o in _offres_du_jeu()
+        if o["statut"] == "candidature_envoyee"
+        and o["date_relance_due"]
+        and o["date_relance_due"] < date.today().isoformat()
+    ]
+    assert dues
+
+
+def test_un_statut_factice_refuse_arrete_le_chargement(pdf_bouchon, monkeypatch):
+    lire = factice._lire
+
+    def fausse(nom):
+        if nom == "candidatures.yaml":
+            return {"candidatures": [
+                {"url": "https://offres.exemple.invalid/o/2001", "statut": "refus"},
+            ]}
+        return lire(nom)
+
+    monkeypatch.setattr(factice, "_lire", fausse)
+    with pytest.raises(RuntimeError, match="statut refusé : refus"):
+        factice.charger()
+    with db.connexion() as cx:
+        assert cx.execute("SELECT COUNT(*) FROM evenements WHERE type LIKE 'statut:%'").fetchone()[0] == 0

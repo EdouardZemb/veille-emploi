@@ -9,7 +9,9 @@ réelle n'y entre, et aucune n'en est dérivée (invariant M-0001 de l'écosyst�
   imprécis, chacun de ses éliminatoires (une offre écartée par critère) et une annonce en
   allemand, avec des scores variés, sous et au-dessus du seuil. Le staging les note avec l'exemple,
   la configuration par défaut de l'image : le jeu se lit comme l'exemple le note.
-- `candidatures.yaml` : les offres auxquelles Camille a déjà répondu.
+- `candidatures.yaml` : les offres auxquelles Camille a déjà répondu, ou qu'elle a retenues : une par état du
+  parcours. La clé `statut` (`interessante`, `a_traiter`, `candidature_envoyee` par défaut, `entretien`) en fixe
+  l'état, et `relance_due: true` rend sa relance due depuis la veille du chargement ; tout autre statut arrête le chargement.
 - `kit/` : les pièces du kit, écrites en HTML. Le chargement les rend en PDF.
 
 Toute adresse mail y finit par `@exemple.invalid`, et tout lien a un hôte en `.exemple.invalid`
