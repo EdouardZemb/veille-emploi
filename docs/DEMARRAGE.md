@@ -193,8 +193,9 @@ France Travail, ni à ton espace personnel.
 ## 3. Activer les certificats HTTPS de ton tailnet
 
 **Sans cette étape, pas de notifications push** : le service worker exige une
-origine sécurisée. Elle vaut pour la console du tailnet ; la console en
-conteneur est servie en HTTPS à son adresse publique
+origine sécurisée. Elle ne vaut que pour une console sans conteneur, le mode
+systemd du code (la console du tailnet, retirée le 11/11/2026, était la
+dernière) ; la console en conteneur est servie en HTTPS à son adresse publique
 ([`exploitation.md`](exploitation.md)).
 
 1. <https://login.tailscale.com/admin/dns>
