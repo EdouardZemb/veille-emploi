@@ -62,20 +62,33 @@ const niveau = s => (s >= SEUIL ? 'bonne' : s >= SEUIL / 2 ? 'moyenne' : 'faible
 // Rendu d'une offre
 // ---------------------------------------------------------------------------
 
+// Le salaire publié, ou son absence : la carte d'une offre et celle de « À voir ».
+function etiquetteSalaire(o) {
+  if (!o.salaire_min && !o.salaire_max) {
+    return '<span class="etiquette alerte">salaire non publie</span>';
+  }
+  const s = o.salaire_min && o.salaire_max && o.salaire_min !== o.salaire_max
+    ? `${Math.round(o.salaire_min).toLocaleString('fr-FR')} - ${Math.round(o.salaire_max).toLocaleString('fr-FR')}`
+    : Math.round(o.salaire_max || o.salaire_min).toLocaleString('fr-FR');
+  return `<span class="etiquette">${s} ${echapper(o.salaire_devise || '')}</span>`;
+}
+
+// Les lignes de « Pourquoi ce score » : une par contribution de `o.explication`.
+function listeContributions(o) {
+  return (o.explication || []).map(c => {
+    const cls = c.points > 0 ? 'plus' : c.points < 0 ? 'moins' : 'zero';
+    const signe = c.points > 0 ? '+' : '';
+    return `<li><span class="pts ${cls}">${signe}${echapper(c.points)}</span>
+      <span><b>${echapper(c.libelle)}</b>${c.detail ? ` <span class="contrib-detail">${echapper(c.detail)}</span>` : ''}</span></li>`;
+  }).join('');
+}
+
 function carteOffre(o) {
   const n = niveau(o.score);
   const meta = [o.employeur, o.lieu, o.type_contrat, o.date_publication, o.source]
     .filter(Boolean).map(x => `<span>${echapper(x)}</span>`).join('');
 
-  const etiquettes = [];
-  if (o.salaire_min || o.salaire_max) {
-    const s = o.salaire_min && o.salaire_max && o.salaire_min !== o.salaire_max
-      ? `${Math.round(o.salaire_min).toLocaleString('fr-FR')} - ${Math.round(o.salaire_max).toLocaleString('fr-FR')}`
-      : Math.round(o.salaire_max || o.salaire_min).toLocaleString('fr-FR');
-    etiquettes.push(`<span class="etiquette">${s} ${echapper(o.salaire_devise || '')}</span>`);
-  } else {
-    etiquettes.push('<span class="etiquette alerte">salaire non publie</span>');
-  }
+  const etiquettes = [etiquetteSalaire(o)];
   // L'atout mis en avant (choisi dans la configuration) passe en premier.
   if (ATOUT && (o.atouts || []).includes(ATOUT.cle)) {
     etiquettes.unshift(`<span class="etiquette atout-fort" title="${echapper(ATOUT.titre)}">${echapper(ATOUT.libelle)}</span>`);
@@ -96,12 +109,7 @@ function carteOffre(o) {
     etiquettes.push(`<span class="etiquette">relance le ${echapper(o.date_relance_due)}</span>`);
   }
 
-  const contribs = (o.explication || []).map(c => {
-    const cls = c.points > 0 ? 'plus' : c.points < 0 ? 'moins' : 'zero';
-    const signe = c.points > 0 ? '+' : '';
-    return `<li><span class="pts ${cls}">${signe}${c.points}</span>
-      <span><b>${echapper(c.libelle)}</b>${c.detail ? ` <span class="contrib-detail">${echapper(c.detail)}</span>` : ''}</span></li>`;
-  }).join('');
+  const contribs = listeContributions(o);
 
   const titre = o.url
     ? `<a href="${echapper(o.url)}" target="_blank" rel="noopener noreferrer">${echapper(o.titre)}</a>`
@@ -205,9 +213,9 @@ async function constater(id, enLigne) {
   // fait croire a des archivages qui n'avaient pas eu lieu.
   await api(`/api/offres/${id}/constat?en_ligne=${enLigne ? 'true' : 'false'}`,
             { method: 'POST' });
-  chargerOffres();
-  compterArchiveNouvelles();
-  message(enLigne ? 'Notée encore en ligne.' : 'Archivée — annulable dans l\'onglet Archive.');
+  // La vue courante, pas la liste des offres : le geste vient aussi de « À faire ».
+  rafraichir();
+  message(enLigne ? 'Notée encore en ligne.' : 'Archivée — annulable dans Plus › Archive.');
 }
 
 // ---------------------------------------------------------------------------
@@ -649,11 +657,15 @@ function afficherCompletudeInsuffisante(id, c, bouton) {
     try {
       const d = await api(`/api/offres/${id}/dossier?forcer=true`, { method: 'POST' });
       afficherDossier(id, d);
+      // La vue de derrière dit encore « Dossier à préparer » : elle se recharge.
+      rafraichir();
     } catch (e) { message(e.message, true); }
   };
 }
 
 async function genererDossier(id, bouton) {
+  // Le libellé revient tel qu'il était : « Générer » ou « Régénérer le dossier » (la fiche).
+  const libelle = bouton.textContent;
   bouton.disabled = true;
   bouton.textContent = 'Generation...';
   try {
@@ -663,11 +675,13 @@ async function genererDossier(id, bouton) {
       return;
     }
     afficherDossier(id, d);
+    // La vue de derrière dit encore « Dossier à préparer » : elle se recharge.
+    rafraichir();
   } catch (e) {
     message(e.message, true);
   } finally {
     bouton.disabled = false;
-    bouton.textContent = 'Generer le dossier';
+    bouton.textContent = libelle;
   }
 }
 
@@ -709,6 +723,353 @@ function demanderCanal(id) {
       catch (e) { message(e.message, true); }
     };
   });
+}
+
+// ---------------------------------------------------------------------------
+// La file « À faire » (ADR-0003, § 3)
+//
+// Ce qui attend un geste, puis les offres à voir au-dessus du seuil, puis celles
+// remises à plus tard. Une offre à voir se décide d'un toucher : Je postule, Plus
+// tard ou Non. Rien à montrer se dit en une phrase, jamais par un écran blanc.
+// ---------------------------------------------------------------------------
+
+const RAISONS = {
+  relance_due: 'Relance due',
+  a_envoyer: 'Dossier prêt à envoyer',
+  a_preparer: 'Dossier à préparer',
+};
+
+// Les cinq états, et la mise de côté, tels que l'écran les nomme (`etats.py` produit ces clés).
+const LIBELLES_ETAT = {
+  a_voir: 'À voir',
+  je_postule: 'Je postule',
+  envoyee: 'Envoyée',
+  entretien: 'Entretien',
+  close: 'Close',
+  mise_de_cote: 'Mise de côté',
+};
+
+// Seules une candidature et une relance envoyées attendent une relance (`db.relances_dues`).
+// Une réponse reçue garde en base la date de son envoi : l'écran ne la montre pas.
+function relanceAttendue(o) {
+  return (o.statut === 'candidature_envoyee' || o.statut === 'relance_envoyee')
+    && Boolean(o.date_relance_due);
+}
+
+// Un geste neuf ne part qu'une fois : son bouton se désactive avant toute attente, et ne
+// revient qu'en cas d'échec. Un succès recharge la vue, qui remplace le bouton.
+function gesteNeuf(bouton, geste) {
+  bouton.disabled = true;
+  geste().catch(e => { bouton.disabled = false; message(e.message, true); });
+}
+
+function ligneAFinir(o) {
+  return `<button class="offre ligne-a-finir" data-action="fiche" data-id="${Number(o.id)}">
+    <span class="raison ${echapper(o.raison)}">${echapper(RAISONS[o.raison] || o.raison)}</span>
+    <span class="offre-titre">${echapper(o.titre)}</span>
+    ${o.employeur ? `<span class="menu">${echapper(o.employeur)}</span>` : ''}
+  </button>`;
+}
+
+// De quoi décider, et rien de plus. Remise à plus tard, l'offre perd son bouton « Plus tard ».
+function carteAVoir(o) {
+  const n = niveau(o.score);
+  const plusTard = o.statut === 'a_traiter';
+  const meta = [o.employeur, o.lieu].filter(Boolean)
+    .map(x => `<span>${echapper(x)}</span>`).join('');
+  const fortes = (o.explication || []).filter(c => c.points > 0)
+    .sort((a, b) => b.points - a.points).slice(0, 2);
+  const contribs = listeContributions({ explication: fortes });
+  return `
+  <article class="offre ${plusTard ? 'carte-plus-tard' : 'carte-a-voir'} ${n}" data-id="${Number(o.id)}">
+    <div class="offre-haut">
+      <button class="offre-titre" data-action="fiche">${echapper(o.titre)}</button>
+      <span class="score ${n}">${echapper(o.score)}</span>
+    </div>
+    <div class="meta">${meta}</div>
+    <div class="etiquettes">${etiquetteSalaire(o)}</div>
+    ${contribs ? `<ul class="contribs">${contribs}</ul>` : ''}
+    <div class="actions">
+      <button data-action="postuler">Je postule</button>
+      ${plusTard ? '' : '<button class="discret" data-action="plus-tard">Plus tard</button>'}
+      <button class="discret" data-action="non">Non</button>
+    </div>
+  </article>`;
+}
+
+// Les offres que la file ne montre pas, au-dessus du seuil au-delà des premières, ou
+// dessous : « Toutes les offres », filtrée sur les nouvelles.
+function liensVersToutes(d) {
+  const textes = [];
+  if (d.a_voir_restantes) {
+    textes.push(d.a_voir_restantes === 1 ? "Voir l'autre offre au-dessus du seuil ›"
+      : `Voir les ${Number(d.a_voir_restantes)} autres au-dessus du seuil ›`);
+  }
+  if (d.sous_le_seuil) {
+    textes.push(d.sous_le_seuil === 1 ? "Voir l'offre sous le seuil ›"
+      : `Voir les ${Number(d.sous_le_seuil)} sous le seuil ›`);
+  }
+  if (!textes.length) return '';
+  return `<div class="vers-toutes">${textes.map(t =>
+    `<button data-vers-toutes>${echapper(t)}</button>`).join('')}</div>`;
+}
+
+async function chargerAFaire() {
+  const cible = $('#contenu-a-faire');
+  try {
+    const d = await api('/api/a-faire');
+    const seuil = echapper(d.seuil);
+    // Un rechargement après un geste ne referme pas « Plus tard ».
+    const plusTardOuvert = Boolean($('details.plus-tard', cible)?.open);
+    let html;
+    if (!d.a_finir.length && !d.a_voir.length && !d.plus_tard.length) {
+      html = `<p class="resume">Rien à faire pour l'instant : aucune offre au-dessus du seuil de ${seuil}.</p>`
+        + liensVersToutes(d);
+    } else {
+      html = '';
+      if (d.a_finir.length) {
+        html += `<h2 class="titre-groupe">À finir</h2>
+          <div class="liste">${d.a_finir.map(ligneAFinir).join('')}</div>`;
+      }
+      html += '<h2 class="titre-groupe">À voir</h2>';
+      html += d.a_voir.length
+        ? `<div class="liste">${d.a_voir.map(carteAVoir).join('')}</div>`
+        : `<p class="resume">Aucune offre au-dessus du seuil de ${seuil}.</p>`;
+      html += liensVersToutes(d);
+      if (d.plus_tard.length) {
+        html += `<details class="plus-tard"${plusTardOuvert ? ' open' : ''}>
+          <summary>Plus tard (${d.plus_tard.length})</summary>
+          <div class="liste">${d.plus_tard.map(carteAVoir).join('')}</div></details>`;
+      }
+    }
+    cible.innerHTML = html;
+    $$('[data-vers-toutes]', cible).forEach(b => {
+      b.onclick = () => {
+        $('#f-statut').value = 'nouveau';
+        synchroniserFiltres();
+        afficherVue('offres');
+      };
+    });
+  } catch (e) {
+    message(e.message, true);
+    if (!cible.children.length) {
+      cible.innerHTML = `<p class="avert">La file n'a pas pu se charger : ${echapper(e.message)}</p>`;
+    }
+  }
+}
+
+// « Non » : le motif reste obligatoire, c'est lui qui dit ce que le score rate. Les plus
+// fréquents se choisissent d'un toucher. Une annonce disparue s'archive, sans motif.
+// Le panneau s'ouvre tout de suite, au nom de l'offre : rien ne le lie à une autre offre
+// touchée pendant que les motifs fréquents arrivent.
+function demanderNon(id, titre) {
+  $('#fenetre-contenu').innerHTML = `
+    <h2>Pourquoi non ?</h2>
+    <p class="titre-panneau">${echapper(titre)}</p>
+    <p class="resume">Le motif est obligatoire : c'est lui qui dira ce que le score rate.</p>
+    <div class="motifs" data-pour="${Number(id)}"></div>
+    <textarea id="motif-non" placeholder="Ou écris-le : trop junior, stack sans rapport…"></textarea>
+    <div class="actions">
+      <button id="btn-ecarter-non">Écarter</button>
+      <button class="discret" id="btn-plus-en-ligne">N'est plus en ligne</button>
+      <button class="discret" id="btn-annuler-non">Annuler</button>
+    </div>`;
+  const fenetre = $('#fenetre');
+  if (!fenetre.open) fenetre.showModal();
+  remplirMotifs(id);
+  $('#btn-annuler-non').onclick = () => fenetre.close();
+  $('#btn-ecarter-non').onclick = ev => {
+    const motif = $('#motif-non').value.trim();
+    if (!motif) { message('Un motif est nécessaire.', true); return; }
+    gesteNeuf(ev.currentTarget, async () => {
+      await changerStatut(id, 'ecartee', motif);
+      fenetre.close();
+    });
+  };
+  $('#btn-plus-en-ligne').onclick = ev => gesteNeuf(ev.currentTarget, async () => {
+    await constater(id, false);
+    fenetre.close();
+  });
+}
+
+// Les motifs fréquents ne vont qu'au panneau de leur offre, s'il est encore affiché : un
+// « Non » touché entre-temps sur une autre offre a pris sa place.
+async function remplirMotifs(id) {
+  let motifs;
+  try { motifs = (await api('/api/motifs?limite=6')).motifs || []; }
+  catch (e) { return; /* sans les motifs fréquents, le champ libre suffit */ }
+  const zone = $(`#fenetre-contenu .motifs[data-pour="${Number(id)}"]`);
+  if (!zone || !$('#fenetre').open) return;
+  zone.innerHTML = motifs.map(m =>
+    `<button class="discret" data-motif="${echapper(m)}">${echapper(m)}</button>`).join('');
+  $$('[data-motif]', zone).forEach(b => {
+    b.onclick = () => { $('#motif-non').value = b.dataset.motif; };
+  });
+}
+
+// « Plus » : les pastilles de ses lignes, à chaque ouverture.
+async function chargerPlus() {
+  compterArchiveNouvelles();
+  try {
+    const [r, c] = await Promise.all([api('/api/relances'), api('/api/classement')]);
+    $('#pastille-relances').textContent = r.relances.length || '';
+    $('#pastille-classer').textContent = c.propositions.length || '';
+  } catch (e) { message(e.message, true); }
+}
+
+// ---------------------------------------------------------------------------
+// La fiche par état (ADR-0003, § 4)
+//
+// L'offre, son état, et une seule ligne d'actions : celle de cet état. Le reste attend,
+// replié : pourquoi ce score, les notes, les autres actions. Un geste fait depuis la fiche
+// la rouvre sur le nouvel état ; ceux qui ouvrent leur propre fenêtre (le dossier, le canal,
+// la relance, l'entretien, « Non ») y prennent sa place.
+// ---------------------------------------------------------------------------
+
+// La réponse du recruteur, d'un toucher : chaque bouton écrit son statut.
+function boutonsReponse(reponses) {
+  return '<span class="libelle-reponse">Réponse :</span>' + reponses.map(([statut, texte]) =>
+    `<button class="discret" data-action="reponse" data-statut="${statut}">${texte}</button>`).join('');
+}
+
+function actionsDeFiche(o) {
+  switch (o.etat) {
+    case 'a_voir':
+    case 'mise_de_cote':
+      // Remise à plus tard, l'offre perd « Plus tard », comme sa carte.
+      return `<button data-action="postuler">Je postule</button>
+        ${o.statut === 'a_traiter' ? '' : '<button class="discret" data-action="plus-tard">Plus tard</button>'}
+        <button class="discret" data-action="non">Non</button>`;
+    case 'je_postule':
+      // Au lot 1, sans dossier, le geste actuel : « Préparer ma candidature » vient au lot 2.
+      if (!o.dossier_chemin) return '<button data-action="dossier">Générer le dossier</button>';
+      return `<button data-action="envoyee">Je l'ai envoyée</button>
+        <a href="/api/offres/${Number(o.id)}/dossier/archive" download>Paquet d'envoi (.zip)</a>
+        <button class="discret" data-action="dossier">Régénérer le dossier</button>`;
+    case 'envoyee':
+      return `<button data-action="relance">Mot de relance</button>
+        ${boutonsReponse([['entretien', 'Entretien'], ['refus', 'Refus'], ['accepte', 'Acceptée']])}
+        ${relanceAttendue(o) ? `<span class="menu">Relance le ${echapper(o.date_relance_due)}</span>` : ''}`;
+    case 'entretien':
+      return `<button data-action="entretien">Préparer l'entretien</button>
+        ${boutonsReponse([['refus', 'Refus'], ['accepte', 'Acceptée']])}`;
+    default:
+      // Close : aucune action. Le motif d'une écartée, s'il existe ; un refus ou une
+      // acceptation peut garder en base le motif d'un ancien écartement, qui ne dit plus rien.
+      return o.statut === 'ecartee' && o.motif_ecartement
+        ? `<p class="motif">${echapper(o.motif_ecartement)}</p>` : '';
+  }
+}
+
+function contenuFiche(o) {
+  const n = niveau(o.score);
+  const meta = [o.employeur, o.lieu].filter(Boolean)
+    .map(x => `<span>${echapper(x)}</span>`).join('');
+  const annonce = o.url
+    ? `<a class="lien-annonce" href="${echapper(o.url)}" target="_blank" rel="noopener noreferrer">Voir l'annonce ›</a>`
+    : '';
+  const contribs = listeContributions(o);
+  // Remise à plus tard, l'offre reste « À voir », mais s'affiche « Plus tard » (ADR-0003, § 1).
+  const etat = o.statut === 'a_traiter' ? 'Plus tard' : (LIBELLES_ETAT[o.etat] || o.etat);
+  return `
+  <div class="offre fiche" data-id="${Number(o.id)}">
+    <div class="offre-haut">
+      <h2 class="offre-titre">${echapper(o.titre)}</h2>
+      <span class="score ${n}">${echapper(o.score)}</span>
+    </div>
+    <div class="meta">${meta}</div>
+    <div class="etat-et-annonce">
+      <span class="etat-fiche">${echapper(etat)}</span>
+      ${annonce}
+    </div>
+    <div class="actions ligne-actions">${actionsDeFiche(o)}</div>
+    <details class="repli" data-repli="score">
+      <summary>Pourquoi ce score</summary>
+      <ul class="contribs">${contribs || '<li>aucune contribution</li>'}</ul>
+    </details>
+    <details class="repli" data-repli="notes">
+      <summary>Notes</summary>
+      <textarea id="notes-fiche" aria-label="Notes">${echapper(o.notes || '')}</textarea>
+      <div class="actions"><button data-action="notes">Enregistrer</button></div>
+    </details>
+    <details class="repli" data-repli="autres">
+      <summary>Autres actions</summary>
+      <div class="actions">
+        <button class="discret" data-action="detail">Texte, exigences, vérification, historique ›</button>
+        ${o.etat === 'a_voir' ? '' : '<button class="discret" data-action="revenir">Revenir à « À voir »</button>'}
+      </div>
+    </details>
+  </div>`;
+}
+
+async function ouvrirFiche(id) {
+  const o = await api(`/api/offres/${id}`);
+  const fenetre = $('#fenetre');
+  const contenu = $('#fenetre-contenu');
+  // Rouverte sur la même offre, après un geste, elle garde ouverts les volets qu'on avait ouverts.
+  const avant = fenetre.open ? $('.fiche', contenu) : null;
+  const ouverts = avant && Number(avant.dataset.id) === Number(o.id)
+    ? $$('details[open]', avant).map(d => d.dataset.repli) : [];
+  contenu.innerHTML = contenuFiche(o);
+  $$('details[data-repli]', contenu).forEach(d => { d.open = ouverts.includes(d.dataset.repli); });
+  if (!fenetre.open) fenetre.showModal();
+}
+
+// Le statut, puis la fiche sur le nouvel état ; `changerStatut` recharge la vue de derrière.
+// Si la fiche ne se recharge pas, le statut est pourtant écrit : la fiche d'avant, périmée,
+// se ferme, et son bouton ne se réactive pas (un second toucher réécrirait le statut).
+async function changerStatutPuisFiche(id, statut) {
+  await changerStatut(id, statut);
+  try {
+    await ouvrirFiche(id);
+  } catch (e) {
+    $('#fenetre').close();
+    message(`Statut enregistré, mais la fiche n'a pas pu se recharger : ${e.message}`, true);
+  }
+}
+
+async function enregistrerNotes(id, bouton) {
+  const notes = $('textarea', bouton.closest('.fiche')).value;
+  await api(`/api/offres/${id}`, { method: 'POST', body: JSON.stringify({ notes }) });
+  message('Notes enregistrées.');
+  await ouvrirFiche(id);
+}
+
+// ---------------------------------------------------------------------------
+// « Candidatures » (ADR-0003, § 4)
+//
+// Les offres Je postule, Envoyée et Entretien, chacune avec ce qui la situe : son dossier,
+// ou sa date de relance. Les candidatures closes n'y sont pas. Une ligne ouvre la fiche.
+// ---------------------------------------------------------------------------
+
+const GROUPES_CANDIDATURES = ['je_postule', 'envoyee', 'entretien'];
+
+function ligneCandidature(o, groupe) {
+  let repere = '';
+  if (groupe === 'je_postule') repere = o.dossier ? 'dossier prêt' : 'à préparer';
+  else if (groupe === 'envoyee' && relanceAttendue(o)) repere = `relance le ${o.date_relance_due}`;
+  return `<button class="offre ligne-candidature" data-action="fiche" data-id="${Number(o.id)}">
+    <span class="offre-titre">${echapper(o.titre)}</span>
+    ${o.employeur ? `<span class="menu">${echapper(o.employeur)}</span>` : ''}
+    ${repere ? `<span class="repere">${echapper(repere)}</span>` : ''}
+  </button>`;
+}
+
+async function chargerCandidatures() {
+  const cible = $('#contenu-candidatures');
+  try {
+    const d = await api('/api/candidatures');
+    const groupes = GROUPES_CANDIDATURES.filter(cle => (d[cle] || []).length);
+    cible.innerHTML = groupes.length
+      ? groupes.map(cle => `<h2 class="titre-groupe">${LIBELLES_ETAT[cle]}</h2>
+          <div class="liste" data-groupe="${cle}">${d[cle].map(o => ligneCandidature(o, cle)).join('')}</div>`).join('')
+      : '<p class="resume">Aucune candidature en cours.</p>';
+  } catch (e) {
+    message(e.message, true);
+    if (!cible.children.length) {
+      cible.innerHTML = `<p class="avert">Les candidatures n'ont pas pu se charger : ${echapper(e.message)}</p>`;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1058,8 +1419,13 @@ async function ouvrirDetail(id) {
 document.addEventListener('click', ev => {
   const bouton = ev.target.closest('[data-action]');
   if (!bouton) return;
-  const id = Number(bouton.closest('.offre').dataset.id);
+  // Une action vit dans une offre (sa carte, sa ligne, sa fiche) : c'est elle qui porte l'id.
+  const offre = bouton.closest('.offre[data-id]');
+  if (!offre) return;
+  const id = Number(offre.dataset.id);
   const a = bouton.dataset.action;
+  // Un geste fait depuis la fiche la rouvre sur le nouvel état.
+  const dansFiche = offre.classList.contains('fiche');
   if (a === 'dossier') genererDossier(id, bouton);
   else if (a === 'statut') changerStatut(id, bouton.dataset.statut).catch(e => message(e.message, true));
   else if (a === 'ecarter') demanderMotif(id);
@@ -1068,6 +1434,15 @@ document.addEventListener('click', ev => {
   else if (a === 'entretien') ouvrirEntretien(id);
   else if (a === 'detail') ouvrirDetail(id);
   else if (a === 'obsolete') constater(id, false).catch(e => message(e.message, true));
+  else if (a === 'postuler') gesteNeuf(bouton, () => changerStatutPuisFiche(id, 'interessante'));
+  else if (a === 'plus-tard') gesteNeuf(bouton, () => (dansFiche
+    ? changerStatutPuisFiche(id, 'a_traiter') : changerStatut(id, 'a_traiter')));
+  // Le panneau « Non » nomme l'offre : l'intitulé de sa carte, ou de sa fiche.
+  else if (a === 'non') demanderNon(id, $('.offre-titre', offre)?.textContent.trim() || '');
+  else if (a === 'reponse') gesteNeuf(bouton, () => changerStatutPuisFiche(id, bouton.dataset.statut));
+  else if (a === 'revenir') gesteNeuf(bouton, () => changerStatutPuisFiche(id, 'nouveau'));
+  else if (a === 'notes') gesteNeuf(bouton, () => enregistrerNotes(id, bouton));
+  else if (a === 'fiche') ouvrirFiche(id).catch(e => message(e.message, true));
 });
 
 // ---------------------------------------------------------------------------
@@ -1388,7 +1763,7 @@ function brancherVerification(id) {
         ${r.archivee ? '<br>Archivée.' : ''}`;
       bouton.disabled = false;
       bouton.textContent = 'Vérifier maintenant';
-      if (r.archivee) { chargerOffres(); compterArchiveNouvelles(); }
+      if (r.archivee) rafraichir();
     };
   }
   const retiree = $('#btn-retiree');
@@ -1533,6 +1908,9 @@ async function ouvrirRelance(id) {
 }
 
 const CHARGEURS = {
+  'a-faire': chargerAFaire,
+  candidatures: chargerCandidatures,
+  plus: chargerPlus,
   offres: chargerOffres,
   archive: chargerArchive,
   relances: chargerRelances,
@@ -1547,13 +1925,29 @@ function rafraichir() {
   (CHARGEURS[vueCourante] || chargerOffres)();
 }
 
-$$('.onglet').forEach(o => o.onclick = () => {
-  $$('.onglet').forEach(x => x.classList.remove('actif'));
-  o.classList.add('actif');
-  vueCourante = o.dataset.vue;
-  $$('.vue').forEach(v => v.classList.add('cachee'));
-  $(`#vue-${vueCourante}`).classList.remove('cachee');
+// Les anciens écrans vivent sous « Plus » : ils gardent son onglet allumé.
+const ONGLET_DE_VUE = {
+  offres: 'plus', relances: 'plus', archive: 'plus', classer: 'plus',
+  pilotage: 'plus', documents: 'plus', reglages: 'plus',
+};
+
+function afficherVue(nom) {
+  const vue = $(`#vue-${nom}`);
+  if (!vue) return;
+  vueCourante = nom;
+  const onglet = ONGLET_DE_VUE[nom] || nom;
+  $$('.onglet').forEach(o => o.classList.toggle('actif', o.dataset.vue === onglet));
+  $$('.vue').forEach(v => v.classList.toggle('cachee', v !== vue));
+  // Un écran s'ouvre par le haut : un lien touché au bas de la file ne mène pas au
+  // milieu de la liste suivante.
+  window.scrollTo(0, 0);
   rafraichir();
+}
+
+// Tout `[data-vue]` mène à son écran : les onglets, les lignes de « Plus », « ‹ Plus ».
+document.addEventListener('click', ev => {
+  const lien = ev.target.closest('[data-vue]');
+  if (lien) afficherVue(lien.dataset.vue);
 });
 
 // ---------------------------------------------------------------------------
@@ -1718,9 +2112,15 @@ if ('serviceWorker' in navigator && window.isSecureContext) {
 
 // ---------------------------------------------------------------------------
 
+// La notification ouvre `/?filtre=nouveau` : la file, qu'elle annonce. Un autre filtre, ou
+// un atout, mène à « Toutes les offres », filtrée comme avant.
 const params = new URLSearchParams(location.search);
-if (params.get('filtre')) $('#f-statut').value = params.get('filtre');
-if (params.get('atout')) $('#f-atout').value = params.get('atout');
+const filtreDemande = params.get('filtre');
+const atoutDemande = params.get('atout');
+const versOffres = Boolean((filtreDemande && filtreDemande !== 'nouveau') || atoutDemande);
+if (versOffres) {
+  if (filtreDemande) $('#f-statut').value = filtreDemande;
+  if (atoutDemande) $('#f-atout').value = atoutDemande;
+}
 synchroniserFiltres();
-chargerOffres();
-chargerRelances();
+afficherVue(versOffres ? 'offres' : 'a-faire');

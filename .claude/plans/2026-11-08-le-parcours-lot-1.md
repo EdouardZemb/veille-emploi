@@ -383,6 +383,13 @@ git commit -F <fichier>   # docs: la console à trois onglets (lot 1 de l'ADR-00
 
 - [ ] **Étape 1 : la PR d'implémentation.** `git push -u origin feat/parcours-lot1`, puis `gh pr create --base principal --body-file <fichier>`, avec un titre de 93 caractères au plus et « Closes #13 » dans le corps, que l'on finit avant la fin de la CI. Attendre tous les contrôles verts, `mutation` et `navigateur` compris.
 - [ ] **Étape 2 : la revue finale**, par un relecteur neuf sur le modèle le plus capable, sur tout le diff du lot, avec l'ADR-0003 et ce plan. Une seule vague de corrections, puis une relecture ciblée. La session fusionne la PR (`gh pr merge <n> --squash`, depuis le clone, sans `cd`).
-- [ ] **Étape 3 : 👤 le staging, au téléphone.** Le staging se redéploie seul depuis `principal`, sur le jeu factice. Edouard vérifie : la console s'ouvre sur « À faire » ; « Plus tard », « Non » et « Je postule » font ce qu'ils disent ; la fiche ne montre que l'action de l'état ; « Candidatures » groupe les trois états ; « Plus » mène aux anciens écrans.
+- [ ] **Étape 3 : 👤 le staging, au téléphone.** Le staging se redéploie seul depuis `principal`. Sa base persiste depuis le lot #11, et `factice.charger()` ne charge que dans une base vide : Edouard vérifie le parcours **à la main**, sur les offres factices déjà présentes :
+  - la console s'ouvre sur « À faire » ;
+  - sur une offre : « Plus tard », puis « Non » (le panneau nomme l'offre ; un motif, ou « N'est plus en ligne ») ;
+  - sur une autre : « Je postule », qui ouvre la fiche « Je postule », puis « Générer le dossier », « Je l'ai envoyée », puis « Entretien » ;
+  - « Candidatures » groupe ces états ;
+  - « Plus » mène aux anciens écrans.
+
+  La relance due ne s'y vérifie pas : les tests de navigateur la couvrent. Le jeu factice neuf de la tâche 3 ne sert qu'à un staging vide : un premier déploiement, ou `veille factice` sur une base vide.
 - [ ] **Étape 4 : la clôture.** Une PR qui supprime ce plan, reporte dans `CLAUDE.md` ce qui doit survivre, relit le README (`docs/modele/documentation.md`), et coche les critères de `veille-emploi#13`.
 - [ ] **Étape 5 : 👤 l'étiquette `v0.2.0`**, sur le commit de la clôture, posée par Edouard. Puis, depuis le poste, `/sante` de la prod rend `"version":"0.2.0"`, et `modele-version` a publié l'image `0.2.0`.

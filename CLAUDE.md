@@ -24,7 +24,9 @@ Le lot V2 (la scission, #39) est clos le 06/11/2026. Le staging se déploie à d
 
 Le lot #12 (la production et la bascule) est clos le 11/11/2026. La prod est en service depuis la bascule du 08/11/2026, sur `v0.1.0` et l'étiquette de données `donnees-2026.11.08.1` ; la base de la console du tailnet y a été restaurée. La console du tailnet est retirée le 11/11/2026, après trois jours de collectes et de notifications en prod. Le retour arrière est désormais une restauration de la prod (`docs/exploitation.md`). Le clone du tailnet et ses données restent sur le serveur jusqu'au lot « fin du mode systemd ».
 
-Prochain : le parcours jusqu'à la candidature (ADR-0003, milestone 1 : veille-emploi#13, #14, #15), puis la fin du mode systemd (`docs/pistes.md`). La suite de l'éditeur est à placer par Edouard.
+Le lot 1 du parcours (ADR-0003, `veille-emploi#13`) donne à la console trois onglets : « À faire », « Candidatures » et « Plus », qui mène aux anciens écrans (Toutes les offres, Relances, Archive, À classer, Pilotage, Documents, Réglages) jusqu'au lot 3. `src/veille/etats.py` lit les cinq états (À voir, Je postule, Envoyée, Entretien, Close) sur les onze statuts, sans migration ; `differee` reste hors de la file. Le jeu factice a une offre par état, et un job CI `mutation` passe mutmut sur `etats.py`. Le détail est dans `docs/FONCTIONNEMENT.md`.
+
+Prochain : la vérification du lot 1 sur le staging et sa clôture, puis les lots 2 et 3 du parcours (veille-emploi#14, #15), puis la fin du mode systemd (`docs/pistes.md`). La suite de l'éditeur est à placer par Edouard.
 
 ## Commandes
 
@@ -32,7 +34,7 @@ Sur le poste, où se fait le travail (un environnement par worktree) :
 
 - `python -m venv .venv`, puis `.venv\Scripts\python -m pip install -e .[dev]` : l'environnement. Ajouter l'extra `pdf` là où WeasyPrint s'installe.
 - `.venv\Scripts\python -m pytest -q` : la suite. Sous Windows, les tests qui demandent WeasyPrint, systemd utilisateur ou les groupes de processus POSIX se sautent ; la CI et le serveur les font tourner, avec `SUITE_COMPLETE=1`, qui leur interdit de se sauter (`tests/sauts.py`).
-- `.venv\Scripts\python -m pip install -e .[dev,navigateur]`, puis `.venv\Scripts\python -m playwright install chromium`, puis `.venv\Scripts\python -m pytest -q -p no:cacheprovider tests_navigateur` : le parcours de connexion dans un vrai navigateur (`tests_navigateur/`). La CI le fait dans le job `navigateur` ; la suite du serveur ne le collecte pas.
+- `.venv\Scripts\python -m pip install -e .[dev,navigateur]`, puis `.venv\Scripts\python -m playwright install chromium`, puis `.venv\Scripts\python -m pytest -q -p no:cacheprovider tests_navigateur` : dans un vrai navigateur, le parcours de connexion, le parcours de candidature (la file, la fiche par état, « Candidatures » et « Plus ») et les cibles tactiles (`tests_navigateur/`). La CI le fait dans le job `navigateur` ; la suite du serveur ne le collecte pas.
 
 Sur une console sans conteneur, depuis son clone, à la main d'Edouard. Aucune instance ne tourne plus ainsi depuis le retrait de la console du tailnet, le 11/11/2026 : ces commandes valent pour le mode systemd du code, jusqu'à son lot. Les chemins réels du serveur sont dans le `CLAUDE.md` du dépôt de données.
 

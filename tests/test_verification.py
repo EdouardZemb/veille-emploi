@@ -450,7 +450,7 @@ def client():
 def test_la_page_principale_repond(client):
     r = client.get("/")
     assert r.status_code == 200
-    assert 'data-vue="archive"' in r.text, "l'onglet Archive doit etre dans la page"
+    assert 'data-vue="archive"' in r.text, "Plus › Archive doit etre dans la page"
 
 
 def test_larchive_repond_meme_vide(client):

@@ -1,6 +1,15 @@
-# Les offres auxquelles Camille a déjà répondu (repérées par leur lien).
+# Les offres auxquelles Camille a déjà répondu, ou qu'elle a retenues (repérées par leur lien).
+# `statut` (facultatif) : interessante, a_traiter, candidature_envoyee (défaut) ou entretien.
+# `relance_due: true` : la relance est due depuis la veille du chargement.
 candidatures:
   - url: https://offres.exemple.invalid/o/2003
     canal: site de l'employeur
   - url: https://offres.exemple.invalid/o/2009
     canal: courriel
+    relance_due: true
+  - url: https://offres.exemple.invalid/o/2001
+    statut: interessante
+  - url: https://offres.exemple.invalid/o/2002
+    statut: a_traiter
+  - url: https://offres.exemple.invalid/o/2004
+    statut: entretien

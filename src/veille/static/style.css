@@ -109,7 +109,8 @@ button:disabled{opacity:.5;cursor:default}
 .offre.moyenne{border-left-color:var(--moyen)}
 .offre.faible{border-left-color:var(--mauvais)}
 .offre-haut{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
-.offre-titre{font-weight:650;font-size:1.02rem;margin:0 0 3px}
+/* Un intitulé sans espace se coupe où il faut : il ne fait pas défiler l'écran de côté. */
+.offre-titre{font-weight:650;font-size:1.02rem;margin:0 0 3px;overflow-wrap:anywhere}
 .offre-titre a{color:var(--texte);text-decoration:none}
 .offre-titre a:hover{text-decoration:underline}
 .score{
@@ -144,6 +145,85 @@ details.explication summary{cursor:pointer;color:var(--doux);font-size:.85rem;
 .pts{font-variant-numeric:tabular-nums;min-width:52px;text-align:right;font-weight:600}
 .pts.plus{color:var(--bon)} .pts.moins{color:var(--mauvais)} .pts.zero{color:var(--doux)}
 .contrib-detail{color:var(--doux)}
+
+/* ---------- la file « À faire » et l'écran « Plus » ---------- */
+/* Ces lignes et ces boutons ne servent qu'à être touchés : 44 px partout, pas seulement
+   au téléphone. */
+.titre-groupe{font-size:.95rem;margin:4px 0 10px;color:var(--doux);font-weight:600;
+  text-transform:uppercase;letter-spacing:.04em}
+.liste + .titre-groupe{margin-top:22px}
+.carte-a-voir,.carte-plus-tard,.ligne-a-finir,.ligne-candidature{overflow-wrap:anywhere}
+.carte-a-voir .offre-haut,.carte-plus-tard .offre-haut{align-items:center}
+.carte-a-voir .actions button,.carte-plus-tard .actions button{min-height:44px}
+/* L'intitulé d'une carte ouvre sa fiche : un bouton qui se lit comme un titre. */
+button.offre-titre{
+  flex:1 1 auto;min-width:0;min-height:44px;padding:0;background:none;border-radius:0;
+  color:var(--texte);text-align:left;
+}
+button.offre-titre:hover{text-decoration:underline}
+.ligne-a-finir,.ligne-candidature{
+  display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;min-height:44px;
+  color:var(--texte);font-weight:400;text-align:left;border-left-color:var(--accent);
+}
+.ligne-a-finir:hover,.ligne-candidature:hover{background:var(--fond3)}
+.ligne-a-finir .offre-titre,.ligne-candidature .offre-titre{margin:0}
+.repere{font-size:.78rem;font-weight:600;color:var(--accent)}
+.raison{font-size:.74rem;font-weight:650;color:var(--accent);text-transform:uppercase;letter-spacing:.04em}
+.raison.relance_due{color:var(--moyen)}
+.vers-toutes{display:flex;flex-direction:column;align-items:flex-start;gap:2px;margin-top:8px}
+.vers-toutes button{min-height:44px;padding:0 4px;background:none;color:var(--accent);font-weight:500}
+details.plus-tard{margin-top:22px}
+details.plus-tard > summary{
+  min-height:44px;padding-block:11px;cursor:pointer;color:var(--doux);font-size:.95rem;
+  font-weight:600;text-transform:uppercase;letter-spacing:.04em;
+}
+details.plus-tard > .liste{margin-top:6px}
+.liste-plus{display:flex;flex-direction:column;gap:8px;max-width:560px}
+.lien-plus{
+  display:flex;align-items:center;gap:4px;width:100%;min-height:44px;padding:12px 15px;
+  background:var(--fond2);color:var(--texte);border:1px solid var(--trait);font-weight:500;text-align:left;
+}
+.lien-plus:hover{background:var(--fond3)}
+.lien-plus::after{content:"›";margin-left:auto;color:var(--doux);font-size:1.2rem;line-height:1}
+.retour-plus{
+  min-height:44px;margin:-8px 0 4px -4px;padding:0 10px 0 4px;
+  background:none;color:var(--accent);font-weight:500;
+}
+/* Les motifs du panneau « Non » : un motif long passe à la ligne dans son bouton. */
+.motifs{display:flex;flex-wrap:wrap;gap:7px;margin:4px 0 10px}
+.motifs button{text-align:left;overflow-wrap:anywhere}
+/* Avant que les motifs arrivent, ou s'il n'y en a aucun, leur zone ne prend pas de place. */
+.motifs:empty{display:none}
+/* Le panneau nomme l'offre qu'il écarte ; un intitulé sans espace s'y coupe. */
+.titre-panneau{margin:0 0 4px;font-weight:600;overflow-wrap:anywhere}
+
+/* ---------- la fiche par état ---------- */
+/* La fiche vit dans la fenêtre : pas de cadre de carte. Un intitulé sans espace s'y coupe,
+   sans faire défiler la fenêtre de côté. Ses cibles font 44 px partout. */
+.offre.fiche{background:none;border:none;border-radius:0;padding:0;overflow-wrap:anywhere}
+.fiche .offre-titre{font-size:1.12rem;margin:0}
+.etat-et-annonce{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;margin-top:6px}
+.etat-fiche{background:var(--fond3);border-radius:999px;padding:2px 10px;font-size:.8rem;font-weight:600}
+.lien-annonce{display:inline-flex;align-items:center;min-height:44px;color:var(--accent);text-decoration:none;font-weight:500}
+.lien-annonce:hover{text-decoration:underline}
+.ligne-actions{align-items:center;margin-top:8px}
+/* L'action principale de l'état tient seule sa ligne : c'est elle qu'on cherche. */
+.ligne-actions > :first-child{flex-basis:100%}
+.ligne-actions button,.ligne-actions a{min-height:44px}
+.ligne-actions a{
+  display:inline-flex;align-items:center;justify-content:center;padding:7px 11px;
+  background:var(--fond3);color:var(--texte);border-radius:var(--rayon);
+  font-size:.86rem;font-weight:500;text-decoration:none;
+}
+.ligne-actions a:hover{background:var(--trait)}
+.libelle-reponse,.ligne-actions .menu{flex-basis:100%}
+.libelle-reponse{color:var(--doux);font-size:.85rem;margin-top:4px}
+.ligne-actions .motif{margin:0;color:var(--doux);font-size:.88rem}
+.fiche details.repli{border-top:1px solid var(--trait);margin-top:14px}
+.fiche details.repli + details.repli{margin-top:0}
+.fiche details.repli > summary{min-height:44px;padding-block:11px;cursor:pointer;color:var(--doux);font-weight:600}
+.fiche details.repli > .contribs{padding-top:0;margin-bottom:10px}
+.fiche details.repli > .actions{margin:8px 0 12px}
 
 /* ---------- pilotage ---------- */
 .bloc{background:var(--fond2);border:1px solid var(--trait);border-radius:var(--rayon);padding:14px 16px;margin-bottom:12px}

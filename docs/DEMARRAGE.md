@@ -275,7 +275,7 @@ sur le téléphone. Pas de QR code pour l'instant, deux façons :
 
 ### Ajouter un appareil, ou en reprendre la main
 
-- **Ajouter un appareil** : depuis la console, onglet **Réglages** → bloc
+- **Ajouter un appareil** : depuis la console, **Plus › Réglages** → bloc
   **Appareils** → **Ajouter un appareil**. Tu obtiens un lien à usage unique
   (24 heures) à ouvrir sur l'autre appareil.
 - **Session perdue** (cookie effacé, application réinstallée, déconnexion) :
@@ -300,7 +300,7 @@ sur le téléphone. Pas de QR code pour l'instant, deux façons :
 Une passkey est liée au nom d'hôte de `VEILLE_URL` : si l'adresse de la console
 change un jour, il faudra en enregistrer une nouvelle.
 
-### Ce que l'onglet Réglages permet aussi
+### Ce que Plus › Réglages permet aussi
 
 - **Le seuil de notification** — au-dessus de quel score ton téléphone sonne.
 - **La fréquence de collecte** — de une fois par jour à toutes les deux heures,
@@ -371,7 +371,7 @@ Puis vérifie ce qui est reconnu :
 ssh <utilisateur>@<le serveur> "cd <le clone> && ./.venv/bin/veille kit"
 ```
 
-Tes documents apparaîtront dans l'onglet **Documents** de la console,
+Tes documents apparaîtront dans **Plus › Documents** de la console,
 consultables et téléchargeables depuis ton téléphone. Le dossier est relu à
 chaque ouverture : tu pourras y ajouter des pièces plus tard sans rien
 reconfigurer.

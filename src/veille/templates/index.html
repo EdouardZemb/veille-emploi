@@ -25,13 +25,9 @@
 </header>
 
 <nav class="onglets">
-  <button class="onglet actif" data-vue="offres">Offres</button>
-  <button class="onglet" data-vue="relances">Relances <span id="pastille-relances" class="pastille"></span></button>
-  <button class="onglet" data-vue="archive">Archive <span id="pastille-archive" class="pastille"></span></button>
-  <button class="onglet" data-vue="classer">A classer <span id="pastille-classer" class="pastille"></span></button>
-  <button class="onglet" data-vue="pilotage">Pilotage</button>
-  <button class="onglet" data-vue="documents">Documents</button>
-  <button class="onglet" data-vue="reglages">Réglages</button>
+  <button class="onglet actif" data-vue="a-faire">À faire</button>
+  <button class="onglet" data-vue="candidatures">Candidatures</button>
+  <button class="onglet" data-vue="plus">Plus</button>
 </nav>
 </div>
 
@@ -46,7 +42,37 @@
 {% endif %}
 
 <!-- ------------------------------------------------------------------ -->
-<section id="vue-offres" class="vue">
+<!-- La file (ADR-0003, § 3) : ce qui attend un geste, les offres à voir au-dessus
+     du seuil, puis celles remises à plus tard. La console s'ouvre ici. -->
+<section id="vue-a-faire" class="vue">
+  <div id="contenu-a-faire"></div>
+</section>
+
+<!-- ------------------------------------------------------------------ -->
+<!-- Les candidatures en cours (ADR-0003, § 4) : Je postule, Envoyée, Entretien. Une
+     ligne ouvre la fiche de l'offre ; les candidatures closes n'y sont pas. -->
+<section id="vue-candidatures" class="vue cachee">
+  <div id="contenu-candidatures"></div>
+</section>
+
+<!-- ------------------------------------------------------------------ -->
+<!-- « Plus » mène aux anciens écrans, inchangés jusqu'à leur remaniement
+     (ADR-0003, § 6). Chacun commence par « ‹ Plus ». -->
+<section id="vue-plus" class="vue cachee">
+  <nav class="liste-plus" aria-label="Les autres écrans">
+    <button class="lien-plus" data-vue="offres">Toutes les offres</button>
+    <button class="lien-plus" data-vue="relances">Relances <span id="pastille-relances" class="pastille"></span></button>
+    <button class="lien-plus" data-vue="archive">Archive <span id="pastille-archive" class="pastille"></span></button>
+    <button class="lien-plus" data-vue="classer">À classer <span id="pastille-classer" class="pastille"></span></button>
+    <button class="lien-plus" data-vue="pilotage">Pilotage</button>
+    <button class="lien-plus" data-vue="documents">Documents</button>
+    <button class="lien-plus" data-vue="reglages">Réglages</button>
+  </nav>
+</section>
+
+<!-- ------------------------------------------------------------------ -->
+<section id="vue-offres" class="vue cachee">
+  <button class="retour-plus" data-vue="plus">‹ Plus</button>
   <!-- Barre toujours visible. Sur telephone c'est la SEULE chose entre le haut
        de l'ecran et la premiere offre : un bouton pour ouvrir les reglages, un
        acces direct a l'atout mis en avant, et les filtres actifs sous forme de puces
@@ -109,10 +135,12 @@
 <!-- Les offres qu'aucun motif n'a su classer. Une proposition s'y lit
      avec les mots qui la justifient ; rien ne s'applique sans sa coche. -->
 <section id="vue-classer" class="vue cachee">
+  <button class="retour-plus" data-vue="plus">‹ Plus</button>
   <div id="liste-classer" class="liste"></div>
 </section>
 
 <section id="vue-relances" class="vue cachee">
+  <button class="retour-plus" data-vue="plus">‹ Plus</button>
   <p class="resume">Candidatures dont la relance est due.</p>
   <div id="liste-relances" class="liste"></div>
 </section>
@@ -122,6 +150,7 @@
      dont on a la PREUVE qu'elles ne sont plus en ligne. Le motif est
      toujours affiche, et tout est reversible en un clic. -->
 <section id="vue-archive" class="vue cachee">
+  <button class="retour-plus" data-vue="plus">‹ Plus</button>
   <p class="resume">Annonces retirées de leur site. Rien n'est supprimé :
     le score, l'explication et tes notes sont conservés. Si une offre est là
     à tort, <b>Remettre dans le flux</b> la ressort — et elle n'y retournera
@@ -131,11 +160,13 @@
 
 <!-- ------------------------------------------------------------------ -->
 <section id="vue-pilotage" class="vue cachee">
+  <button class="retour-plus" data-vue="plus">‹ Plus</button>
   <div id="entonnoir"></div>
 </section>
 
 <!-- ------------------------------------------------------------------ -->
 <section id="vue-documents" class="vue cachee">
+  <button class="retour-plus" data-vue="plus">‹ Plus</button>
   <p class="resume">Tes pièces de candidature et les dossiers déjà générés.
     Tout est derrière ta connexion, comme le reste.</p>
   <div id="contenu-documents"></div>
@@ -143,6 +174,7 @@
 
 <!-- ------------------------------------------------------------------ -->
 <section id="vue-reglages" class="vue cachee">
+  <button class="retour-plus" data-vue="plus">‹ Plus</button>
   <div id="contenu-reglages"></div>
 </section>
 

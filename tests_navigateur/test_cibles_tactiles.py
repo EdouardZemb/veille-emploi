@@ -55,6 +55,9 @@ def telephone(navigateur, offres):
     page.on("console", lambda m: erreurs.append(m.text) if m.type == "error" else None)
     page.on("pageerror", lambda e: erreurs.append(str(e)))
     page.goto(f"{offres}/")
+    # La console s'ouvre sur « À faire » : la liste des offres est sous « Plus ».
+    page.click('.onglet[data-vue="plus"]')
+    page.click('.lien-plus[data-vue="offres"]')
     page.wait_for_selector("#liste-offres .offre")
     yield page
     assert erreurs == []
@@ -75,8 +78,10 @@ def test_les_onglets_ne_glissent_pas_sous_la_barre(telephone):
 
 
 def test_les_boutons_d_une_offre_se_touchent_du_doigt(telephone):
+    # `#liste-offres` : les cartes de « À faire », cachées, mesureraient 0 px.
     hauteurs = telephone.eval_on_selector_all(
-        ".offre .actions button", "bs => bs.map(b => b.getBoundingClientRect().height)")
+        "#liste-offres .offre .actions button",
+        "bs => bs.map(b => b.getBoundingClientRect().height)")
     assert hauteurs
     assert min(hauteurs) >= DOIGT
 

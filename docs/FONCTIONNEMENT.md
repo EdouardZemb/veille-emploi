@@ -2,15 +2,35 @@
 
 Une seule page pour **voir** les offres qui te correspondent, les **trier**,
 **déclencher** le dossier de candidature, **piloter** l'avancement, consulter
-tes **documents** et ajuster tes **réglages**.
+tes **documents** et ajuster tes **réglages**. Elle a trois onglets.
 
 | Onglet | Ce qu'on y fait |
 |--------|-----------------|
-| **Offres** | lire, trier, écarter avec motif, générer un dossier |
-| **Relances** | les candidatures dont la relance est due |
-| **Pilotage** | l'entonnoir, le rendement des sources, les motifs d'écartement |
-| **Documents** | ton kit et tes dossiers générés, téléchargeables depuis le téléphone |
-| **Réglages** | appareils connectés, seuil de notification, fréquence de collecte, état des sources |
+| **À faire** | d'abord « À finir » (relance due, dossier prêt à envoyer, dossier à préparer), puis « À voir » (au plus 50 offres au-dessus du seuil, avec des liens vers les autres et vers celles sous le seuil), puis « Plus tard », replié. Chaque carte a trois boutons : *Je postule*, *Plus tard*, *Non* (un motif, les fréquents en un toucher, ou « N'est plus en ligne ») |
+| **Candidatures** | trois groupes : *Je postule* (« dossier prêt » ou « à préparer »), *Envoyée* (avec la date de relance) et *Entretien* |
+| **Plus** | les anciens écrans, jusqu'au lot 3 de l'ADR-0003 : *Toutes les offres*, *Relances*, *Archive*, *À classer*, *Pilotage*, *Documents* et *Réglages* (appareils connectés, seuil de notification, fréquence de collecte, état des sources) |
+
+Toucher une notification ouvre « À faire ».
+
+### Les cinq états d'une offre
+
+L'état n'est qu'une lecture des onze statuts enregistrés : la base ne change
+pas (`src/veille/etats.py`, [ADR-0003](decisions/0003-le-parcours-jusqu-a-la-candidature.md), § 1).
+
+| État affiché | Statuts lus |
+|---|---|
+| À voir | `nouveau` ; `a_traiter`, affiché « Plus tard » |
+| Je postule | `interessante` |
+| Envoyée | `candidature_envoyee`, `relance_envoyee`, `reponse_recue` |
+| Entretien | `entretien` |
+| Close | `ecartee`, `refus`, `accepte`, avec leur motif |
+
+`differee`, la mise de côté automatique du score, est hors des cinq états et
+hors de la file. La fiche d'une offre n'a qu'une ligne d'actions, celle de son
+état. Au lot 1, une offre « Je postule » sans dossier propose « Générer le
+dossier » ; « Préparer ma candidature » viendra au lot 2. Trois volets restent
+repliés : « Pourquoi ce score », « Notes » et « Autres actions » (le détail
+complet, et « Revenir à « À voir »»).
 
 La configuration (critères, sources, gabarits) est un dossier que désigne
 `VEILLE_CONFIG`. Sans lui, la console sert l'exemple livré avec le code,

@@ -625,6 +625,43 @@ def relances_dues() -> list[dict[str, Any]]:
     return [_ligne_en_dict(r) for r in rows]
 
 
+def offres_pour_a_faire(seuil: float) -> tuple[list[dict[str, Any]], int]:
+    """Ce que la file « A faire » compose, et le nombre des nouvelles sous le seuil.
+
+    Les candidatures (interessante, envoyee, relancee) restent, archivees ou
+    non : l'annonce a pu quitter le site, la candidature continue. Les
+    nouvelles et les a traiter archivees n'y paraissent pas.
+    """
+    with connexion() as cx:
+        rows = cx.execute(
+            """SELECT * FROM offres
+               WHERE statut IN ('interessante','candidature_envoyee','relance_envoyee')
+                  OR (statut = 'nouveau' AND archivee_le IS NULL AND score >= ?)
+                  OR (statut = 'a_traiter' AND archivee_le IS NULL)
+               ORDER BY score DESC, date_collecte DESC""",
+            (seuil,),
+        ).fetchall()
+        sous = cx.execute(
+            """SELECT COUNT(*) AS n FROM offres
+               WHERE statut = 'nouveau' AND archivee_le IS NULL
+                 AND (score IS NULL OR score < ?)""",
+            (seuil,),
+        ).fetchone()["n"]
+    return [_ligne_en_dict(r) for r in rows], sous
+
+
+def offres_candidatures() -> list[dict[str, Any]]:
+    """Les offres en cours de candidature, archivees ou non."""
+    with connexion() as cx:
+        rows = cx.execute(
+            """SELECT * FROM offres
+               WHERE statut IN ('interessante','candidature_envoyee','relance_envoyee',
+                                'reponse_recue','entretien')
+               ORDER BY score DESC, date_collecte DESC"""
+        ).fetchall()
+    return [_ligne_en_dict(r) for r in rows]
+
+
 def offres_nouvelles_non_vues() -> list[dict[str, Any]]:
     with connexion() as cx:
         rows = cx.execute(

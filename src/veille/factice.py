@@ -9,7 +9,7 @@ passent par `changer_statut`, donc par l'historique normal.
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import yaml
@@ -21,6 +21,9 @@ from .models import Offre
 log = logging.getLogger(__name__)
 
 SOURCE = "factice"
+
+# Les statuts qu'une candidature du jeu peut porter : un par etat du parcours.
+STATUTS_ADMIS = ("interessante", "a_traiter", "candidature_envoyee", "entretien")
 
 
 class BaseNonVide(Exception):
@@ -87,7 +90,16 @@ def charger() -> int:
             ligne = cx.execute("SELECT id FROM offres WHERE url = ?", (c["url"],)).fetchone()
         if ligne is None:
             raise RuntimeError(f"jeu factice : candidature sur une offre inconnue : {c['url']}")
-        db.changer_statut(ligne["id"], "candidature_envoyee", canal=c.get("canal"))
+        statut = c.get("statut", "candidature_envoyee")
+        if statut not in STATUTS_ADMIS:
+            raise RuntimeError(f"jeu factice : statut refusé : {statut}")
+        if statut == "candidature_envoyee":
+            db.changer_statut(ligne["id"], statut, canal=c.get("canal"))
+        else:
+            db.changer_statut(ligne["id"], statut)
+        if c.get("relance_due"):
+            veille = (date.today() - timedelta(days=1)).isoformat()
+            db.maj_champs(ligne["id"], date_relance_due=veille)
 
     return rapport.nouvelles
 

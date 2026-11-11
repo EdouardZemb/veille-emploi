@@ -15,7 +15,7 @@ import logging
 import os
 import sqlite3
 from contextlib import asynccontextmanager
-from datetime import timedelta
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +25,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from . import auth, config, db, documents, dossier, enrichissement, factice, notifications, passkeys, reglages
+from . import auth, config, db, documents, dossier, enrichissement, etats, factice, notifications, passkeys, reglages
 from .config import CHEMIN_DOSSIERS, CHEMIN_KIT, charger_criteres, recharger
 from .debit import LimiteDebit, cle_client
 from .models import STATUTS
@@ -507,6 +507,8 @@ def api_offres(
                 and not o["completude"]["suffisant_pour_dossier"]
                 and o["statut"] not in ("ecartee", "differee"))
 
+    for o in offres:
+        o["etat"] = etats.etat_de(o)
     compte = sum(1 for o in offres if a_travailler(o))
     if a_documenter:
         offres = [o for o in offres if a_travailler(o)]
@@ -695,6 +697,7 @@ def api_offre(offre_id: int):
     o = db.lire_offre(offre_id)
     if not o:
         raise HTTPException(404, "offre inconnue")
+    o["etat"] = etats.etat_de(o)
     return o
 
 
@@ -1268,6 +1271,30 @@ def api_entonnoir():
 @app.get("/api/relances", dependencies=[Depends(auth.exiger_session)])
 def api_relances():
     return {"relances": db.relances_dues()}
+
+
+@app.get("/api/a-faire", dependencies=[Depends(auth.exiger_session)])
+def api_a_faire():
+    seuil = reglages.lire_seuil()
+    offres, sous_le_seuil = db.offres_pour_a_faire(seuil)
+    composition = etats.composer_a_faire(offres, seuil, date.today())
+    return {**composition, "sous_le_seuil": sous_le_seuil, "seuil": seuil}
+
+
+@app.get("/api/candidatures", dependencies=[Depends(auth.exiger_session)])
+def api_candidatures():
+    return etats.grouper_candidatures(db.offres_candidatures())
+
+
+@app.get("/api/motifs", dependencies=[Depends(auth.exiger_session)])
+def api_motifs(limite: int = 6):
+    limite = max(1, min(20, limite))
+    motifs = [
+        m["motif"]
+        for m in db.motifs_ecartement()
+        if not m["motif"].startswith(db.PREFIXE_AUTOMATIQUE)
+    ]
+    return {"motifs": motifs[:limite]}
 
 
 @app.post("/api/rescorer", dependencies=[Depends(auth.exiger_session)])
