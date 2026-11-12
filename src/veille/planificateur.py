@@ -30,8 +30,9 @@ from . import auth, collecte, config, db, reglages, verification
 log = logging.getLogger(__name__)
 
 NOM_FIL = "veille-planificateur"
-# Le fil se reveille au moins une fois par minute : une collecte part au plus
-# une minute apres son heure, et `arreter()` le reveille aussitot.
+# Le fil se reveille au moins une fois par minute, sauf pendant une collecte ou
+# une passe de verification, qu'il mene lui-meme : une collecte part au plus une
+# minute apres son heure, et `arreter()` le reveille aussitot.
 ATTENTE_MAX = timedelta(minutes=1)
 INTERVALLE_PURGE = timedelta(hours=6)
 # Ce qu'`arreter()` accorde a chaque fil avant de rendre la main.
@@ -78,6 +79,8 @@ class Planificateur:
         # verrou, au reveil suivant ; une passe manquee par un redemarrage n'est
         # pas rattrapee.
         self._repere_verification: datetime | None = None
+        # L'echeance dont le report est deja journalise.
+        self._verification_signalee: datetime | None = None
 
     def _maintenant(self) -> datetime:
         return (self._horloge or auth.maintenant)()
@@ -103,8 +106,10 @@ class Planificateur:
     def arreter(self) -> None:
         """Reveille le fil et l'attend un instant ; de meme pour une collecte lancee a la main.
 
-        Une collecte encore en cours est abandonnee a la sortie du processus
-        (fil `daemon`) : sa transaction en cours n'est pas ecrite.
+        Une collecte ou une passe de verification encore en cours est abandonnee
+        a la sortie du processus (fil `daemon`) : sa transaction en cours n'est
+        pas ecrite. La passe ecrit chaque offre a part : celles qu'elle n'a pas
+        sondees passent en tete de la suivante.
         """
         self._arret.set()
         for fil in (self._fil, self._fil_collecte):
@@ -112,7 +117,8 @@ class Planificateur:
                 continue
             fil.join(ATTENTE_ARRET)
             if fil.is_alive():
-                log.warning("%s tourne encore a l'arret : une collecte est en cours", fil.name)
+                log.warning("%s tourne encore a l'arret : une collecte ou une passe de "
+                            "verification est en cours", fil.name)
 
     def _boucle(self, arret: threading.Event) -> None:
         while not arret.wait(ATTENTE_MAX.total_seconds()):
@@ -153,10 +159,14 @@ class Planificateur:
     def _verification_due(self, instant: datetime) -> None:
         if self._repere_verification is None:
             self._repere_verification = instant
-        if derniere_echeance_verification(instant) <= self._repere_verification:
+        echeance = derniere_echeance_verification(instant)
+        if echeance <= self._repere_verification:
             return
         if not self._verrou.acquire(blocking=False):
-            log.info("passe de verification differee : une collecte est en cours")
+            # une seule ligne par echeance, meme si la collecte dure
+            if self._verification_signalee != echeance:
+                self._verification_signalee = echeance
+                log.info("passe de verification differee : une collecte est en cours")
             return
         self._repere_verification = instant
         try:

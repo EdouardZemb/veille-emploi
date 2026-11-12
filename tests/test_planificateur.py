@@ -306,21 +306,41 @@ def test_une_console_demarree_avant_22_h_30_verifie_le_soir_meme(monkeypatch, bo
     assert len(passe.appels) == 1
 
 
-def test_la_passe_attend_la_fin_d_une_collecte(monkeypatch, bloquee, passe):
+@pytest.mark.parametrize("avant, a_l_heure", [
+    # l'heure d'ete : 22 h 30 a Paris, c'est 20 h 30 UTC
+    (datetime(2026, 7, 1, 20, 29, tzinfo=timezone.utc), datetime(2026, 7, 1, 20, 30, tzinfo=timezone.utc)),
+    # le jour du retour a l'heure d'hiver : 21 h 30 UTC
+    (datetime(2026, 10, 25, 21, 29, tzinfo=timezone.utc), datetime(2026, 10, 25, 21, 30, tzinfo=timezone.utc)),
+])
+def test_la_passe_suit_l_heure_de_paris_en_ete_comme_en_hiver(monkeypatch, bouchon, passe, avant, a_l_heure):
+    _mode(monkeypatch, "prod")
+    p = planificateur.Planificateur()
+    p.tour(avant - timedelta(hours=1))
+    p.tour(avant)
+    assert passe.appels == []
+    p.tour(a_l_heure)
+    assert len(passe.appels) == 1
+
+
+def test_la_passe_attend_la_fin_d_une_collecte(monkeypatch, bloquee, passe, caplog):
     _mode(monkeypatch, "prod")
     p = planificateur.Planificateur()
     p.tour(_paris(22, 0))
     try:
         assert p.collecter_maintenant() is True
         assert bloquee.commencee.wait(5)
-        p.tour(_paris(22, 30))
+        with caplog.at_level(logging.INFO, logger="veille.planificateur"):
+            p.tour(_paris(22, 30))
+            p.tour(_paris(22, 31))
         assert passe.appels == []
+        # une seule ligne, meme si la collecte dure
+        assert caplog.text.count("passe de verification differee") == 1
     finally:
         bloquee.liberee.set()
         p.arreter()
-    p.tour(_paris(22, 31))
-    assert len(passe.appels) == 1
     p.tour(_paris(22, 32))
+    assert len(passe.appels) == 1
+    p.tour(_paris(22, 33))
     assert len(passe.appels) == 1
 
 
