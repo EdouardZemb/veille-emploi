@@ -20,7 +20,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tests.aide_session import connecter
-from veille import auth, collecte, db, planificateur, reglages
+from veille import auth, collecte, config, db, planificateur, reglages, verification
 from veille.app import app
 
 PARIS = ZoneInfo("Europe/Paris")
@@ -199,6 +199,190 @@ def test_une_seule_collecte_a_la_fois(monkeypatch, bloquee):
 
 
 # --------------------------------------------------------------------------
+# La passe de verification, en prod seulement, chaque soir a 22 h 30
+# (veille-emploi#21 : une unite posee a la main la lancait hors du conteneur)
+# --------------------------------------------------------------------------
+
+
+def _rapport() -> verification.Rapport:
+    r = verification.Rapport()
+    r.sondees = [1, 2, 3]
+    r.archivees = [2]
+    r.par_verdict = {"en_ligne": 2, "retiree": 1}
+    return r
+
+
+class _Passe:
+    """Remplace `verification.passe` : compte ses appels, leve si on le lui demande."""
+
+    def __init__(self) -> None:
+        self.appels: list[dict] = []
+        self.echec: Exception | None = None
+
+    def __call__(self, **kwargs) -> verification.Rapport:
+        self.appels.append(kwargs)
+        if self.echec is not None:
+            raise self.echec
+        return _rapport()
+
+
+@pytest.fixture
+def passe(monkeypatch):
+    p = _Passe()
+    monkeypatch.setattr(verification, "passe", p)
+    # la suite ne designe aucune configuration ; la prod monte la sienne
+    monkeypatch.setattr(config, "exiger_designee", lambda: None)
+    return p
+
+
+class _PasseBloquee:
+    """Une passe qui tient jusqu'a ce qu'on la libere (cinq secondes au plus)."""
+
+    def __init__(self) -> None:
+        self.commencee = threading.Event()
+        self.liberee = threading.Event()
+        self.appels: list[dict] = []
+
+    def __call__(self, **kwargs) -> verification.Rapport:
+        self.appels.append(kwargs)
+        self.commencee.set()
+        self.liberee.wait(5)
+        return _rapport()
+
+
+def test_la_passe_de_verification_a_22_h_30_en_prod(monkeypatch, bouchon, passe, caplog):
+    _mode(monkeypatch, "prod")
+    p = planificateur.Planificateur()
+    p.tour(_paris(22, 0))
+
+    p.tour(_paris(22, 29))
+    assert passe.appels == []
+    with caplog.at_level(logging.INFO, logger="veille.planificateur"):
+        p.tour(_paris(22, 30))
+    assert passe.appels == [{"limite": 400, "enrichir": True}]
+    assert "passe de verification : 3 offre(s) examinee(s), 1 archivee(s)" in caplog.text
+    assert "en_ligne 2" in caplog.text and "retiree 1" in caplog.text
+
+    p.tour(_paris(22, 31))
+    p.tour(_paris(23, 59))
+    p.tour(_paris(22, 29, jour=3))
+    assert len(passe.appels) == 1
+    p.tour(_paris(22, 30, jour=3))
+    assert len(passe.appels) == 2
+
+
+@pytest.mark.parametrize("mode", ["staging", "ci", None])
+def test_pas_de_passe_de_verification_hors_prod(monkeypatch, bouchon, passe, mode):
+    _mode(monkeypatch, mode)
+    p = planificateur.Planificateur()
+    for heure, minute in ((22, 0), (22, 29), (22, 30), (22, 31), (23, 59)):
+        p.tour(_paris(heure, minute))
+    assert passe.appels == []
+
+
+def test_la_passe_manquee_par_un_redemarrage_n_est_pas_rattrapee(monkeypatch, bouchon, passe):
+    _mode(monkeypatch, "prod")
+    p = planificateur.Planificateur(horloge=lambda: _paris(23, 0))
+    p.demarrer()
+    p.arreter()
+
+    p.tour(_paris(23, 1))
+    p.tour(_paris(7, 0, jour=3))
+    p.tour(_paris(22, 29, jour=3))
+    assert passe.appels == []
+    p.tour(_paris(22, 30, jour=3))
+    assert len(passe.appels) == 1
+
+
+def test_une_console_demarree_avant_22_h_30_verifie_le_soir_meme(monkeypatch, bouchon, passe):
+    """Le premier reveil du fil tombe une minute apres le demarrage : la passe
+    se compte depuis le demarrage, pas depuis ce premier reveil."""
+    _mode(monkeypatch, "prod")
+    p = planificateur.Planificateur(horloge=lambda: _paris(22, 29))
+    p.demarrer()
+    p.arreter()
+
+    p.tour(_paris(22, 30))
+    assert len(passe.appels) == 1
+
+
+def test_la_passe_attend_la_fin_d_une_collecte(monkeypatch, bloquee, passe):
+    _mode(monkeypatch, "prod")
+    p = planificateur.Planificateur()
+    p.tour(_paris(22, 0))
+    try:
+        assert p.collecter_maintenant() is True
+        assert bloquee.commencee.wait(5)
+        p.tour(_paris(22, 30))
+        assert passe.appels == []
+    finally:
+        bloquee.liberee.set()
+        p.arreter()
+    p.tour(_paris(22, 31))
+    assert len(passe.appels) == 1
+    p.tour(_paris(22, 32))
+    assert len(passe.appels) == 1
+
+
+def test_pas_de_collecte_a_la_main_pendant_la_passe(monkeypatch, bouchon):
+    _mode(monkeypatch, "prod")
+    monkeypatch.setattr(config, "exiger_designee", lambda: None)
+    bloquante = _PasseBloquee()
+    monkeypatch.setattr(verification, "passe", bloquante)
+    p = planificateur.Planificateur()
+    p.tour(_paris(22, 0))
+    fil = threading.Thread(target=p.tour, args=(_paris(22, 30),))
+    fil.start()
+    try:
+        assert bloquante.commencee.wait(5)
+        assert p.collecter_maintenant() is False
+    finally:
+        bloquante.liberee.set()
+        fil.join(5)
+    assert not fil.is_alive()
+    assert bouchon.appels == []
+    assert p.collecter_maintenant() is True
+    p.arreter()
+    assert len(bouchon.appels) == 1
+
+
+def test_une_passe_qui_echoue_n_arrete_rien(monkeypatch, bouchon, passe, caplog):
+    _mode(monkeypatch, "prod")
+    reglages.ecrire_frequence("trois_fois")
+    passe.echec = RuntimeError("site injoignable")
+    p = planificateur.Planificateur()
+    p.tour(_paris(22, 0))
+
+    with caplog.at_level(logging.WARNING, logger="veille.planificateur"):
+        p.tour(_paris(22, 30))
+    assert len(passe.appels) == 1
+    assert "site injoignable" in caplog.text
+
+    passe.echec = None
+    p.tour(_paris(7, 15, jour=3))
+    assert len(bouchon.appels) == 1
+    p.tour(_paris(22, 30, jour=3))
+    assert len(passe.appels) == 2
+
+
+def test_sans_configuration_designee_la_passe_est_sautee(monkeypatch, bouchon, passe, caplog):
+    _mode(monkeypatch, "prod")
+
+    def sans_configuration() -> None:
+        raise config.ConfigurationInvalide("aucune configuration designee")
+
+    monkeypatch.setattr(config, "exiger_designee", sans_configuration)
+    p = planificateur.Planificateur()
+    p.tour(_paris(22, 0))
+
+    with caplog.at_level(logging.WARNING, logger="veille.planificateur"):
+        p.tour(_paris(22, 30))
+    p.tour(_paris(22, 31))
+    assert passe.appels == []
+    assert caplog.text.count("passe de verification sautee : aucune configuration designee") == 1
+
+
+# --------------------------------------------------------------------------
 # La purge des sessions et des liens expires
 # --------------------------------------------------------------------------
 
@@ -361,4 +545,5 @@ def test_les_refus_de_collecte_se_lisent_a_l_ecran():
     source = APP_JS.read_text(encoding="utf-8")
     erreurs = source[source.index("const ERREURS_API"):source.index("async function api(")]
     assert 'collecte_coupee: "La collecte est coupée sur cette console."' in erreurs
-    assert 'collecte_en_cours: "Une collecte est déjà en cours."' in erreurs
+    # la passe de verification du soir tient le meme verrou que la collecte
+    assert 'collecte_en_cours: "Une collecte ou une vérification est déjà en cours."' in erreurs

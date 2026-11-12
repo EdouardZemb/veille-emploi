@@ -1,26 +1,31 @@
-"""Le planificateur : la collecte et la purge, sans minuteur systemd.
+"""Le planificateur : la collecte, la verification et la purge, sans minuteur systemd.
 
 Un conteneur n'a pas de minuteur : un fil de la console en tient lieu
 (ADR-0002, section 5). Il tourne dans tous les modes :
 
 - il purge les sessions et les liens expires, au demarrage puis toutes les
-  six heures, y compris sur la console du tailnet (mode systemd) ;
+  six heures, y compris sur une console sans conteneur (mode systemd) ;
 - en `prod` seulement, il collecte aux heures de la frequence lue en base, qu'il
   relit a chaque reveil : un changement fait dans Reglages s'applique dans la
-  minute. Sur le serveur du tailnet, c'est toujours `veille-collecte.timer`.
+  minute. Sans conteneur, c'est `veille-collecte.timer` ;
+- en `prod` seulement, il lance la passe de verification chaque soir a 22 h 30,
+  heure de Paris : elle archive les offres retirees de leur site
+  (`verification.py`). Sans conteneur, une unite systemd posee a la main la
+  lancait, et la bascule vers le conteneur l'avait perdue (veille-emploi#21).
 
 Une seule collecte a la fois, celle du fil ou celle du bouton « Collecter
-maintenant ». Une erreur est journalisee ; elle n'arrete ni le fil ni la console.
+maintenant », et jamais pendant la passe de verification, qui tient le meme
+verrou. Une erreur est journalisee ; elle n'arrete ni le fil ni la console.
 """
 
 from __future__ import annotations
 
 import logging
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from typing import Callable
 
-from . import auth, collecte, config, db, reglages
+from . import auth, collecte, config, db, reglages, verification
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +37,24 @@ INTERVALLE_PURGE = timedelta(hours=6)
 # Ce qu'`arreter()` accorde a chaque fil avant de rendre la main.
 ATTENTE_ARRET = 2.0
 JOURS = 7  # `veille collecter --jours 7`
+# La passe de verification, heure de Paris : apres la derniere collecte possible
+# (21 h 15, « toutes les deux heures »), et loin des sauvegardes de la nuit.
+HEURE_VERIFICATION = time(22, 30)
+# Ce que prenait l'unite systemd : toutes les offres sondables en une nuit, a
+# trois secondes par offre. Une offre ne s'archive qu'apres deux verifications
+# espacees (`verification.py`).
+LIMITE_VERIFICATION = 400
+
+
+def derniere_echeance_verification(instant: datetime) -> datetime:
+    """La derniere heure de verification atteinte a cet instant, heure de Paris."""
+    local = instant.astimezone(reglages.PARIS)
+    echeance = local.replace(
+        hour=HEURE_VERIFICATION.hour, minute=HEURE_VERIFICATION.minute, second=0, microsecond=0
+    )
+    if echeance > local:
+        echeance -= timedelta(days=1)
+    return echeance
 
 
 class Planificateur:
@@ -39,7 +62,7 @@ class Planificateur:
         # Sans horloge donnee, `auth.maintenant` est relue a chaque fois : les
         # tests la remplacent apres la creation de PLANIFICATEUR.
         self._horloge = horloge
-        self._verrou = threading.Lock()  # tenu pendant une collecte
+        self._verrou = threading.Lock()  # tenu pendant une collecte ou une verification
         self._arret = threading.Event()
         self._fil: threading.Thread | None = None
         self._fil_collecte: threading.Thread | None = None
@@ -50,6 +73,11 @@ class Planificateur:
         # tombee pendant l'arret n'est pas rattrapee (un processus suspendu puis
         # reveille, lui, en rattrape une).
         self._repere: datetime | None = None
+        # De meme pour la passe de verification : l'instant de la derniere passe
+        # (ou du demarrage). Une passe due attend qu'aucune collecte ne tienne le
+        # verrou, au reveil suivant ; une passe manquee par un redemarrage n'est
+        # pas rattrapee.
+        self._repere_verification: datetime | None = None
 
     def _maintenant(self) -> datetime:
         return (self._horloge or auth.maintenant)()
@@ -65,6 +93,7 @@ class Planificateur:
         if self._fil is not None and self._fil.is_alive() and not self._arret.is_set():
             return
         self._repere = instant
+        self._repere_verification = instant
         self._arret = threading.Event()
         self._fil = threading.Thread(
             target=self._boucle, args=(self._arret,), name=NOM_FIL, daemon=True
@@ -97,11 +126,15 @@ class Planificateur:
     # ----------------------------------------------------------------------
 
     def tour(self, instant: datetime) -> None:
-        """Ce que fait le fil a chaque reveil : purger, puis collecter, chacun a son heure."""
+        """Ce que fait le fil a chaque reveil : purger, collecter, puis verifier, chacun a son heure."""
         if self._derniere_purge is None or instant - self._derniere_purge >= INTERVALLE_PURGE:
             self._purger(instant)
         if config.environnement() != "prod":
             return
+        self._collecte_due(instant)
+        self._verification_due(instant)
+
+    def _collecte_due(self, instant: datetime) -> None:
         if self._repere is None:
             self._repere = instant
         cle = reglages.lire_frequence()["cle"]
@@ -114,6 +147,20 @@ class Planificateur:
             return
         try:
             self._collecter()
+        finally:
+            self._verrou.release()
+
+    def _verification_due(self, instant: datetime) -> None:
+        if self._repere_verification is None:
+            self._repere_verification = instant
+        if derniere_echeance_verification(instant) <= self._repere_verification:
+            return
+        if not self._verrou.acquire(blocking=False):
+            log.info("passe de verification differee : une collecte est en cours")
+            return
+        self._repere_verification = instant
+        try:
+            self._verifier()
         finally:
             self._verrou.release()
 
@@ -135,6 +182,29 @@ class Planificateur:
             log.warning("collecte sautee : %s", exc)
         except Exception as exc:
             log.exception("la collecte a echoue : %s", exc)
+
+    def _verifier(self) -> None:
+        """Une passe de verification ; le verrou est deja tenu par l'appelant.
+
+        Elle complete les offres au passage, et les rescore : jamais avec les
+        criteres de l'exemple, comme `veille verifier`.
+        """
+        try:
+            config.exiger_designee()
+        except config.ConfigurationInvalide as exc:
+            log.warning("passe de verification sautee : %s", exc)
+            return
+        try:
+            r = verification.passe(limite=LIMITE_VERIFICATION, enrichir=True)
+        except Exception as exc:
+            log.exception("la passe de verification a echoue : %s", exc)
+            return
+        verdicts = ", ".join(
+            f"{verdict} {n}"
+            for verdict, n in sorted(r.par_verdict.items(), key=lambda kv: (-kv[1], kv[0]))
+        )
+        log.info("passe de verification : %d offre(s) examinee(s), %d archivee(s)%s",
+                 len(r.sondees), len(r.archivees), f" ({verdicts})" if verdicts else "")
 
     # ----------------------------------------------------------------------
     # « Collecter maintenant »
