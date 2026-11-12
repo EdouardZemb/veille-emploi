@@ -11,6 +11,7 @@ Retour : 0 rien refusé, 1 au moins un envoi refusé, 64 erreur d'usage (branche
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 EXIT_USAGE = 64
@@ -36,6 +37,15 @@ class _Analyseur(argparse.ArgumentParser):
         self.exit(EXIT_USAGE, "pre-push : usage invalide (voir --help)\n")
 
 
+def _voisins() -> None:
+    """Avant d'importer un voisin : aucun cache écrit, même lancé sans `-B`, et le dossier du
+    script dans le chemin d'import, en fin, sans doublon, même sous `python -I`."""
+    sys.dont_write_bytecode = True
+    dossier = os.path.dirname(os.path.abspath(__file__))
+    if dossier not in sys.path:
+        sys.path.append(dossier)
+
+
 def main(argv: list[str] | None = None) -> int:
     for flux in (sys.stdout, sys.stderr):
         try:
@@ -50,6 +60,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if sortie.code in (0, None) else EXIT_USAGE
     branche = args.branche
     if branche is None:
+        _voisins()
         try:
             from reglages import BRANCHE_PRINCIPALE as branche
         except ImportError:

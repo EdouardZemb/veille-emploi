@@ -7,11 +7,14 @@ modifie pas dans le projet. Un défaut se corrige dans `modele-projet`, pour tou
 
 1. Une issue, avec une mini-spec : objectif, critères d'acceptation, hors périmètre. Le formulaire
    « Lot » la pose. Une milestone par étape.
-2. Une PR de plan, qui ajoute le plan dans `.claude/plans/`.
+2. Une PR de plan, qui ajoute le plan dans `.claude/plans/`, avec ses trois sections ; la revue du
+   plan le relit avant l'exécution (voir « Les outils »).
 3. Une ou plusieurs PR d'implémentation.
 4. Une PR de revue finale.
 5. Une PR de clôture : elle **supprime le plan**, reporte dans `CLAUDE.md` ou dans un ADR ce qui
-   doit survivre, et relit le README d'après `docs/modele/documentation.md`.
+   doit survivre, et relit le README d'après `docs/modele/documentation.md`. Elle seule porte
+   « Closes #N », les autres PR du lot disant « Partie de #N », et elle nomme la tête relue
+   (voir « Le texte de la PR »).
 6. L'étiquette `vX.Y.Z`, **avec l'accord d'Edouard**.
 
 ## Les outils
@@ -27,10 +30,74 @@ autre poste, et la déclaration doublerait l'installation du poste.
 l'outillage disparaît :
 
 - le plan s'écrit à la main dans `.claude/plans/`, avec les mêmes sections qu'un plan ordinaire :
-  objectif, tâches, vérification de chaque tâche ;
+  objectif, tâches, vérification de chaque tâche, et les trois sections dites plus bas ;
 - une seule tâche à la fois ;
 - le test d'abord : il est écrit, il échoue, puis le code le fait passer ;
 - une revue avant la fusion, par une autre session ou par Edouard.
+
+**Les trois sections d'un plan.** Qu'il soit écrit par *superpowers* ou à la main, un plan porte
+trois sections de niveau 2, que `scripts/modele/plan.py` vérifie. On les écrit avant ses tâches ;
+le script n'en vérifie pas la place. Chacune s'arrête au titre suivant, quel que soit son niveau,
+ou à la première ligne de séparation (`---`), et n'admet que des puces `-` ou `*`, leurs lignes de
+continuation indentées, des lignes vides et « Aucun. ». Une ligne indentée qui commence par une
+puce ou un numéro (`-`, `*`, `+`, `1.`) est une sous-liste, et refuse : elle ne continue pas la
+puce d'avant. Une ligne qui commence par un commentaire, après au plus trois espaces, et porte un
+texte après lui refuse aussi : GitHub la rend en bloc HTML, jamais en puce. Chaque section est
+unique : deux sections du même titre refusent, et aucune des deux n'est lue. Un séparateur est un
+tiret cadratin (`—`) ou demi-cadratin (`–`), entouré d'espaces.
+
+- `## Mécanismes annoncés` : une ligne par comportement que le plan prête à un mécanisme qui
+  existe, `` - `<chemin>:<ligne>` — `<extrait>` — <comportement annoncé> ``. L'extrait, un texte
+  de la ligne citée (un nom de fonction, un message), se cherche sur elle, ou dans une plage
+  `<chemin>:<ligne>-<fin>` de 40 lignes au plus : un numéro faux ou une fonction mal nommée
+  refuse. Un chemin sans préfixe part de la racine du dépôt, et un fichier absent refuse ; `..`,
+  un chemin absolu, une barre oblique inverse ou un deux-points dans le chemin refusent, avant
+  toute lecture. Un chemin d'un autre dépôt porte son préfixe, `<dépôt>:<chemin>:<ligne>` : il se
+  vérifie quand `--depot <dépôt>=<clone>` est donné, et s'écrit sinon « non vérifié », sans refus.
+  « Aucun. » est admis ;
+- `## Outils et cas limites` : une ligne par outil qu'appelle un contrôle livré par le plan,
+  `- <outil> — <cas limite que l'outil traite autrement> — <test qui l'exerce>`, trois morceaux
+  non vides. « Aucun. » est admis ;
+- `## Revues` : une ligne par temps de revue, `- <revue> : Tâche N`, qui cite au moins une tâche du
+  plan, `Tâche N` ou `Task N`, d'après ses titres de niveau 3 (`### Tâche N : …`). Il en faut au
+  moins une, et deux titres ne portent jamais le même numéro. La clôture est la première tâche dont
+  le titre dit « clôture » ou « closure » : chaque tâche citée la précède.
+
+**La revue du plan** se fait avant l'exécution, par une autre session ou par Edouard :
+
+- elle relit dans le code chaque ligne de « Mécanismes annoncés », et juge un « Aucun. » contre ce
+  que le plan décrit ;
+- elle cherche, pour chaque outil qu'appelle un contrôle, le cas limite que cet outil traite
+  autrement ;
+- une correction cherche aussi la même croyance dans le reste du plan et dans la spec.
+
+Les revues et les tests, dans tout le lot :
+
+- chaque temps d'une revue est une tâche du plan, avant la clôture : la revue de chaque tâche, la
+  revue finale, la relecture des corrections ; une revue se juge sur la tête qui part. La
+  relecture de la tête qui part, dans la PR de clôture, ne s'écrit pas dans « Revues » : c'est la
+  ligne `Tête relue` de cette PR qui la porte ;
+- la PR de clôture nomme la tête qu'a lue sa dernière relecture, et un écart à la spec se déclare
+  dans la PR, chacun avec ses limites (voir « Le texte de la PR ») ;
+- un contrôle qui dépend du comportement d'un outil a un test sur le cas limite que cet outil
+  traite autrement ; la règle vaut aussi pour un correctif écrit hors du plan ;
+- un test qui garde une valeur est éprouvé par un mutant : la valeur changée fait échouer le test.
+
+**En CI**, l'étape « Les plans (.claude/plans) » du socle lance `plan.py` sur chaque plan de
+`.claude/plans/` que la PR ajoute ou modifie. Un plan ajouté se vérifie en entier, chaque fichier du
+dépôt qu'il cite ouvert, mais un lieu préfixé par un autre dépôt y reste « non vérifié », sans
+refus : l'étape ne passe pas `--depot`, et une session vérifie ce lieu en lançant `plan.py` avec
+`--depot <dépôt>=<clone>`, puis la revue du plan le relit ; un plan modifié se vérifie sans ouvrir
+les fichiers cités (`--sans-lieux`) : ses sections, la forme de chaque ligne et ses revues. Une PR
+d'implémentation modifie souvent son plan avec le code qu'il cite, et les numéros de ligne
+dérivent : les mécanismes se vérifient à l'entrée du plan, quand la revue du plan les relit, et un
+mécanisme ajouté plus tard se relit à la revue. Le socle tourne aussi au push sur la branche
+principale, sur les plans que ce push ajoute ou modifie : un plan ajouté s'y vérifie aussi sans
+ouvrir les fichiers cités, puisque ses lieux l'ont été à la PR, et qu'une autre PR, fusionnée
+entre-temps, a pu décaler une ligne citée.
+Sur une base nulle, l'étape ne contrôle rien ; une PR qui ne touche aucun plan passe, comme la PR
+de clôture, qui le supprime. La session lance aussi `python scripts/modele/plan.py <plan>` avant
+de soumettre son plan à Edouard, et après chaque correction.
 
 ## Les worktrees
 
@@ -79,9 +146,78 @@ sessions à distance.
 | hook git `pre-push` | refus d'envoyer sur la branche principale |
 | hook Claude `PreToolUse` (outils `Bash`, `PowerShell`, `Monitor`, et tout outil MCP qui porte une commande) | bloque `git push` vers la branche principale, tout force-push vers elle, `--no-verify`, toute modification de `core.hooksPath` sauf la réparation `git config core.hooksPath .githooks` (variables `GIT_CONFIG_*` comprises), `gh pr merge` tant que les contrôles ne sont pas tous verts (et toute fusion en mode `edouard`), `gh pr merge --admin`, l'envoi d'une étiquette (`git push --tags`, `--follow-tags`, un refspec `refs/tags/…`, `v1.2.3` ou `donnees-…`) et toute écriture de publication (`gh release` hors `view`, `list`, `download` ; l'API `…/releases`), les alias et extensions de `gh`, ce qui affiche le jeton de `gh` ou les identifiants de git (`gh auth token`, `gh auth status --show-token`, `gh auth git-credential`, `git credential fill`, `git credential-manager get`), et l'effacement, le déplacement ou le renommage de `.githooks` et de `scripts/modele` (`rm`, `mv`, `Remove-Item`, `git rm`…). Il lit aussi les substitutions `$(…)`, même entre guillemets, les blocs PowerShell (`try { … }`, `& { … }`, `% { … }`) et ses affectations (`$x = …`), le texte d'une here-string (`bash <<< '…'`) passée à un interprète, et les enveloppes (`timeout`, `nice -n`, `env -C`, `env -S`, `exec -a`, `Start-Process`, `Start-Process -WorkingDirectory`, `Invoke-Expression`…). Après un retour de dossier qu'il ne suit pas (`cd -`, `cd ~`, `popd`, `Pop-Location`), la branche courante est illisible : un `git push` doit alors nommer sa branche |
 | hook Claude `SessionStart` (au démarrage et à la reprise) | affiche ce qui est rouge sur GitHub : les exécutions de la branche principale, les PR ouvertes et les workflows désactivés. Il ne bloque jamais. Il signale aussi un gabarit resté vide que le README lie, et un README qui ne lie aucun document du dépôt. Ce que n'importe qui écrit depuis un fork n'entre pas dans le contexte de Claude : les exécutions de PR (`pull_request…`) sont écartées, et une PR ou un workflow venus d'ailleurs que le dépôt s'affichent sans le texte qu'ils portent. Une PR d'un fork paraît ainsi sans titre ni nom de contrôle, un workflow absent de la copie, sans son nom |
-| CI de base | gitleaks examine les commits de chaque PR et de chaque envoi, et tout l'historique chaque semaine et à la demande (`modele-historique.yml`) ; la porte relit aussi l'historique d'un dépôt de code chaque semaine (`modele-historique.yml`), à côté de gitleaks, et refuse tout constat absent de `.github/constats-acceptes.txt` ; confidentialité du diff, des messages de commit et du texte de la PR ; format des commits ; le garde de Claude **et les signaux** toujours branchés dans `.claude/settings.json` ; la licence et la carte de la racine (`scripts/modele/documentation.py`) ; actions épinglées par SHA |
+| CI de base | gitleaks examine les commits de chaque PR et de chaque envoi, et tout l'historique chaque semaine et à la demande (`modele-historique.yml`) ; la porte relit aussi l'historique d'un dépôt de code chaque semaine (`modele-historique.yml`), à côté de gitleaks, et refuse tout constat absent de `.github/constats-acceptes.txt` ; confidentialité du diff et des messages de commit ; format des commits ; le garde de Claude **et les signaux** toujours branchés dans `.claude/settings.json` ; la licence et la carte de la racine (`scripts/modele/documentation.py`) ; actions épinglées par SHA |
+| workflow `texte-pr` | `modele-texte-pr.yml`, seul à écouter `edited` : il relit le texte de chaque PR à son ouverture, à chaque envoi et à chaque retouche de son titre ou de son corps. La confidentialité et le format du titre et du corps, puis la section des écarts à la spec et la tête relue d'une PR qui ferme une issue (`scripts/modele/texte_pr.py`, voir plus bas). Son job, `texte-pr`, est un contrôle requis par la règle de protection d'un dépôt public ; dans un dépôt privé, qui n'a pas de règle, le garde le lit avant une fusion en mode `session` |
+| CI de base, étape « Les plans (.claude/plans) » | sur chaque plan de `.claude/plans/` que la PR ajoute ou modifie, `scripts/modele/plan.py` vérifie les trois sections (voir « Les outils ») : un plan ajouté en entier, chaque fichier du dépôt cité ouvert, un lieu d'un autre dépôt restant « non vérifié », sans refus ; un plan modifié sans ouvrir les fichiers cités, ses numéros de ligne dérivant avec le code. Au push sur la branche principale, un plan ajouté se vérifie aussi sans ouvrir les fichiers cités, ses lieux vérifiés à la PR. Sur une base nulle, rien n'est contrôlé. L'étape précède la dernière, celle de la licence et de la carte de la racine |
 | Dependabot | chaque lundi, les versions des actions épinglées (`.github/dependabot.yml`), après trois jours de recul |
 | règle de protection GitHub | tout commit qui arrive sur la branche principale est la tête d'une PR dont les contrôles requis sont verts ; un envoi direct de cette tête est accepté et marque la PR fusionnée, sans squash. Côté agent, c'est le refus de pousser vers la branche principale par le garde qui ferme ce chemin. Ni force-push ni suppression de la branche principale. Posée sur les dépôts publics |
+
+**Le texte de la PR.** Le workflow géré `texte-pr` (`modele-texte-pr.yml`) est seul à écouter
+`edited` : une retouche du titre ou du corps d'une PR ne relance que lui, jamais toute la CI, dès
+que le `ci.yml` du projet n'écoute plus `edited`. Le `ci.yml` d'un projet est semé : à sa mise à
+jour, un projet déjà né en retire `edited` lui-même. Le workflow porte la confidentialité et le
+format du titre et du corps, puis lance `scripts/modele/texte_pr.py`, qui lit le corps dans son
+environnement, jamais dans ses arguments, et contrôle deux choses.
+
+- **Les écarts à la spec.** Le corps de toute PR porte une section `## Écarts à la spec`, une
+  seule, sauf quand l'auteur de la PR est `dependabot[bot]` : cette liste est fermée, et toute
+  autre application y est soumise. La section s'arrête au premier titre, quel que soit son niveau,
+  ou à la première ligne de séparation (`---`) : un écart écrit après n'est pas lu. Elle contient
+  « Aucun. » seul, ou une ligne par écart,
+  `- <écart> — promesse : <§ de la spec, ou de l'issue> — accord d'Edouard : JJ/MM/AAAA`, au
+  besoin continuée par des lignes indentées, dans cet ordre : l'écart, qui peut contenir un
+  séparateur, puis la promesse, qui n'en contient pas, puis l'accord, dont la date termine la
+  ligne. Une ligne indentée qui commence par une puce ou un numéro (`-`, `*`, `+`, `1.`) est une
+  sous-liste, et ne continue pas l'écart. Le contrôle refuse, sans nommer de ligne : une section
+  absente, vide ou en double ; « Aucun. » à côté d'un écart ; un commentaire HTML jamais fermé,
+  qui cacherait la suite. Il refuse, en nommant la ligne par son rang dans la section : une ligne
+  qui n'est ni « Aucun. » ni un écart, une sous-liste comprise ; un écart vide, sans « promesse : »
+  suivi d'un texte, sans « accord d'Edouard : » suivi d'une date valide `JJ/MM/AAAA`, avec un
+  texte après la date, ou hors de cet ordre. Un commentaire fermé ou un bloc clôturé ne compte
+  pas : la forme d'une ligne, que le gabarit de PR met en commentaire, n'est pas un écart. Une
+  ligne qui commence par un commentaire, après au plus trois espaces, et porte un texte après lui
+  refuse, comme une ligne qui n'est ni « Aucun. » ni un écart : GitHub la rend en bloc HTML, son
+  texte tel quel, sans Markdown, jamais en puce ; sous une puce, il ne la montre dans la puce que
+  si elle est indentée au moins autant que le texte de la puce. Un bloc indenté de quatre espaces
+  n'est pas écarté : après une puce, il continue l'écart ; sans puce avant lui, il refuse. Le
+  contrôle ne vérifie ni que l'accord est réel, ni qu'un écart n'a pas été tu : il force à écrire
+  l'écart, la promesse qu'il touche et la date de l'accord. Un écart se pèse contre la promesse de
+  la spec, jamais contre l'ancien comportement, ni contre le seul mécanisme principal : l'accord
+  d'Edouard porte sur cette promesse, citée.
+- **La tête relue.** Une PR qui ferme une issue porte la ligne `Tête relue : <SHA>`, le SHA
+  complet de la tête qu'a lue la dernière relecture. Dans un lot, c'est la PR de clôture, et elle
+  seule ; hors des lots, un correctif qui ferme une issue par `Fixes #N` nomme aussi la tête
+  relue. Les issues que la PR ferme se lisent par l'API (`closingIssuesReferences`), l'analyse de
+  GitHub lui-même, jamais dans le corps ; une réponse absente, en erreur ou mal formée fait
+  refuser. Le contrôle refuse aussi une ligne absente, ou un SHA autre que la tête de la PR, en
+  nommant les deux SHA. Un commit poussé après la dernière relecture fait donc refuser la PR,
+  jusqu'à ce que le corps nomme la nouvelle tête, relue ; cette retouche ne relance que `texte-pr`.
+  La ligne se cherche telle que GitHub la montre : un commentaire jamais fermé, ouvert en tête de
+  ligne ou après une puce, cache tout ce qui le suit, et une ligne cachée est absente.
+- **Les limites de la tête relue.** Le contrôle force à nommer une tête, pas à la relire : la
+  relecture reste une tâche du plan. Dans un lot, la PR de revue finale n'est pas visée : sa
+  relecture est une tâche du plan, et la PR de clôture relit ensuite la tête qui part. GitHub ne
+  lit un mot-clé de fermeture que dans une PR qui vise la branche par défaut : une PR empilée sur
+  une autre branche ne ferme rien, et sa tête relue n'est pas exigée. Une issue liée depuis la
+  barre latérale de la PR compte aussi, mais aucun type d'événement documenté ne suit ce lien : le
+  contrôle repart au commit ou à la modification du corps suivants. La ligne se cherche telle que
+  GitHub la montre, à des écarts près, dont deux connus : un `<!--` jamais fermé, ouvert dans un
+  élément de liste après quatre espaces ou plus (une puce imbriquée, ou une ligne qui continue la
+  puce), cache sur GitHub tout ce qui le suit, et un `<?`, un `<!` suivi d'une majuscule
+  (`<!DOCTYPE`) ou un `<![CDATA[` ouvert en tête de ligne, tout ce qui le suit jusqu'au premier
+  `>`, même plusieurs lignes plus bas, ou jusqu'à la fin sans lui ; le contrôle lit encore ces
+  lignes, la ligne `Tête relue` comme la section des écarts. D'autres formes HTML cachent aussi sur
+  GitHub ce que le contrôle lit : un `<?` ou un `<!DOCTYPE` après une puce, ou en ligne et fermé
+  plus bas ; un `<!--` jamais fermé dans une ligne de bloc HTML, comme `<div><!-- note</div>` ; un
+  attribut ou un titre de lien sur plusieurs lignes. Tous sont bornés : le SHA de cette ligne doit
+  toujours égaler la tête de la PR.
+- **Ne jamais relancer `texte-pr`.** Une relance, par `gh run rerun` ou depuis l'interface de
+  GitHub, rejoue l'événement d'origine : elle relit le titre et le corps de ce moment-là, pas ceux
+  de la PR telle qu'elle est. Éprouvé dans le dépôt modèle le 07/11/2026 : après une retouche qui
+  retirait la section des écarts, la relance de la première exécution par `gh run rerun` a relu
+  le corps d'avant et est passée, et `gh pr checks` a montré `texte-pr` vert sur un corps qui
+  refusait. Pour relire le texte, on retouche le titre ou le corps : la retouche relance
+  `texte-pr` sur le texte en cours.
 
 **Qui fusionne : la réponse `fusion`.** Deux modes, choisis à la création du projet et enregistrés
 dans `.copier-answers.yml` :
@@ -93,8 +229,10 @@ dans `.copier-answers.yml` :
 
 Le mode lui-même se lit sur GitHub, par l'API (`gh api`) : le `.copier-answers.yml` de la branche
 principale, et non celui de la copie locale ni `origin/<branche>`, qu'une session peut réécrire.
-Tout ce qui est illisible (`gh` absent, erreur, délai dépassé, ligne absente) vaut `edouard`. Deux
-entrées restent locales :
+Tout ce qui est illisible (`gh` absent, erreur, ligne absente) vaut `edouard` ; à court de temps, le
+garde refuse en disant « budget de 20 s épuisé : mode non lu, relancer », et « budget de 20 s
+épuisé : contrôles non lus, relancer » quand ce sont les contrôles de la PR qu'il n'a pas pu lire.
+Deux entrées restent locales :
 
 - le nom de la branche passée en `ref=` vient des réglages de la copie : `BRANCHE_PRINCIPALE`,
   dans `scripts/modele/reglages.py`, ou l'option `--branche` du garde ;
@@ -146,7 +284,10 @@ la lit par `git show origin/<branche par défaut>:scripts/modele/reglages.py` (l
 `BRANCHE_DEFAUT`, la visibilité réelle par `DEPOT_PRIVE`). Une nature illisible vaut `code`, la plus
 stricte. Hors CI, aux hooks, la porte lit le `reglages.py` de la copie ; sans lui (le dépôt modèle),
 c'est `code`. Un dépôt privé n'a pas de règle de protection : le garde de Claude y est la seule
-serrure côté agent, et la CI du socle le seul filet.
+serrure côté agent, et la CI (le socle et `texte-pr`) le seul filet ; avant une fusion en mode
+`session`, le garde lit tous les contrôles, `texte-pr` compris (`gh pr checks`). En mode `edouard`,
+le garde refuse toute fusion de la session : Edouard fusionne, et rien ne lit les contrôles à sa
+place.
 
 **L'historique d'un dépôt de code.** `modele-historique.yml` relit tout l'historique chaque semaine
 et à la demande, après gitleaks. Chaque constat se nomme `<commit>:<chemin>:<ligne>` ; le message

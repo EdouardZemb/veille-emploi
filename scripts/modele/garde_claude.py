@@ -8,10 +8,16 @@ l'agent de s'y heurter, et de la chercher.
 
 Le mode de fusion se lit sur GitHub (`.copier-answers.yml` de la branche principale), jamais dans la
 copie locale ni dans `origin/<branche>`, qu'une session peut réécrire. Tout ce qui est illisible
-vaut `edouard`. Le mode et les contrôles se lisent dans le dossier de la session (le `cwd` du hook),
-jamais dans celui d'un `cd` : une fusion qui suit, dans la même commande, un changement de dossier
-(`cd`, `popd`, `Set-Location`, `env -C`, `Start-Process -WorkingDirectory`…) est refusée, même
-vers le dossier de la session.
+refuse la fusion. Faute de temps, quand le budget de tous les sous-processus (BUDGET, sous le
+délai du hook) n'a pas laissé finir la lecture du mode ou des contrôles, le refus dit qu'ils n'ont
+pas été lus (« budget de … s épuisé : mode non lu, relancer », ou « budget de … s épuisé :
+contrôles non lus, relancer »), au lieu de « mode fusion : edouard » ou « fusion avant que tous
+les contrôles soient verts ».
+
+Le mode et les contrôles se lisent dans le dossier de la session (le `cwd` du hook), jamais dans
+celui d'un `cd` : une fusion qui suit, dans la même commande, un changement de dossier (`cd`,
+`popd`, `Set-Location`, `env -C`, `Start-Process -WorkingDirectory`…) est refusée, même vers le
+dossier de la session.
 
 Le dossier suivi au fil des `cd` sert à lire la branche courante d'un `git push`. Un retour que le
 garde ne suit pas (`cd -`, `cd ~`, `popd`…) le rend inconnu : la branche courante est alors
@@ -60,6 +66,24 @@ CHAMPS_COMMANDE = ("command", "cmd", "input", "script")
 PROFONDEUR_MAX = 4
 BUDGET = 20.0  # secondes, pour tous les sous-processus d'une invocation (délai du hook : 30)
 _echeance: float | None = None
+
+
+class _Epuise:
+    """Le budget de temps épuisé avant la fin d'une lecture. Faux, comme une lecture qui n'a rien
+    donné : le garde reste fermé même si un appelant oublie de le distinguer."""
+
+    __slots__ = ()
+
+    def __bool__(self) -> bool:
+        return False
+
+    def __repr__(self) -> str:
+        return "EPUISE"
+
+
+EPUISE = _Epuise()
+# Le mode de fusion que le budget n'a pas laissé lire : ni « session » ni « edouard ».
+MODE_NON_LU = "non lu"
 WINDOWS = os.name == "nt"
 # Le dossier suivi quand le garde ne sait plus où est le shell (`cd -`, `popd`, `cd ~`…) : un
 # octet nul ne vient jamais d'une commande. La branche courante y est illisible.
@@ -268,24 +292,28 @@ class Contexte:
             self._memo[cle] = self._courante(chemin)
         return self._memo[cle]
 
-    def verts(self, pr: str | None) -> bool:
+    def verts(self, pr: str | None) -> bool | None:
+        """Les contrôles de la PR, lus une fois : vrai s'ils sont tous verts, None s'ils n'ont pas
+        été lus faute de temps, faux sinon. Jamais ramené à un booléen : None n'est pas « faux »."""
         cle = ("verts", pr)
         if cle not in self._memo:
-            self._memo[cle] = bool(self._verts(pr))
+            self._memo[cle] = self._verts(pr)
         return self._memo[cle]
 
     def fusion(self) -> str:
         """Le mode de fusion du dépôt de la session, lu une fois, jamais celui d'un dossier suivi
         par les `cd` : une fusion qui suit un changement de dossier est refusée de toute façon.
 
-        Tout ce qui n'est pas `session` vaut `edouard`."""
+        Rend `session`, `edouard`, ou MODE_NON_LU quand le budget n'a pas laissé lire le mode : la
+        fusion est alors refusée, avec un message qui dit de relancer. Toute autre valeur, et toute
+        exception, vaut `edouard`."""
         cle = ("fusion", None)
         if cle not in self._memo:
             try:
                 mode = self._fusion(None)
             except Exception:  # noqa: BLE001 - fail-closed
                 mode = "edouard"
-            self._memo[cle] = "session" if mode == "session" else "edouard"
+            self._memo[cle] = mode if mode in ("session", MODE_NON_LU) else "edouard"
         return self._memo[cle]
 
     def chemin(self, option_c: str | None) -> str | None:
@@ -628,12 +656,29 @@ def _git(args: list[str], ctx: Contexte) -> str | None:
     return None
 
 
+def _refus_budget(quoi: str) -> str:
+    """Le refus d'une lecture que le budget n'a pas laissé finir (`quoi` : « mode non lu » ou
+    « contrôles non lus »). Composé au moment du refus : les tests changent BUDGET après l'import."""
+    return f"budget de {BUDGET:g} s épuisé : {quoi}, relancer"
+
+
+def _refus_du_mode(ctx: Contexte) -> str | None:
+    """Le refus d'une fusion selon le mode du dépôt de la session, ou None en mode `session`."""
+    mode = ctx.fusion()
+    if mode == "session":
+        return None
+    if mode == MODE_NON_LU:
+        return _refus_budget("mode non lu")
+    return REFUS_MODE
+
+
 def _gh_merge(args: list[str], ctx: Contexte, depot: bool = False) -> str | None:
     pr = None
     if ctx.depot_par_environnement:
         return REFUS_AUTRE_DEPOT
-    if ctx.fusion() != "session":
-        return REFUS_MODE
+    motif = _refus_du_mode(ctx)
+    if motif:
+        return motif
     if any(a.split("=")[0] == "--admin" for a in args):
         return "fusion en contournant les règles de protection (--admin)"
     i = 0
@@ -654,7 +699,10 @@ def _gh_merge(args: list[str], ctx: Contexte, depot: bool = False) -> str | None
     # fusion pourrait partir dans un autre dépôt, jugée sur une PR de même numéro.
     if ctx.hors_du_dossier:
         return REFUS_APRES_CD
-    if not ctx.verts(pr):
+    verts = ctx.verts(pr)
+    if verts is None:
+        return _refus_budget("contrôles non lus")
+    if not verts:
         return "fusion avant que tous les contrôles soient verts"
     return None
 
@@ -702,10 +750,10 @@ def _gh_api(args: list[str], ctx: Contexte) -> str | None:
     fusion_rest = ecrit and bool(API_FUSION.search(point.lower()))
     if (fusion_graphql or opaque or fusion_rest) and ctx.depot_par_environnement:
         return REFUS_AUTRE_DEPOT  # GH_REPO, GIT_DIR… dans la commande : cible invérifiable
-    if (fusion_graphql or opaque) and ctx.fusion() != "session":
-        return REFUS_MODE
-    if ecrit and API_FUSION.search(point.lower()) and ctx.fusion() != "session":
-        return REFUS_MODE
+    if fusion_graphql or opaque or fusion_rest:
+        motif = _refus_du_mode(ctx)  # le mode seulement : l'API ne lit jamais les contrôles
+        if motif:
+            return motif
     if (fusion_graphql or opaque or fusion_rest) and ctx.hors_du_dossier:
         return REFUS_APRES_CD
     if ecrit and "/releases" in point.lower():
@@ -1116,7 +1164,7 @@ def motif_de_refus(
     commande: str,
     branche: str,
     branche_courante: Callable[[str | None], str | None],
-    checks_verts: Callable[[str | None], bool],
+    checks_verts: Callable[[str | None], bool | None],
     outil: str | None = None,
     fusion: Callable[[str | None], str] = lambda dossier: "edouard",
 ) -> str | None:
@@ -1125,12 +1173,14 @@ def motif_de_refus(
     `branche_courante` reçoit le chemin d'un `git -C <chemin>` ou d'un `cd` (None : le dossier de
     la session) ; elle n'est jamais appelée pour un dossier que le garde ne sait plus suivre.
     `checks_verts` reçoit l'argument de PR de `gh pr merge`, ou None ; elle lit les contrôles dans
-    le dossier de la session.
+    le dossier de la session, et rend vrai, faux, ou None s'ils n'ont pas été lus faute de temps.
     `outil` (« Bash » ou « PowerShell ») choisit la lecture ; None les essaie toutes.
-    `fusion` reçoit toujours None (le dossier de la session) et rend le mode (« session » ou
-    « edouard ») ; elle est appelée au plus une fois, et seulement pour une fusion. Sans autre valeur
-    que « session », toute fusion est refusée. Une fusion qui suit un changement de dossier est
-    refusée dans les deux modes : ni le mode ni les contrôles d'un autre dossier ne sont lus.
+    `fusion` reçoit toujours None (le dossier de la session) et rend le mode (« session »,
+    « edouard », ou MODE_NON_LU faute de temps) ; elle est appelée au plus une fois, et seulement
+    pour une fusion. Sans autre valeur que « session », toute fusion est refusée. Une lecture que le
+    budget n'a pas laissé finir refuse aussi, en disant « budget de … s épuisé : mode non lu,
+    relancer » ou « … : contrôles non lus, relancer ». Une fusion qui suit un changement de dossier
+    est refusée dans les deux modes : ni le mode ni les contrôles d'un autre dossier ne sont lus.
     Aucune exception ne sort d'ici : une commande qu'on ne sait pas analyser est refusée.
     """
     try:
@@ -1153,11 +1203,13 @@ def motif_de_refus(
     return None
 
 
-def _executer(cmd: list[str], cwd: str) -> subprocess.CompletedProcess | None:
-    """Lance `cmd` dans le budget de temps restant ; budget épuisé ou erreur : None."""
+def _executer(cmd: list[str], cwd: str) -> subprocess.CompletedProcess | object | None:
+    """Lance `cmd` dans le budget de temps restant. EPUISE si le budget est déjà à zéro (rien n'est
+    lancé) ou s'il est dépassé en route ; None sur toute autre erreur. Les appelants comparent par
+    `is EPUISE` avant de lire `returncode`."""
     delai = BUDGET if _echeance is None else _echeance - time.monotonic()
     if delai <= 0:
-        return None
+        return EPUISE
     try:
         return subprocess.run(
             cmd,
@@ -1167,17 +1219,22 @@ def _executer(cmd: list[str], cwd: str) -> subprocess.CompletedProcess | None:
             stdin=subprocess.DEVNULL,
             timeout=delai,
         )
+    except subprocess.TimeoutExpired:  # avant SubprocessError, dont il hérite
+        return EPUISE
     except (OSError, subprocess.SubprocessError, ValueError):
         return None
 
 
-def checks_verts_gh(pr: str | None, cwd: str) -> bool:
-    """Vrai si et seulement si la PR a des contrôles et qu'ils sont tous `pass` ou `skipping`."""
+def checks_verts_gh(pr: str | None, cwd: str) -> bool | None:
+    """Vrai si et seulement si la PR a des contrôles et qu'ils sont tous `pass` ou `skipping` ;
+    None s'ils n'ont pas été lus faute de temps ; faux dans tout autre cas (gh absent, erreur)."""
     gh = shutil.which("gh")
     if gh is None or (pr is not None and pr.startswith("-")):
         return False
     cmd = [gh, "pr", "checks", *([pr] if pr else []), "--json", "bucket"]
     r = _executer(cmd, cwd)
+    if r is EPUISE:
+        return None
     if r is None or r.returncode != 0:
         return False
     try:
@@ -1192,14 +1249,17 @@ def checks_verts_gh(pr: str | None, cwd: str) -> bool:
 def fusion_du_depot(branche: str, cwd: str | None) -> str:
     """Le mode de fusion du projet, lu sur GitHub : `.copier-answers.yml` à `ref=<branche>`.
 
-    « session » seulement si une ligne vaut `fusion: session` ; « edouard » dans tous les autres
-    cas (gh absent, code non nul, budget épuisé, ligne absente ou autre valeur)."""
+    « session » seulement si une ligne vaut `fusion: session` ; MODE_NON_LU si le budget n'a pas
+    laissé finir la lecture ; « edouard » dans tous les autres cas (gh absent, code non nul, ligne
+    absente ou autre valeur)."""
     gh = shutil.which("gh")
     if gh is None:
         return "edouard"
     point = "repos/{owner}/{repo}/contents/.copier-answers.yml?ref=" + branche
     cmd = [gh, "api", "-H", "Accept: application/vnd.github.raw+json", point]
     r = _executer(cmd, cwd or ".")
+    if r is EPUISE:
+        return MODE_NON_LU
     if r is None or r.returncode != 0:
         return "edouard"
     texte = r.stdout.decode("utf-8", errors="replace")
@@ -1207,10 +1267,11 @@ def fusion_du_depot(branche: str, cwd: str | None) -> str:
 
 
 def branche_courante_git(chemin: str | None, cwd: str) -> str | None:
-    """La branche courante (`git rev-parse --abbrev-ref HEAD`), ou None si illisible."""
+    """La branche courante (`git rev-parse --abbrev-ref HEAD`), ou None si illisible, faute de
+    temps compris : un push qui ne nomme pas sa branche est alors refusé."""
     cmd = ["git", *(["-C", chemin] if chemin else []), "rev-parse", "--abbrev-ref", "HEAD"]
     r = _executer(cmd, cwd)
-    if r is None or r.returncode != 0:
+    if r is EPUISE or r is None or r.returncode != 0:
         return None
     nom = r.stdout.decode("utf-8", errors="replace").strip()
     return nom or None
@@ -1280,6 +1341,15 @@ def commande_de(entree: dict, stricte: bool = True) -> str | None:
     return None
 
 
+def _voisins() -> None:
+    """Avant d'importer un voisin : aucun cache écrit, même lancé sans `-B`, et le dossier du
+    script dans le chemin d'import, en fin, sans doublon, même sous `python -I`."""
+    sys.dont_write_bytecode = True
+    dossier = os.path.dirname(os.path.abspath(__file__))
+    if dossier not in sys.path:
+        sys.path.append(dossier)
+
+
 def _executer_garde(args) -> int:
     global _echeance
     _echeance = time.monotonic() + BUDGET
@@ -1302,6 +1372,7 @@ def _executer_garde(args) -> int:
         return 0
     branche = args.branche
     if branche is None:
+        _voisins()
         try:
             from reglages import BRANCHE_PRINCIPALE as branche
         except ImportError:

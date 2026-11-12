@@ -12,6 +12,6 @@
       "required_review_thread_resolution": false}},
     {"type": "required_status_checks", "parameters": {
       "strict_required_status_checks_policy": false,
-      "required_status_checks": [{"context": "socle / secrets"}, {"context": "socle / confidentialite"}]}}
+      "required_status_checks": [{"context": "socle / secrets"}, {"context": "socle / confidentialite"}, {"context": "texte-pr"}]}}
   ]
 }

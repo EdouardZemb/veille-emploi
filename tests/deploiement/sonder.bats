@@ -7,7 +7,8 @@
 # appel ; un test de bout en bout garde le vrai deployer.sh.
 # Deux dépôts : le clone des données est un vrai dépôt git, clone d'une origine du test (un dépôt nu)
 # où un autre clone, le « poste », pousse des commits et des étiquettes. Le double de git y passe
-# la main au vrai git (DOUBLE_GIT_REEL_DANS) : ses appels sont notés comme les autres.
+# la main au vrai git (DOUBLE_GIT_REEL_DANS) : ses appels sont notés comme les autres. La table des
+# retours, à la fin, garde aussi le vrai deployer.sh.
 
 # Chaque test tourne dans son propre processus : les `export DOUBLE_*` d'un test ne fuient pas
 # dans les autres, comme le veut le pilotage des doubles.
@@ -47,6 +48,11 @@ exit "${DOUBLE_DEPLOYER_CODE:-0}"'
 [ "${1:-}" != --verifier ] || exit "${DOUBLE_UNITES_ECART:-0}"
 echo "installation des unités : VEILLE_EMPLOI_AVANT_DEPLOIEMENT=${VEILLE_EMPLOI_AVANT_DEPLOIEMENT:-}" >>"$APPELS"
 exit "${DOUBLE_UNITES_INSTALLATION_CODE:-0}"'
+}
+
+teardown() {
+  # les instantanés des données sont en lecture seule : bats doit pouvoir retirer le dossier du test
+  chmod -R u+rwX "$BATS_TEST_TMPDIR" 2>/dev/null || true
 }
 
 # remplacer_par_un_double <script> <corps> : remplace deploiement/<script> du clone temporaire par
@@ -1293,4 +1299,268 @@ etiqueter_les_donnees() {
   [ "$(appels_de docker | grep -c ' exec -T app ')" -eq 1 ]
   [ "$(cat "$ETAT/deploye")" = "$AUTRE main -" ]
   [ "$(cat "$ETAT/precedent")" = "$EMPREINTE main -" ]
+}
+
+# --- la table des retours : la vraie sonde après --retour ------------------------------------
+
+# Après `deployer.sh <env> --retour`, seul le couple quitté attend, et la sonde déploie tout couple
+# neuf : en prod, la plus haute vX.Y.Z avec la plus haute étiquette de données ; en staging, :main
+# avec la tête de la branche des données. La ligne de conseil du retour dit ce que chaque geste
+# ramènerait, et ce qui passe d'abord. Chaque test de la table en exige une clause, vérifie que la
+# sonde attend tant que rien ne change, joue un geste, puis compare deploye au couple attendu :
+# après « <geste> redéploierait <moitié quittée> », la moitié quittée avec la moitié neuve du
+# geste ; après « poser d'abord », « fusionner d'abord » ou « corriger d'abord », la moitié neuve
+# avec la moitié gardée. Deux tests posent une vX.Y.Z sur le commit de la version gardée, qui
+# republie son image : après un retour de l'image, le couple gardé reste en service ; après un
+# retour des données, le couple visé est le couple quitté, qui attend. Dans les deux, deploye ne
+# change pas. Un seul environnement par test : les doubles de docker et de curl n'ont qu'une
+# application en service pour les deux.
+
+# apres_un_retour <env> <moitié> : la vraie sonde déploie deux couples dans cet environnement, le
+# second ne changeant que <moitié> (image, donnees ou les-deux), puis le vrai `deployer.sh <env>
+# --retour` revient au premier. Pose IG, CG et VG (l'image, le commit et la version du couple
+# gardé), IQ, CQ et VQ (ceux du couple quitté), lus dans le journal du retour et vérifiés contre
+# deploye et echec ; IN, l'image d'une nouvelle version du code ; RETOUR, la sortie du retour, et
+# CONSEIL, sa ligne de conseil, la seule qui contient « redéploierait ».
+apres_un_retour() {
+  local nom_env="$1" moitie="$2" depot_image="ghcr.io/edouardzemb/veille-emploi"
+  local premiere seconde premier ligne
+  local quitte='couple ([^ ]+) ([0-9a-f]{40}) \(([^)]+)\) '
+  local garde=': ([^ ]+) \(([^ ,]+), [^ ]+ ([0-9a-f]{40})\) ;'
+  case "$moitie" in
+    image | donnees | les-deux) ;;
+    *) return 1 ;;
+  esac
+  cp "$DEPOT/deploiement/deployer.sh" "$CLONE/deploiement/deployer.sh"
+  export VEILLE_EMPLOI_SANTE_DELAI=0
+  avec_donnees VERIFIER_CONTENU
+  preparer "$nom_env"
+  horloge_qui_avance
+  premiere="$depot_image@sha256:$(printf '1%.0s' {1..64})"
+  seconde="$premiere"
+  IN="$depot_image@sha256:$(printf '3%.0s' {1..64})"
+
+  # le premier couple, sur un commit qui a du contenu : le commit initial du clone des données n'en a
+  # pas, et la règle des paires le refuserait
+  pousser_des_donnees contenu/page.md
+  premier="$COMMIT"
+  if [ "$nom_env" = prod ]; then
+    etiqueter_les_donnees donnees-2026.11.07.1
+    export DOUBLE_GIT_ETIQUETTES=v0.1.0
+  fi
+  export DOUBLE_DOCKER_EMPREINTE="$premiere"
+  sonder "$nom_env"
+  [ "$status" -eq 0 ]
+  [ "$(cut -d ' ' -f 1,3 "$ETAT/deploye")" = "$premiere $premier" ]
+  poser_donnees "$nom_env"
+
+  # le second couple, qui ne change que <moitié>
+  if [ "$moitie" != donnees ]; then
+    seconde="$depot_image@sha256:$(printf '2%.0s' {1..64})"
+    export DOUBLE_DOCKER_EMPREINTE="$seconde"
+    if [ "$nom_env" = prod ]; then
+      export DOUBLE_GIT_ETIQUETTES='v0.1.0 v0.2.0'
+    fi
+  fi
+  if [ "$moitie" != image ]; then
+    pousser_des_donnees contenu/page.md contenu/autre.md
+    if [ "$nom_env" = prod ]; then
+      etiqueter_les_donnees donnees-2026.11.07.2
+    fi
+  fi
+  sonder "$nom_env"
+  [ "$status" -eq 0 ]
+  [ "$(cut -d ' ' -f 1,3 "$ETAT/deploye")" = "$seconde $COMMIT" ]
+  poser_donnees "$nom_env"
+
+  # le retour au premier couple
+  run bash "$CLONE/deploiement/deployer.sh" "$nom_env" --retour
+  [ "$status" -eq 0 ]
+  RETOUR="$output"
+  ligne="$(grep -F ' marqué en échec : ' <<<"$RETOUR")"
+  [[ "$ligne" =~ $quitte ]]
+  IQ="${BASH_REMATCH[1]}" CQ="${BASH_REMATCH[2]}" VQ="${BASH_REMATCH[3]}"
+  ligne="$(grep -F ' retour effectué : ' <<<"$RETOUR")"
+  [[ "$ligne" =~ $garde ]]
+  VG="${BASH_REMATCH[1]}" IG="${BASH_REMATCH[2]}" CG="${BASH_REMATCH[3]}"
+  [ "$(cat "$ETAT/echec")" = "$IQ $CQ" ]
+  [ "$(cat "$ETAT/deploye")" = "$IG $VG $CG" ]
+  [ "$IG $CG" = "$premiere $premier" ]
+  [ "$IQ $CQ" = "$seconde $COMMIT" ]
+  [ "$(grep -cF redéploierait <<<"$RETOUR")" -eq 1 ]
+  CONSEIL="$(grep -F redéploierait <<<"$RETOUR")"
+}
+
+# sonder_sans_geste <env> : un passage de la sonde après le retour, quand rien n'a changé. La cible
+# est encore le couple quitté, qui attend : rien ne se déploie.
+sonder_sans_geste() {
+  : >"$APPELS"
+  sonder "$1"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"couple en échec, attente d'un nouveau : $VQ ($IQ, données $CQ)"* ]]
+  [ "$(appels_de docker | grep -c ' up ')" -eq 0 ]
+  [ "$(cat "$ETAT/deploye")" = "$IG $VG $CG" ]
+}
+
+@test "sonder après un retour de l'image, en prod : une étiquette de données redéploie la version quittée" {
+  apres_un_retour prod image
+  [[ "$CONSEIL" == *"une nouvelle étiquette de données redéploierait $VQ avec elle"* ]]
+  sonder_sans_geste prod
+  pousser_des_donnees contenu/page.md contenu/neuf.md
+  etiqueter_les_donnees donnees-2026.11.07.3
+  : >"$APPELS"
+  sonder prod
+  [ "$status" -eq 0 ]
+  [ "$(cat "$ETAT/deploye")" = "$IQ $VQ $COMMIT" ]
+}
+
+@test "sonder après un retour de l'image, en prod : une vX.Y.Z plus haute, sur une nouvelle image, se déploie" {
+  apres_un_retour prod image
+  [[ "$CONSEIL" == *"une vX.Y.Z plus haute que $VQ"* ]]
+  sonder_sans_geste prod
+  export DOUBLE_GIT_ETIQUETTES="$DOUBLE_GIT_ETIQUETTES v0.3.0" DOUBLE_DOCKER_EMPREINTE="$IN"
+  : >"$APPELS"
+  sonder prod
+  [ "$status" -eq 0 ]
+  [ "$(cat "$ETAT/deploye")" = "$IN 0.3.0 $CG" ]
+}
+
+@test "sonder après un retour de l'image, en prod : une vX.Y.Z sur le commit de la version gardée la laisse en service" {
+  apres_un_retour prod image
+  [[ "$CONSEIL" == *"sur le commit de $VG"* ]]
+  sonder_sans_geste prod
+  # la vX.Y.Z publie l'image de la version gardée : le couple visé est celui en service
+  export DOUBLE_GIT_ETIQUETTES="$DOUBLE_GIT_ETIQUETTES v0.3.0" DOUBLE_DOCKER_EMPREINTE="$IG"
+  : >"$APPELS"
+  sonder prod
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"0.3.0 en service : $IG, données $CG"* ]]
+  [ "$(appels_de docker | grep -c ' up ')" -eq 0 ]
+  [ "$(cat "$ETAT/deploye")" = "$IG $VG $CG" ]
+}
+
+@test "sonder après un retour de l'image, en staging : un commit des données redéploie l'image quittée" {
+  apres_un_retour staging image
+  [[ "$CONSEIL" == *"un nouveau commit de la branche des données redéploierait l'image quittée avec lui : fusionner"* ]]
+  sonder_sans_geste staging
+  pousser_des_donnees contenu/page.md contenu/neuf.md
+  : >"$APPELS"
+  sonder staging
+  [ "$status" -eq 0 ]
+  [ "$(cat "$ETAT/deploye")" = "$IQ main $COMMIT" ]
+}
+
+@test "sonder après un retour de l'image, en staging : la fusion du correctif du code se déploie" {
+  apres_un_retour staging image
+  [[ "$CONSEIL" == *"fusionner d'abord le correctif du code"* ]]
+  sonder_sans_geste staging
+  export DOUBLE_DOCKER_EMPREINTE="$IN"
+  : >"$APPELS"
+  sonder staging
+  [ "$status" -eq 0 ]
+  [ "$(cat "$ETAT/deploye")" = "$IN main $CG" ]
+}
+
+@test "sonder après un retour des données, en prod : une vX.Y.Z sur un nouveau commit redéploie les données quittées" {
+  apres_un_retour prod donnees
+  [[ "$CONSEIL" == *"une vX.Y.Z sur un nouveau commit redéploierait les données quittées ($CQ) avec elle"* ]]
+  sonder_sans_geste prod
+  export DOUBLE_GIT_ETIQUETTES="$DOUBLE_GIT_ETIQUETTES v0.3.0" DOUBLE_DOCKER_EMPREINTE="$IN"
+  : >"$APPELS"
+  sonder prod
+  [ "$status" -eq 0 ]
+  [ "$(cat "$ETAT/deploye")" = "$IN 0.3.0 $CQ" ]
+}
+
+@test "sonder après un retour des données, en prod : une vX.Y.Z sur le commit gardé refait le couple quitté, qui attend" {
+  apres_un_retour prod donnees
+  [[ "$CONSEIL" == *"poser d'abord une étiquette de données sur un commit corrigé"* ]]
+  sonder_sans_geste prod
+  # la vX.Y.Z publie la même image : avec les données quittées, le couple visé est le couple quitté
+  export DOUBLE_GIT_ETIQUETTES="$DOUBLE_GIT_ETIQUETTES v0.3.0" DOUBLE_DOCKER_EMPREINTE="$IG"
+  : >"$APPELS"
+  sonder prod
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"couple en échec, attente d'un nouveau : 0.3.0 ($IQ, données $CQ)"* ]]
+  [ "$(appels_de docker | grep -c ' up ')" -eq 0 ]
+  [ "$(cat "$ETAT/deploye")" = "$IG $VG $CG" ]
+}
+
+@test "sonder après un retour des données, en prod : une étiquette sur un commit corrigé se déploie" {
+  apres_un_retour prod donnees
+  [[ "$CONSEIL" == *"poser d'abord une étiquette de données sur un commit corrigé"* ]]
+  sonder_sans_geste prod
+  pousser_des_donnees contenu/page.md contenu/neuf.md
+  etiqueter_les_donnees donnees-2026.11.07.3
+  : >"$APPELS"
+  sonder prod
+  [ "$status" -eq 0 ]
+  [ "$(cat "$ETAT/deploye")" = "$IG $VG $COMMIT" ]
+}
+
+@test "sonder après un retour des données, en staging : une fusion dans le code redéploie les données quittées" {
+  apres_un_retour staging donnees
+  [[ "$CONSEIL" == *"une fusion dans le code redéploierait les données quittées ($CQ) avec elle"* ]]
+  sonder_sans_geste staging
+  export DOUBLE_DOCKER_EMPREINTE="$IN"
+  : >"$APPELS"
+  sonder staging
+  [ "$status" -eq 0 ]
+  [ "$(cat "$ETAT/deploye")" = "$IN main $CQ" ]
+}
+
+@test "sonder après un retour des données, en staging : un commit corrigé de la branche des données se déploie" {
+  apres_un_retour staging donnees
+  [[ "$CONSEIL" == *"corriger d'abord la branche des données"* ]]
+  sonder_sans_geste staging
+  pousser_des_donnees contenu/page.md contenu/neuf.md
+  : >"$APPELS"
+  sonder staging
+  [ "$status" -eq 0 ]
+  [ "$(cat "$ETAT/deploye")" = "$IG main $COMMIT" ]
+}
+
+@test "sonder après un retour des deux moitiés, en prod : une étiquette de données redéploie la version quittée" {
+  apres_un_retour prod les-deux
+  [[ "$CONSEIL" == *"une nouvelle étiquette de données redéploierait $VQ avec elle, une nouvelle vX.Y.Z les données quittées ($CQ)"* ]]
+  sonder_sans_geste prod
+  pousser_des_donnees contenu/page.md contenu/neuf.md
+  etiqueter_les_donnees donnees-2026.11.07.3
+  : >"$APPELS"
+  sonder prod
+  [ "$status" -eq 0 ]
+  [ "$(cat "$ETAT/deploye")" = "$IQ $VQ $COMMIT" ]
+}
+
+@test "sonder après un retour des deux moitiés, en prod : une vX.Y.Z redéploie les données quittées" {
+  apres_un_retour prod les-deux
+  [[ "$CONSEIL" == *"une nouvelle vX.Y.Z les données quittées ($CQ)"* ]]
+  sonder_sans_geste prod
+  export DOUBLE_GIT_ETIQUETTES="$DOUBLE_GIT_ETIQUETTES v0.3.0" DOUBLE_DOCKER_EMPREINTE="$IN"
+  : >"$APPELS"
+  sonder prod
+  [ "$status" -eq 0 ]
+  [ "$(cat "$ETAT/deploye")" = "$IN 0.3.0 $CQ" ]
+}
+
+@test "sonder après un retour des deux moitiés, en staging : un commit des données redéploie l'image quittée" {
+  apres_un_retour staging les-deux
+  [[ "$CONSEIL" == *"un nouveau commit de la branche des données redéploierait l'image quittée avec lui, une fusion"* ]]
+  sonder_sans_geste staging
+  pousser_des_donnees contenu/page.md contenu/neuf.md
+  : >"$APPELS"
+  sonder staging
+  [ "$status" -eq 0 ]
+  [ "$(cat "$ETAT/deploye")" = "$IQ main $COMMIT" ]
+}
+
+@test "sonder après un retour des deux moitiés, en staging : une fusion dans le code redéploie les données quittées" {
+  apres_un_retour staging les-deux
+  [[ "$CONSEIL" == *"une fusion dans le code les données quittées ($CQ)"* ]]
+  sonder_sans_geste staging
+  export DOUBLE_DOCKER_EMPREINTE="$IN"
+  : >"$APPELS"
+  sonder staging
+  [ "$status" -eq 0 ]
+  [ "$(cat "$ETAT/deploye")" = "$IN main $CQ" ]
 }

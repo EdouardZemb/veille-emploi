@@ -82,6 +82,20 @@ conteneurs et des commentaires (un bloc clôturé non fermé dans un élément d
 qui franchit une ligne `>` vide, un texte de lien à plus de trois niveaux de crochets, une
 définition après un titre souligné, un commentaire fermé par `--->` dans un paragraphe) font aussi
 refuser à tort.
+D'autres laissent passer à tort ce que GitHub cache, et touchent aussi `texte_pr.py` et `plan.py`,
+qui s'appuient sur ce script ; deux sont connus : un `<!--` jamais fermé, ouvert dans un élément de
+liste après quatre espaces ou plus (une puce imbriquée, ou une ligne qui continue la puce), cache
+sur GitHub tout ce qui le suit, mais les contrôles lisent encore la suite : un titre, et donc la
+section « Ce qui fait foi », la section des écarts à la spec, les trois sections d'un plan et ses
+titres de tâche, et la ligne « Tête relue », qui doit toujours nommer la tête de la PR ; un bloc
+ouvert en tête de ligne par `<?`, par `<!` suivi d'une majuscule (`<!DOCTYPE`) ou par `<![CDATA[`
+cache de même sur GitHub tout ce qui le suit jusqu'au premier `>`, même plusieurs lignes plus bas,
+ou jusqu'à la fin sans lui, mais `texte_pr.py` et `plan.py`, qui ne cherchent que `<!--`, lisent
+encore la ligne « Tête relue », la section des écarts, les trois sections d'un plan et ses titres
+de tâche. D'autres formes HTML cachent aussi sur GitHub ce que les contrôles lisent : un `<?` ou
+un `<!DOCTYPE` après une puce, ou en ligne et fermé plus bas ; un `<!--` jamais fermé dans une
+ligne de bloc HTML, comme `<div><!-- note</div>` ; un attribut ou un titre de lien sur plusieurs
+lignes.
 Un dernier ne touche que le gabarit resté vide. Sous Windows, il lit l'existence d'un chemin lié
 sans égard à la casse : un lien `docs/Cadrage.md` vers `docs/cadrage.md` y est lu, et peut
 avertir, alors que GitHub casse ce lien ; sous Linux, il est ignoré. C'est un avertissement de
@@ -123,12 +137,14 @@ NON_LIE = "n'est lié ni par README.md ni par « Ce qui fait foi » de CLAUDE.md
 
 _OUVERTURE = re.compile(r" {0,3}(`{3,}|~{3,})(.*)$")
 _FERMETURE = re.compile(r" {0,3}(`{3,}|~{3,})[ \t]*$")
-# Un commentaire HTML (`<!-->` et `<!--->` en sont deux, complets), ou un code en ligne : une suite
-# d'accents graves, refermée par une suite de même longueur, sans franchir une ligne vide. Le plus
-# à gauche l'emporte, comme sur GitHub.
-_CODE_OU_COMMENTAIRE = re.compile(
-    r"<!--(?:-?>|.*?-->)|(?<!`)(`+)(?!`)(?:(?!\n[ \t]*\n).)*?(?<!`)\1(?!`)", re.DOTALL
-)
+# Un commentaire HTML (`<!-->` et `<!--->` en sont deux, complets).
+COMMENTAIRE = re.compile(r"<!--(?:-?>|.*?-->)", re.DOTALL)
+# Un code en ligne : une suite d'accents graves, refermée par une suite de même longueur, sans
+# franchir une ligne vide.
+CODE_EN_LIGNE = re.compile(r"(?<!`)(`+)(?!`)(?:(?!\n[ \t]*\n).)*?(?<!`)\1(?!`)", re.DOTALL)
+# L'un ou l'autre : le plus à gauche l'emporte, comme sur GitHub. Le groupe 1 n'est pris que par un
+# code en ligne.
+_CODE_OU_COMMENTAIRE = re.compile(COMMENTAIRE.pattern + "|" + CODE_EN_LIGNE.pattern, re.DOTALL)
 _ECHAPPEMENT = re.compile(r"\\(.)", re.DOTALL)
 # Un caractère du texte d'un lien : ni crochet, ni barre oblique inverse nue, ni ligne vide.
 _CAR = r"(?:[^\[\]\\\n]|\\.|\n(?![ \t]*\n))"
@@ -165,14 +181,29 @@ _SCHEMA = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*:")
 _PONCTUATION_ECHAPPEE = re.compile(r"\\([!-/:-@\[-`{-~])")
 _TITRE = re.compile(r" {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t]*$")
 _FERMANTE = re.compile(r"(?:^|[ \t]+)#+$")
-_COMMENTAIRE = re.compile(r"<!--(?:-?>|.*?-->)")
+_COMMENTAIRE = re.compile(COMMENTAIRE.pattern)
+# Ce qui peut précéder, sur sa ligne, un `<!--` qui ouvre un bloc de commentaire : au plus trois
+# espaces, après une puce, un numéro ou `>`. À composer, en mode MULTILINE. Chaque espace n'a
+# qu'une lecture : après `>`, une tabulation et trois espaces au plus, ou quatre espaces au plus ;
+# après une puce ou un numéro, toutes les espaces et tabulations. Un motif où l'espace qui suit un
+# `>` se prendrait aussi par le tour suivant reculerait de façon exponentielle sur une ligne de `> `
+# sans `<!--`, et Python 3.10 n'a pas de groupe atomique.
+DEBUT_DE_BLOC = r"^ {0,3}(?:>(?:\t {0,3}| {0,4})|(?:[-*+]|\d{1,9}[.)])[ \t]+)*"
 # Un bloc de commentaire HTML : ouvert par `<!--` en tête de ligne, ou après une puce, un numéro ou
 # `>`, il court jusqu'à la fin de la ligne qui porte `-->`, la sienne comprise (`<!-->` se ferme
 # aussitôt), ou jusqu'à la fin.
 _BLOC_DE_COMMENTAIRE = re.compile(
-    r"^(?: {0,3}(?:>[ \t]?|(?:[-*+]|\d{1,9}[.)])[ \t]+))* {0,3}<!(?=--).*?(?:-->[^\n]*|\Z)",
-    re.MULTILINE | re.DOTALL,
+    DEBUT_DE_BLOC + r"<!(?=--).*?(?:-->[^\n]*|\Z)", re.MULTILINE | re.DOTALL
 )
+# Un commentaire ouvert en tête de ligne, après au plus trois espaces : GitHub rend en bloc HTML la
+# ligne qui le ferme, son texte tel quel, jamais en puce ni en suite de puce.
+_COMMENTAIRE_EN_TETE = re.compile(
+    r"^ {0,3}(?:" + COMMENTAIRE.pattern + ")", re.MULTILINE | re.DOTALL
+)
+# Une sous-liste : une ligne indentée qui commence par une puce ou par un numéro. `texte_pr.py` et
+# `plan.py` la refusent toujours, plus strictement que GitHub, qui joint à la puce d'avant un
+# numéro autre que 1 et une ligne indentée de quatre colonnes ou plus au-delà du texte de la puce.
+SOUS_LISTE = re.compile(r"[ \t]+(?:[-*+]|[0-9]{1,9}[.)])(?:[ \t]|$)")
 
 
 def _en_lf(texte: str) -> str:
@@ -213,6 +244,25 @@ def _sans_code_ni_commentaire(texte: str) -> str:
 
 def _preparer(texte: str) -> str:
     return _sans_code_ni_commentaire(_hors_des_blocs(_en_lf(texte)))
+
+
+def sans_bloc_ni_commentaire(texte: str) -> str:
+    """Le texte en LF, chaque ligne d'un bloc de code clôturé vidée et chaque commentaire HTML fermé
+    retiré, leurs fins de ligne gardées : le nombre de lignes ne change pas. Un code en ligne reste,
+    et protège le `<!--` qu'il contiendrait ; un `<!--` jamais fermé reste du texte."""
+    return _CODE_OU_COMMENTAIRE.sub(
+        lambda m: m.group(0) if m.group(1) else "\n" * m.group(0).count("\n"),
+        _hors_des_blocs(_en_lf(texte)),
+    )
+
+
+def lignes_en_bloc_html(texte: str) -> set[int]:
+    """Les rangs, la première ligne du texte au rang 1, des lignes qui ferment un commentaire
+    ouvert en tête de ligne, après au plus trois espaces : GitHub rend une telle ligne en bloc HTML,
+    et un texte après la fermeture n'y est ni une puce ni la suite d'une puce. Une ligne d'un bloc
+    de code clôturé peut y être : au lecteur de l'écarter."""
+    texte = _en_lf(texte)
+    return {texte.count("\n", 0, m.end()) + 1 for m in _COMMENTAIRE_EN_TETE.finditer(texte)}
 
 
 def _cle(etiquette: str) -> str | None:
@@ -391,33 +441,65 @@ def _lire(racine: Path, nom: str, noms: list[str]) -> str | None:
     return _texte(chemin)
 
 
-def _section(texte: str, titre: str) -> str:
-    """Les lignes des sections d'un titre donné (sans égard à la casse), jusqu'au titre suivant de
-    même niveau ou d'un niveau supérieur ; hors des blocs de code clôturés et des blocs de
-    commentaire HTML, où GitHub n'affiche aucun titre. Un commentaire en ligne est retiré du
-    titre. Deux sections sont séparées par une ligne vide : la seconde ne prolonge pas un
-    paragraphe de la première."""
-    lignes = texte.split("\n")
+# Une ligne de séparation : trois `-`, `*` ou `_` au moins, du même caractère, des blancs entre eux.
+_SEPARATEUR = re.compile(r" {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$")
+
+
+def _replie(titre: str) -> str:
+    """Un titre comparable : en NFC, sans égard à la casse."""
+    return unicodedata.normalize("NFC", titre).casefold()
+
+
+def section(
+    texte: str, titre: str, niveau: int | None = None, bornee: bool = False
+) -> str | None:
+    """Les lignes d'origine, en LF, des sections d'un titre donné, ou `None` si aucun titre ne lui
+    correspond (voir `sections`). Deux sections sont séparées par une ligne vide : la seconde ne
+    prolonge pas un paragraphe de la première."""
+    morceaux = sections(texte, titre, niveau, bornee)
+    return "\n\n".join(morceaux) if morceaux else None
+
+
+def sections(
+    texte: str, titre: str, niveau: int | None = None, bornee: bool = False
+) -> list[str]:
+    """Les lignes d'origine, en LF, de chaque section d'un titre donné, dans l'ordre ; une liste
+    vide si aucun titre ne lui correspond. Le titre se compare en NFC, sans égard à la casse ; avec
+    `niveau`, seul un titre de ce niveau compte. Une section court jusqu'au titre suivant de même
+    niveau ou d'un niveau supérieur ; bornée, jusqu'au premier titre, quel que soit son niveau, ou à
+    la première ligne de séparation (`---`, `***`, `___`). Les titres et les séparateurs se lisent
+    hors des blocs de code clôturés et des blocs de commentaire HTML, où GitHub n'en affiche aucun.
+    Un commentaire en ligne est retiré du titre."""
+    lignes = _en_lf(texte).split("\n")
     # Seul un bloc de commentaire cache un titre, ses fins de ligne gardées, qu'il s'ouvre en tête
     # de ligne ou après une puce, un numéro ou `>`. La structure des blocs passe avant le code en
     # ligne : un accent grave isolé plus haut n'y change rien. Un `<!--` ouvert dans un paragraphe
     # reste du texte : le titre qui suit coupe le paragraphe.
     visibles = _BLOC_DE_COMMENTAIRE.sub(
-        lambda m: re.sub(r"[^\n]", "x", m.group(0)), _hors_des_blocs(texte)
+        lambda m: re.sub(r"[^\n]", "x", m.group(0)), _hors_des_blocs("\n".join(lignes))
     )
-    niveaux: list[tuple[int, int, str]] = []
+    cherche = _replie(titre)
+    titres: list[tuple[int, int, str]] = []
+    separateurs: list[int] = []
     for i, ligne in enumerate(visibles.split("\n")):
         m = _TITRE.match(ligne)
         if m:
             contenu = _FERMANTE.sub("", _COMMENTAIRE.sub("", m.group(2) or "")).strip()
-            niveaux.append((i, len(m.group(1)), contenu.casefold()))
+            titres.append((i, len(m.group(1)), _replie(contenu)))
+        elif _SEPARATEUR.match(ligne):
+            separateurs.append(i)
     morceaux = []
-    for k, (i, niveau, contenu) in enumerate(niveaux):
-        if contenu != titre:
+    for k, (i, n, contenu) in enumerate(titres):
+        if contenu != cherche or (niveau is not None and n != niveau):
             continue
-        fin = next((j for j, n, _ in niveaux[k + 1 :] if n <= niveau), len(lignes))
+        if bornee:
+            suivants = [titres[k + 1][0]] if k + 1 < len(titres) else []
+            suivants += [j for j in separateurs if j > i][:1]
+            fin = min(suivants, default=len(lignes))
+        else:
+            fin = next((j for j, autre, _ in titres[k + 1 :] if autre <= n), len(lignes))
         morceaux.append("\n".join(lignes[i + 1 : fin]))
-    return "\n\n".join(morceaux)
+    return morceaux
 
 
 def _cibles(texte: str, racine: Path, document: str | None = None) -> set[str]:
@@ -454,7 +536,8 @@ def carte(racine: Path) -> tuple[list[str], bool]:
         if texte is None
     ]
     par_le_readme = _cibles(readme or "", racine)
-    par_ce_qui_fait_foi = _cibles(_section(claude or "", CE_QUI_FAIT_FOI), racine, claude)
+    foi = section(claude or "", CE_QUI_FAIT_FOI) or ""
+    par_ce_qui_fait_foi = _cibles(foi, racine, claude)
     non_lies = []
     for nom in vus:
         if nom == "CLAUDE.md":
@@ -501,12 +584,7 @@ def _corps_vide(texte: str) -> bool:
     for ligne, dehors in zip(texte.split("\n"), hors.split("\n")):
         if ligne.strip() and not dehors:  # une ligne vidée par `_hors_des_blocs` : du code
             return False
-    # Les commentaires retirés, leurs fins de ligne gardées ; un code en ligne reste, et protège
-    # le `<!--` qu'il contiendrait.
-    sans_commentaire = _CODE_OU_COMMENTAIRE.sub(
-        lambda m: m.group(0) if m.group(1) else "\n" * m.group(0).count("\n"), hors
-    )
-    for ligne in sans_commentaire.split("\n"):
+    for ligne in sans_bloc_ni_commentaire(texte).split("\n"):
         if ligne.strip() and not _TITRE.match(ligne) and not _ITALIQUE.fullmatch(ligne.strip()):
             return False
     return True
@@ -560,10 +638,19 @@ def gabarits_vides(racine: Path) -> list[str]:
 # --- ligne de commande -----------------------------------------------------------------------
 
 
+def _voisins() -> None:
+    """Avant d'importer un voisin : aucun cache écrit, même lancé sans `-B`, et le dossier du
+    script dans le chemin d'import, en fin, sans doublon, même sous `python -I`."""
+    sys.dont_write_bytecode = True
+    dossier = os.path.dirname(os.path.abspath(__file__))
+    if dossier not in sys.path:
+        sys.path.append(dossier)
+
+
 def _nature() -> str:
     """La nature, lue par la porte de confidentialité : importée ici seulement, à l'appel, sans
     écrire de cache, même lancé sans `-B` : aucun `__pycache__` dans le projet."""
-    sys.dont_write_bytecode = True
+    _voisins()
     from confidentialite import nature
 
     return nature()
