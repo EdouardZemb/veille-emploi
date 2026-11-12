@@ -71,18 +71,6 @@ jobs:
             *) git log --format=%B HEAD > "$RUNNER_TEMP/messages.txt" ;;
           esac
           python scripts/modele/confidentialite.py --exiger-prives --texte "$RUNNER_TEMP/messages.txt"
-      - name: Confidentialité et format du titre et du corps de la PR
-        if: github.event_name == 'pull_request'
-        env:
-          MOTIFS_INTERDITS: ${{ secrets.MOTIFS_INTERDITS }}
-          DEPOT_PRIVE: ${{ github.event.repository.private }}
-          BRANCHE_DEFAUT: ${{ github.event.repository.default_branch }}
-          TITRE: ${{ github.event.pull_request.title }}
-          CORPS: ${{ github.event.pull_request.body }}
-        run: |
-          printf '%s\n%s\n' "$TITRE" "$CORPS" > "$RUNNER_TEMP/pr.txt"
-          python scripts/modele/confidentialite.py --exiger-prives --texte "$RUNNER_TEMP/pr.txt"
-          python scripts/modele/commits.py --titre "$TITRE"
       - name: Le garde de Claude est branché
         run: |
           python - <<'FIN'
@@ -134,6 +122,25 @@ jobs:
               )
               sys.exit(1)
           FIN
+      - name: Les plans (.claude/plans)
+        env:
+          EVENEMENT: ${{ github.event_name }}
+        run: |
+          case "$BASE" in
+            *[!0]*) ;;
+            *) echo "Base nulle : plans non contrôlés."; exit 0 ;;
+          esac
+          git diff -z --name-only --no-renames --diff-filter=A "$BASE"...HEAD -- '.claude/plans/*.md' > "$RUNNER_TEMP/plans-ajoutes"
+          git diff -z --name-only --no-renames --diff-filter=M "$BASE"...HEAD -- '.claude/plans/*.md' > "$RUNNER_TEMP/plans-modifies"
+          code=0
+          if [ "$EVENEMENT" = push ]; then
+            echo "Push : un plan ajouté se vérifie sans ouvrir ses lieux, vérifiés à la PR."
+            xargs -0 -r -n 1 python scripts/modele/plan.py --racine . --sans-lieux < "$RUNNER_TEMP/plans-ajoutes" || code=1
+          else
+            xargs -0 -r -n 1 python scripts/modele/plan.py --racine . < "$RUNNER_TEMP/plans-ajoutes" || code=1
+          fi
+          xargs -0 -r -n 1 python scripts/modele/plan.py --racine . --sans-lieux < "$RUNNER_TEMP/plans-modifies" || code=1
+          exit "$code"
       - name: La documentation de la racine (licence, carte)
         env:
           DEPOT_PRIVE: ${{ github.event.repository.private }}

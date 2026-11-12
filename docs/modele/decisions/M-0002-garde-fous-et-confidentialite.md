@@ -48,7 +48,7 @@ pas de la discipline de celui qui travaille ?
   Claude `PreToolUse` sur les outils `Bash`, `PowerShell` et `Monitor`, et sur tout outil MCP qui
   porte une commande. Le garde refuse toute modification de `core.hooksPath`, sauf la réparation
   `git config core.hooksPath .githooks`.
-- Un dépôt **privé** reste possible. Il n'a alors que les hooks, et la CI de base.
+- Un dépôt **privé** reste possible. Il n'a alors que les hooks et la CI (le socle et `texte-pr`).
 - **La porte de confidentialité est obligatoire**, dans tous les projets. Ses motifs génériques sont
   versionnés ; ses motifs privés (noms de machines, d'utilisateurs, chemins) sont gardés hors dépôt,
   sur le poste et dans un secret de la CI. Une session à distance n'a pas la liste privée : la CI
@@ -158,7 +158,7 @@ pas de la discipline de celui qui travaille ?
   option, et un secret poussé est à considérer comme compromis, même supprimé ensuite.
 - Un dépôt privé est moins bien protégé qu'un dépôt public : rien ne retient un contournement des
   hooks. C'est un risque accepté : le garde de Claude est alors la seule serrure côté agent, et la
-  CI du socle le seul filet.
+  CI (le socle et `texte-pr`) le seul filet.
 - Dans un dépôt de données, la porte n'empêche plus un nom de serveur ou une adresse d'entrer dans
   l'historique : elle le signale. Elle y refuse toujours les secrets. L'historique d'un dépôt de
   données n'est donc pas prêt à être publié : il ne le sera jamais, et un dépôt d'avant M-0006 se

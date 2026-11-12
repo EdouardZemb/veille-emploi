@@ -31,6 +31,7 @@ Retour : 0 conforme (avertissements compris), 1 refus, 64 erreur d'usage.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 from dataclasses import dataclass
@@ -272,8 +273,18 @@ def _a_deux_depots(racine: Path) -> bool:
         return False
 
 
+def _voisins() -> None:
+    """Avant d'importer un voisin : aucun cache écrit, même lancé sans `-B`, et le dossier du
+    script dans le chemin d'import, en fin, sans doublon, même sous `python -I`."""
+    sys.dont_write_bytecode = True
+    dossier = os.path.dirname(os.path.abspath(__file__))
+    if dossier not in sys.path:
+        sys.path.append(dossier)
+
+
 def _reglages():
     """Le reglages.py voisin du script, celui du projet ; None sans lui (le dépôt modèle)."""
+    _voisins()
     try:
         import reglages  # type: ignore[import-not-found]
     except ImportError:

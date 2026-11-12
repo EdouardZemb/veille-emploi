@@ -1,0 +1,59 @@
+# Géré par le modèle — ne pas modifier ici (docs/modele/methode.md).
+# Le texte de la PR, seul à écouter `edited` : une retouche du titre ou du corps ne relance que ce
+# contrôle, et pas toute la CI, dès que le `ci.yml` du projet n'écoute plus `edited`. Le `ci.yml`
+# d'un projet est semé : à sa mise à jour, un projet déjà né en retire `edited` lui-même. La
+# confidentialité et le format du titre et du corps ; puis les écarts à la spec, et la tête relue
+# d'une PR qui ferme une issue (scripts/modele/texte_pr.py).
+# Ni le job ni ses étapes n'ont de condition : un job sauté compterait « succès ».
+name: texte-pr
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+concurrency:
+  group: texte-pr-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  texte-pr:
+    name: texte-pr
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Confidentialité et format du titre et du corps de la PR
+        env:
+          MOTIFS_INTERDITS: ${{ secrets.MOTIFS_INTERDITS }}
+          DEPOT_PRIVE: ${{ github.event.repository.private }}
+          BRANCHE_DEFAUT: ${{ github.event.repository.default_branch }}
+          TITRE: ${{ github.event.pull_request.title }}
+          CORPS: ${{ github.event.pull_request.body }}
+        run: |
+          printf '%s\n%s\n' "$TITRE" "$CORPS" > "$RUNNER_TEMP/pr.txt"
+          python scripts/modele/confidentialite.py --exiger-prives --texte "$RUNNER_TEMP/pr.txt"
+          python scripts/modele/commits.py --titre "$TITRE"
+      - name: Les issues que la PR ferme (API)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPOT: ${{ github.repository }}
+          NUMERO: ${{ github.event.pull_request.number }}
+        run: |
+          gh api graphql -f query='query($owner:String!,$name:String!,$n:Int!){ repository(owner:$owner,name:$name){ pullRequest(number:$n){ closingIssuesReferences(first:1){ totalCount } } } }' \
+            -f owner="${DEPOT%/*}" -f name="${DEPOT#*/}" -F n="$NUMERO" > "$RUNNER_TEMP/fermetures.json" || true
+      - name: Les écarts à la spec et la tête relue
+        env:
+          CORPS: ${{ github.event.pull_request.body }}
+          AUTEUR: ${{ github.event.pull_request.user.login }}
+          TETE: ${{ github.event.pull_request.head.sha }}
+        run: python scripts/modele/texte_pr.py --fermetures "$RUNNER_TEMP/fermetures.json"

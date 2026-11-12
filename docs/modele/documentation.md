@@ -111,6 +111,14 @@ ne portent pas de lien : à la naissance, `config/` et `contenu/` n'ont que leur
 `secrets/` n'existe pas encore. Un dossier ne se lie qu'une fois qu'il porte autre chose que son
 `README.md`.
 
+### Réécrire un README
+
+Avant de réécrire un README, chercher dans tout le dépôt `README.md#` et tout renvoi au README,
+ceux d'un texte figé compris. Une ancre suit son titre, et aucun des trois contrôles ne lit l'ancre
+d'un lien. Ce que seul le README porte se déplace ailleurs avant d'en être retiré. Un projet de
+code né avant la `v0.9.0` met la section « Licence » dans la PR de mise à jour, qui apporte
+`LICENSE`. Dans une PR à part, le lien `[MIT](LICENSE)` mènerait à un fichier absent.
+
 ## Ce qui n'y va jamais
 
 Un README ne porte pas ce qui se périme sans que personne le voie, parce que sa source est
@@ -345,6 +353,21 @@ D'autres font refuser à tort :
   élément de liste, un code en ligne qui franchit une ligne `>` vide, un texte de lien à plus de
   trois niveaux de crochets, une définition après un titre souligné, un commentaire fermé par
   `--->` dans un paragraphe).
+
+D'autres laissent passer à tort ce que GitHub cache, et touchent aussi `texte_pr.py` et `plan.py`,
+qui s'appuient sur `documentation.py` ; deux sont connus : un `<!--` jamais fermé, ouvert dans un
+élément de liste après quatre espaces ou plus (une puce imbriquée, ou une ligne qui continue la
+puce), cache sur GitHub tout ce qui le suit, mais les contrôles lisent encore la suite : un titre,
+et donc la section « Ce qui fait foi », la section des écarts à la spec, les trois sections d'un
+plan et ses titres de tâche, et la ligne « Tête relue », qui doit toujours nommer la tête de la PR ;
+un bloc ouvert en tête de ligne par `<?`, par `<!` suivi d'une majuscule (`<!DOCTYPE`) ou par
+`<![CDATA[` cache de même sur GitHub tout ce qui le suit jusqu'au premier `>`, même plusieurs
+lignes plus bas, ou jusqu'à la fin sans lui, mais `texte_pr.py` et `plan.py`, qui ne cherchent que
+`<!--`, lisent encore la ligne « Tête relue », la section des écarts, les trois sections d'un plan
+et ses titres de tâche. D'autres formes HTML cachent aussi sur GitHub ce que les contrôles lisent :
+un `<?` ou un `<!DOCTYPE` après une puce, ou en ligne et fermé plus bas ; un `<!--` jamais fermé
+dans une ligne de bloc HTML, comme `<div><!-- note</div>` ; un attribut ou un titre de lien sur
+plusieurs lignes.
 
 Un dernier ne touche que le gabarit resté vide. Sous Windows, l'existence d'un chemin lié s'y lit
 sans égard à la casse : un lien `docs/Cadrage.md` vers `docs/cadrage.md` y est lu, et peut avertir,

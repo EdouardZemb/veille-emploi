@@ -321,10 +321,20 @@ def _racine_du_depot(echeance: float) -> str:
     return "."
 
 
+def _voisins() -> None:
+    """Avant d'importer un voisin : aucun cache écrit, même lancé sans `-B`, et le dossier du
+    script dans le chemin d'import, en fin, sans doublon, même sous `python -I`."""
+    sys.dont_write_bytecode = True
+    dossier = os.path.dirname(os.path.abspath(__file__))
+    if dossier not in sys.path:
+        sys.path.append(dossier)
+
+
 def _documentation(racine: str) -> list[str]:
     """Les constats du gabarit resté vide dans `racine`, sans sous-processus ; `non lue (erreur)`
     sur toute exception, celle de l'import comprise. `documentation` n'est importé qu'ici."""
     try:
+        _voisins()
         import documentation
 
         return documentation.gabarits_vides(Path(racine))
@@ -350,6 +360,7 @@ def main(argv: list[str] | None = None) -> int:
         args, _ = p.parse_known_args(argv)
         branche = args.branche
         if branche is None:
+            _voisins()
             import reglages
 
             branche = reglages.BRANCHE_PRINCIPALE

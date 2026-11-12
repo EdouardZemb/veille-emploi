@@ -253,8 +253,18 @@ def _cible(image: str, version: str, code: Path, etiquette: str | None) -> Cible
         return Cible(image, version, None, str(e))
 
 
+def _voisins() -> None:
+    """Avant d'importer un voisin : aucun cache écrit, même lancé sans `-B`, et le dossier du
+    script dans le chemin d'import, en fin, sans doublon, même sous `python -I`."""
+    sys.dont_write_bytecode = True
+    dossier = os.path.dirname(os.path.abspath(__file__))
+    if dossier not in sys.path:
+        sys.path.append(dossier)
+
+
 def _depot_code() -> str | None:
     """DEPOT_CODE du reglages.py voisin du script : le dépôt de code de ce dépôt de données."""
+    _voisins()
     try:
         import reglages  # type: ignore[import-not-found]
     except ImportError:
