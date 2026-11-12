@@ -62,6 +62,18 @@ La collecte tourne plusieurs fois par jour, après les envois d'alertes. Sa
 fréquence se change dans Réglages, parmi celles que la console propose ; les
 heures par défaut sont dans `src/veille/reglages.py`.
 
+Chaque soir, la passe de vérification relit les annonces déjà collectées. Une
+offre dont l'annonce a quitté son site part dans l'archive : à la première
+vérification si le site la déclare supprimée (HTTP 410, sur un site qui sert
+encore des annonces vivantes), sinon après deux preuves, ou trois indices,
+espacés d'au moins vingt heures. La passe ne sonde jamais un site qui
+l'interdit. Elle signale sans l'archiver une offre en cours de candidature
+(intéressante, à traiter, envoyée), une offre dont tu as généré le dossier et
+une offre que tu as remise dans le flux. Les règles sont dans
+`src/veille/verification.py`. En prod, le planificateur la lance à l'heure que
+fixe `src/veille/planificateur.py`, jamais pendant une collecte ;
+`veille verifier` la lance à la main.
+
 ## Le score
 
 Chaque règle produit une ligne : un libellé, des points, une raison. **Le score

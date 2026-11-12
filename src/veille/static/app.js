@@ -34,7 +34,7 @@ const ERREURS_API = {
   origine: "Refusé : l'adresse de la console n'est pas l'adresse publique déclarée sur le serveur (VEILLE_URL, ou VEILLE_EMPLOI_URL_PUBLIQUE en conteneur).",
   origine_inconnue: "Indisponible : l'adresse publique n'est pas définie sur le serveur (VEILLE_URL, ou VEILLE_EMPLOI_URL_PUBLIQUE en conteneur).",
   collecte_coupee: "La collecte est coupée sur cette console.",
-  collecte_en_cours: "Une collecte est déjà en cours.",
+  collecte_en_cours: "Une collecte ou une vérification est déjà en cours.",
   configuration_non_designee: "Aucune configuration n'est désignée : cette console sert l'exemple. Pose VEILLE_CONFIG (docs/exploitation.md, « La configuration désignée »).",
   connexion_impossible: "La passkey n'a pas été reconnue.",
 };
