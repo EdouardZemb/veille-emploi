@@ -42,8 +42,7 @@ JOURS = 7  # `veille collecter --jours 7`
 # (21 h 15, « toutes les deux heures »), et loin des sauvegardes de la nuit.
 HEURE_VERIFICATION = time(22, 30)
 # Ce que prenait l'unite systemd : toutes les offres sondables en une nuit, a
-# trois secondes par offre. Une offre ne s'archive qu'apres deux verifications
-# espacees (`verification.py`).
+# trois secondes par offre. Les regles d'archivage sont dans `verification.py`.
 LIMITE_VERIFICATION = 400
 
 
