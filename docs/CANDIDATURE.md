@@ -20,7 +20,7 @@ le `docs/CANDIDATURE.md` du dépôt de données.
 Sur une offre « À voir », ou mise de côté, « Je postule » passe l'offre à
 l'état « Je postule » et lance aussitôt la préparation. Sur la fiche d'une
 offre « Je postule » sans dossier, « Préparer ma candidature » la reprend. Une
-préparation laissée en route attend dans « À finir », sous
+préparation laissée en route attend dans « À finir », marquée
 « Dossier à préparer ».
 
 Pendant le travail, le bouton se désactive et compte les secondes
@@ -43,15 +43,15 @@ La lettre sera plus générique.
 
 **L'information trop mince.** La complétude reste sous le seuil (voir plus
 bas). L'écran montre le score, le seuil et les manques les plus lourds, trois
-au plus, chacun avec le geste qui le comble. « Coller le texte de l'annonce » ramène à
-l'étape du texte ; « Générer quand même » passe outre.
+au plus, chacun avec le geste qui le comble. « Coller le texte de l'annonce »
+ramène à l'étape du texte ; « Générer quand même » passe outre.
 
 **L'échec.** La génération a échoué : l'écran en dit la cause. L'offre reste
 « Je postule », un texte collé reste enregistré, et « Réessayer » relance la
 même demande.
 
-**Le dossier prêt.** Rien ne manque : l'écran « Dossier prêt » s'ouvre (voir
-plus bas).
+**Le dossier prêt.** Quand rien ne manque, ou après « Générer avec l'extrait »
+ou « Générer quand même », l'écran « Dossier prêt » s'ouvre (voir plus bas).
 
 **L'alerte éliminatoire passe toujours en premier.** Quand le texte que la
 préparation enregistre révèle un critère éliminatoire, l'offre reste
@@ -286,8 +286,8 @@ nulle part — et un test le vérifie.
 
 **Seuil : 55/100.** En dessous, « Préparer ma candidature » s'arrête sur
 l'information trop mince et te dit **les manques les plus lourds, trois au
-plus, chacun avec le geste qui le comble**. Tu peux passer outre — « Générer quand même » —
-mais plus sans le savoir.
+plus, chacun avec le geste qui le comble**. Tu peux passer outre —
+« Générer quand même » — mais plus sans le savoir.
 
 **La conséquence pratique.** Le collage du texte complet vaut 35 points à lui
 seul, et c'est le seul geste qui débloque à peu près toutes les offres venues

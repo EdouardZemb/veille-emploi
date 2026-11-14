@@ -12,8 +12,8 @@ fichier le verrouille.
 
 Son vrai usage : « Préparer ma candidature », qui s'arrête sous le seuil. Sans
 lui, la génération produirait une lettre d'un extrait de trois lignes, sans que
-rien ne l'avertisse. Le score doit prevenir AVANT, et surtout dire **ce qui
-manque** — « information insuffisante » sans dire laquelle ne sert a rien.
+rien ne l'avertisse. Le score doit prévenir AVANT, et surtout dire **ce qui
+manque** — « information insuffisante » sans dire laquelle ne sert à rien.
 """
 
 from __future__ import annotations
@@ -153,6 +153,7 @@ def test_le_manque_de_description_dit_de_coller_le_texte_sans_nommer_de_bouton()
                   if "description" in m.libelle.lower())
     assert "colle" in manque.quoi_faire.lower()
     assert "«" not in manque.quoi_faire, manque.quoi_faire
+    assert "lire l'annonce" not in manque.quoi_faire.lower(), manque.quoi_faire
 
 
 def test_les_acquis_sont_nommes_aussi():

@@ -1755,7 +1755,7 @@ async function chargerArchive() {
 //
 // La lettre assemblée existe déjà et suffit. L'affinement est une demande, sur
 // une candidature qui compte. Trois règles tenues ici :
-//   1. sans identifiants, le bouton n'apparaît pas — pas d'erreur obscure ;
+//   1. sans identifiants, il se dit indisponible, avec sa raison — pas d'erreur obscure ;
 //   2. ce qui part chez le tiers est dit AU MOMENT du clic, pas dans une doc ;
 //   3. il propose, il ne remplace pas : la version assemblée reste, et le
 //      retour arrière tient en un geste.
