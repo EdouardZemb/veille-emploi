@@ -15,7 +15,7 @@ Aucun.
 - [ ] Tests verts
 - [ ] CI verte
 - [ ] `CLAUDE.md` et ADR à jour si la PR change une règle ou une décision
-- [ ] README relu, à la clôture d'un lot (`docs/modele/documentation.md`)
+- [ ] README relu, et les leçons du lot au registre, à la clôture d'un lot (`docs/modele/documentation.md`)
 
 Tête relue : 
 <!-- Toute PR qui ferme une issue porte cette ligne, quel que soit le mot-clé : le SHA complet de la tête qu'a lue la dernière relecture. Dans un lot, c'est la seule PR de clôture ; hors des lots, un correctif par `Fixes #N`, ou toute autre PR qui ferme son issue. Une PR qui ne ferme aucune issue laisse la ligne vide, ou la retire : elle n'est lue qu'avec une fermeture. -->
@@ -26,7 +26,7 @@ Tête relue :
 
 ## Registre
 
-<!-- Les lignes ajoutées à docs/registre.md (numéros), ou « aucun constat ». Dans un dépôt de données, le registre est celui du dépôt de code. -->
+<!-- Les lignes ajoutées à docs/registre.md (numéros), ou « aucun constat ». Dans un dépôt de la cible `donnees`, le registre est celui du dépôt de code. -->
 
 ## Pour un fix : cause racine et prévention
 

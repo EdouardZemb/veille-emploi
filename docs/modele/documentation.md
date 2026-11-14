@@ -163,8 +163,8 @@ est pire qu'un texte absent.
 | ce que les lots ont appris | `docs/registre.md` |
 | la mise en service et les secours | `docs/exploitation.md`, en cible `serveur` |
 
-Dans un dépôt de données, `CLAUDE.md` dit ce que le dépôt porte, et ses leçons vont au registre du
-dépôt de code.
+Dans un dépôt de la cible `donnees`, `CLAUDE.md` dit ce que le dépôt porte, et ses leçons vont au
+registre du dépôt de code.
 
 ## Les textes d'un projet
 
@@ -179,8 +179,8 @@ dépôt de code.
 | plans | conduite | une session | la session | supprimés à la clôture |
 | brief, cadrage | explication | Edouard, une session | figés | jamais |
 
-Les fichiers de `docs/modele/`, ce texte compris, sont tenus par le modèle. Un dépôt de données n'a
-ni registre, ni pistes, ni plans, ni ADR à lui.
+Les fichiers de `docs/modele/`, ce texte compris, sont tenus par le modèle. Un dépôt de la cible
+`donnees` n'a ni registre, ni pistes, ni plans, ni ADR à lui.
 
 ## Retirer un texte
 
@@ -345,7 +345,7 @@ D'autres font refuser à tort :
 - une entité dans la cible (`&#46;`) n'est pas décodée ;
 - un fichier dont le nom porte une barre oblique inverse, que Windows refuse, n'est jamais lié ;
 - un commentaire HTML ouvert dans un paragraphe cache les liens jusqu'à sa fermeture, plus
-  loin ;
+  loin (pour la clôture d'un plan, il laisse passer : voir plus bas) ;
 - une définition n'est pas lue quand elle suit une ligne de commentaire (`<!-- liens -->`, puis les
   définitions), quand elle est dans un élément de liste ou dans une citation, quand elle suit une
   ligne de séparation (`***`), ou quand son titre tient sur deux lignes ;
@@ -358,20 +358,40 @@ D'autres laissent passer à tort ce que GitHub cache, et touchent aussi `texte_p
 qui s'appuient sur `documentation.py` ; deux sont connus : un `<!--` jamais fermé, ouvert dans un
 élément de liste après quatre espaces ou plus (une puce imbriquée, ou une ligne qui continue la
 puce), cache sur GitHub tout ce qui le suit, mais les contrôles lisent encore la suite : un titre,
-et donc la section « Ce qui fait foi », la section des écarts à la spec, les trois sections d'un
-plan et ses titres de tâche ou de tranche, et la ligne « Tête relue », qui doit toujours nommer la
-tête de la PR ; un bloc ouvert en tête de ligne par `<?`, par `<!` suivi d'une majuscule
-(`<!DOCTYPE`) ou par `<![CDATA[` cache de même sur GitHub tout ce qui le suit jusqu'au premier `>`,
-même plusieurs lignes plus bas, ou jusqu'à la fin sans lui, mais `texte_pr.py` et `plan.py`, qui ne
-cherchent que `<!--`, lisent encore la ligne « Tête relue », la section des écarts, les trois
-sections d'un plan et ses titres de tâche ou de tranche. D'autres formes HTML cachent aussi sur
-GitHub ce que les contrôles lisent : un `<?` ou un `<!DOCTYPE` après une puce, ou en ligne et fermé
-plus bas ; un `<!--` jamais fermé dans une ligne de bloc HTML, comme `<div><!-- note</div>` ; un
-attribut ou un titre de lien sur plusieurs lignes.
+et donc la section « Ce qui fait foi », la section des écarts à la spec, les sections d'un plan,
+ses titres de tâche ou de tranche, le texte de son unité de clôture et ses lignes
+« Plan maître : » et « Hors lot : », et la ligne « Tête relue », qui doit toujours nommer la tête
+de la PR ; un bloc ouvert en tête de ligne par `<?`, par `<!` suivi d'une majuscule (`<!DOCTYPE`)
+ou par `<![CDATA[` cache de même sur GitHub tout ce qui le suit jusqu'au premier `>`, même
+plusieurs lignes plus bas, ou jusqu'à la fin sans lui, mais `texte_pr.py` et `plan.py`, qui ne
+cherchent que `<!--`, lisent encore la ligne « Tête relue », la section des écarts, les sections
+d'un plan, ses titres de tâche ou de tranche, le texte de son unité de clôture et ses lignes
+« Plan maître : » et « Hors lot : ». D'autres formes HTML cachent aussi sur GitHub ce que les
+contrôles lisent : un `<?` ou un `<!DOCTYPE` après une puce, ou en ligne et fermé plus bas ; un
+`<!--` jamais fermé dans une ligne de bloc HTML, comme `<div><!-- note</div>` ; un attribut ou un
+titre de lien sur plusieurs lignes.
 
-Un dernier ne touche que le gabarit resté vide. Sous Windows, l'existence d'un chemin lié s'y lit
-sans égard à la casse : un lien `docs/Cadrage.md` vers `docs/cadrage.md` y est lu, et peut avertir,
-alors que GitHub casse ce lien ; sous Linux, il est ignoré. C'est un avertissement de trop, jamais
-un refus.
+La clôture d'un plan en a quatre de plus, qui ne touchent que `plan.py` et laissent passer une
+clôture que GitHub rend autrement : un titre souligné (une ligne de `===` ou de `---` sous une
+ligne) après l'unité de clôture ne la borne pas, et un geste nommé après lui compte ; une
+définition `[//]: # (…)`, que GitHub n'affiche pas, compte ; un `-->` suivi de `###` en tête de
+ligne, qui ferme un commentaire ouvert dans un paragraphe, fait un titre d'unité, alors que GitHub
+rend la ligne en paragraphe ; un `<!--` ouvert dans un paragraphe et fermé plus bas cache à
+`plan.py` un titre de clôture que GitHub montre, et `plan.py` vérifie l'unité de clôture suivante.
+Ces deux derniers, des commentaires ouverts dans un paragraphe, laissent passer la clôture, alors
+qu'un tel commentaire fait refuser à tort un lien.
 
-Le remède, chaque fois : écrire le lien sous une forme ordinaire, hors de ces blocs.
+Un autre tient à Windows, où l'existence d'un chemin se lit sans égard à la casse. Sous Windows, le
+contrôle du gabarit resté vide trouve le fichier `docs/cadrage.md` derrière un lien
+`docs/Cadrage.md` du README, et peut avertir si ce fichier n'a que son gabarit, alors que GitHub
+casse ce lien ; sous Linux, il ne trouve pas ce fichier, et ne dit rien. C'est un avertissement de
+trop, jamais un refus. Dans `plan.py`, lancé sous Windows, un lieu de « Mécanismes annoncés » ou la
+cible d'une ligne « Plan maître : » écrits dans une autre casse que le fichier passent, alors que la
+CI, sous Linux, les refuse (« fichier absent », « plan maître absent ») : la vérification locale
+passe là où la CI refuse.
+
+Le remède, chaque fois : écrire le lien sous une forme ordinaire, hors de ces blocs ; dans un plan,
+écrire de même les gestes de la clôture et les titres du plan sous la forme que GitHub rend, hors
+d'un commentaire et d'une définition, chaque titre en `#`, seul sur sa ligne ; écrire un chemin dans
+la casse du fichier. La liste des écarts connus n'est pas close : d'autres formes rares peuvent
+encore séparer ce que lisent les contrôles de ce que rend GitHub.

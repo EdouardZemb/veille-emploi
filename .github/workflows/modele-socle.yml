@@ -136,10 +136,10 @@ jobs:
           echo "Plans ajoutés : $(( $(tr -cd '\000' < "$RUNNER_TEMP/plans-ajoutes" | wc -c) )), modifiés : $(( $(tr -cd '\000' < "$RUNNER_TEMP/plans-modifies" | wc -c) )), supprimés : $(( $(tr -cd '\000' < "$RUNNER_TEMP/plans-supprimes" | wc -c) ))."
           code=0
           if [ "$EVENEMENT" = push ]; then
-            echo "Push : un plan ajouté se vérifie sans ouvrir ses lieux, vérifiés à la PR."
-            xargs -0 -r -n 1 python scripts/modele/plan.py --racine . --sans-lieux < "$RUNNER_TEMP/plans-ajoutes" || code=1
+            echo "Push : un plan ajouté se vérifie sans ouvrir ses lieux, vérifiés à la PR, et comme un plan neuf."
+            xargs -0 -r -n 1 python scripts/modele/plan.py --racine . --sans-lieux --neuf < "$RUNNER_TEMP/plans-ajoutes" || code=1
           else
-            xargs -0 -r -n 1 python scripts/modele/plan.py --racine . < "$RUNNER_TEMP/plans-ajoutes" || code=1
+            xargs -0 -r -n 1 python scripts/modele/plan.py --racine . --neuf < "$RUNNER_TEMP/plans-ajoutes" || code=1
           fi
           xargs -0 -r -n 1 python scripts/modele/plan.py --racine . --sans-lieux < "$RUNNER_TEMP/plans-modifies" || code=1
           exit "$code"
