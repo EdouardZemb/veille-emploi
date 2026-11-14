@@ -132,6 +132,8 @@ jobs:
           esac
           git diff -z --name-only --no-renames --diff-filter=A "$BASE"...HEAD -- '.claude/plans/*.md' > "$RUNNER_TEMP/plans-ajoutes"
           git diff -z --name-only --no-renames --diff-filter=M "$BASE"...HEAD -- '.claude/plans/*.md' > "$RUNNER_TEMP/plans-modifies"
+          git diff -z --name-only --no-renames --diff-filter=D "$BASE"...HEAD -- '.claude/plans/*.md' > "$RUNNER_TEMP/plans-supprimes"
+          echo "Plans ajoutés : $(( $(tr -cd '\000' < "$RUNNER_TEMP/plans-ajoutes" | wc -c) )), modifiés : $(( $(tr -cd '\000' < "$RUNNER_TEMP/plans-modifies" | wc -c) )), supprimés : $(( $(tr -cd '\000' < "$RUNNER_TEMP/plans-supprimes" | wc -c) ))."
           code=0
           if [ "$EVENEMENT" = push ]; then
             echo "Push : un plan ajouté se vérifie sans ouvrir ses lieux, vérifiés à la PR."

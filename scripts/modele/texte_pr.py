@@ -5,22 +5,22 @@ Les écarts à la spec. Le corps de toute PR porte une section de niveau 2 `## �
 une seule, sauf quand l'auteur de la PR est `dependabot[bot]` ; cette liste est fermée. La section
 court jusqu'au premier titre, quel que soit son niveau, ou à la première ligne de séparation : ce
 qui suit n'est pas lu. Elle contient « Aucun. » seul, ou une ligne par écart :
-`- <écart> — promesse : <§ de la spec, ou de l'issue> — accord d'Edouard : JJ/MM/AAAA`, une puce
-`-` ou `*`, au besoin continuée par des lignes indentées, jointes à elle. Dans cet ordre : l'écart,
-non vide, qui peut contenir un séparateur ; « promesse : » suivi d'un texte, sans séparateur ;
-« accord d'Edouard : » suivi d'une vraie date, à deux chiffres pour le jour et le mois, qui termine
-la ligne : rien ne la suit que des espaces. La section n'admet rien d'autre que des lignes vides,
-« Aucun. », des puces, et des lignes indentées qui continuent la puce d'avant ; une ligne indentée
-qui commence par une puce ou un numéro est une sous-liste, et ne la continue pas. Le contrôle
-refuse, sans nommer de ligne : une section absente, vide ou en double ; « Aucun. » à côté d'un
-écart ; un `<!--` jamais fermé dans la section, qui cacherait la suite. Il refuse, en nommant la
-ligne par son rang dans la section, la ligne 1 étant celle qui suit le titre : une ligne qui n'est
-ni « Aucun. » ni un écart, une sous-liste comprise ; un écart vide, sans « promesse : » suivi d'un
-texte, sans « accord d'Edouard : » suivi d'une vraie date, avec un texte après la date, ou hors de
-cet ordre. Les commentaires fermés et les blocs de code clôturés ne comptent pas : la forme d'une
-ligne, que le gabarit met en commentaire, n'est pas un écart. Une ligne qui commence par un
-commentaire, après au plus trois espaces, et porte un texte après sa fermeture n'est ni une puce
-ni la suite d'une puce : GitHub la rend en bloc HTML.
+`- <écart> — promesse : <§ de la spec, ou de l'issue> — accord : JJ/MM/AAAA`, une puce `-` ou `*`,
+au besoin continuée par des lignes indentées, jointes à elle. Dans cet ordre : l'écart, non vide,
+qui peut contenir un séparateur ; « promesse : » suivi d'un texte, sans séparateur ; « accord : »,
+ou l'ancienne forme « accord d'Edouard : », suivi d'une vraie date, à deux chiffres pour le jour et
+le mois, qui termine la ligne : rien ne la suit que des espaces. La section n'admet rien d'autre
+que des lignes vides, « Aucun. », des puces, et des lignes indentées qui continuent la puce
+d'avant ; une ligne indentée qui commence par une puce ou un numéro est une sous-liste, et ne la
+continue pas. Le contrôle refuse, sans nommer de ligne : une section absente, vide ou en double ;
+« Aucun. » à côté d'un écart ; un `<!--` jamais fermé dans la section, qui cacherait la suite. Il
+refuse, en nommant la ligne par son rang dans la section, la ligne 1 étant celle qui suit le
+titre : une ligne qui n'est ni « Aucun. » ni un écart, une sous-liste comprise ; un écart vide,
+sans « promesse : » suivi d'un texte, sans « accord : » ni « accord d'Edouard : » suivi d'une vraie
+date, avec un texte après la date, ou hors de cet ordre. Les commentaires fermés et les blocs de
+code clôturés ne comptent pas : la forme d'une ligne, que le gabarit met en commentaire, n'est pas
+un écart. Une ligne qui commence par un commentaire, après au plus trois espaces, et porte un
+texte après sa fermeture n'est ni une puce ni la suite d'une puce : GitHub la rend en bloc HTML.
 
 La tête relue. Une PR qui ferme une issue porte la ligne `Tête relue : <SHA complet>`, égale à la
 tête de la PR. Les issues qu'elle ferme ne se lisent pas dans le corps : l'étape d'avant les
@@ -82,15 +82,15 @@ _PUCE = re.compile(r"[-*](?:[ \t]+|$)")
 # Un séparateur : un tiret cadratin ou demi-cadratin, entouré d'espaces.
 _SEPARATEUR = re.compile(r"[ \t]+[\u2014\u2013][ \t]+")
 _PROMESSE = re.compile(r"promesse[ \t]*:(.*)$", re.IGNORECASE)
-_ACCORD = re.compile(r"accord d'edouard[ \t]*:[ \t]*(.*)$", re.IGNORECASE)
+_ACCORD = re.compile(r"accord(?: d'edouard)?[ \t]*:[ \t]*(.*)$", re.IGNORECASE)
 _DATE = re.compile(r"([0-9]{2})/([0-9]{2})/([0-9]{4})(?![0-9/])")
 
 NI_AUCUN_NI_ECART = "ni « Aucun. » ni un écart"
 ECART_VIDE = "écart vide avant « promesse : »"
 PROMESSE_ABSENTE = "promesse absente"
-ACCORD_INVALIDE = "accord d'Edouard absent ou date invalide (JJ/MM/AAAA)"
+ACCORD_INVALIDE = "accord absent ou date invalide (JJ/MM/AAAA)"
 APRES_LA_DATE = "texte après la date de l'accord, qui termine la ligne"
-ORDRE = "l'écart, puis « promesse : », puis « accord d'Edouard : JJ/MM/AAAA » en fin de ligne"
+ORDRE = "l'écart, puis « promesse : », puis « accord : JJ/MM/AAAA » en fin de ligne"
 _TETE_RELUE = re.compile(r"[ \t]*tête relue[ \t]*:[ \t]*(`?)([0-9a-f]{40})\1[ \t]*", re.IGNORECASE)
 _SHA = re.compile(r"[0-9a-fA-F]{40}")
 
