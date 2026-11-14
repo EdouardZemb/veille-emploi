@@ -6,11 +6,17 @@ tes **documents** et ajuster tes **réglages**. Elle a trois onglets.
 
 | Onglet | Ce qu'on y fait |
 |--------|-----------------|
-| **À faire** | d'abord « À finir » (relance due, dossier prêt à envoyer, dossier à préparer), puis « À voir » (au plus 50 offres au-dessus du seuil, avec des liens vers les autres et vers celles sous le seuil), puis « Plus tard », replié. Chaque carte a trois boutons : *Je postule*, *Plus tard*, *Non* (un motif, les fréquents en un toucher, ou « N'est plus en ligne ») |
+| **À faire** | ce qui attend un geste, puis les offres à décider |
 | **Candidatures** | trois groupes : *Je postule* (« dossier prêt » ou « à préparer »), *Envoyée* (avec la date de relance) et *Entretien* |
-| **Plus** | les anciens écrans, jusqu'au lot 3 de l'ADR-0003 : *Toutes les offres*, *Relances*, *Archive*, *À classer*, *Pilotage*, *Documents* et *Réglages* (appareils connectés, seuil de notification, fréquence de collecte, état des sources) |
+| **Plus** | les anciens écrans, tels quels en attendant leur refonte (le lot 3 de l'ADR-0003) : *Toutes les offres*, *Relances*, *Archive*, *À classer*, *Pilotage*, *Documents* et *Réglages* (appareils connectés, seuil de notification, fréquence de collecte, état des sources) |
 
-Toucher une notification ouvre « À faire ».
+« À faire » montre d'abord « À finir » : une relance due, un dossier prêt à
+envoyer, un dossier à préparer. Puis « À voir » : au plus 50 offres au-dessus
+du seuil, avec des liens vers les autres et vers celles sous le seuil. Puis
+« Plus tard », replié. Chaque carte d'« À voir » a trois boutons :
+« Je postule », « Plus tard » et « Non » (un motif, les fréquents en un
+toucher, ou « N'est plus en ligne »). Toucher une notification ouvre
+« À faire ».
 
 ### Les cinq états d'une offre
 
@@ -27,10 +33,15 @@ pas (`src/veille/etats.py`, [ADR-0003](decisions/0003-le-parcours-jusqu-a-la-can
 
 `differee`, la mise de côté automatique du score, est hors des cinq états et
 hors de la file. La fiche d'une offre n'a qu'une ligne d'actions, celle de son
-état. Au lot 1, une offre « Je postule » sans dossier propose « Générer le
-dossier » ; « Préparer ma candidature » viendra au lot 2. Trois volets restent
-repliés : « Pourquoi ce score », « Notes » et « Autres actions » (le détail
-complet, et « Revenir à « À voir »»).
+état. Sur une offre « À voir » ou mise de côté, « Je postule » passe l'offre à
+l'état « Je postule » et lance aussitôt la préparation de la candidature. Sur
+la fiche « Je postule » sans dossier, « Préparer ma candidature » la reprend ;
+avec son dossier, la fiche propose « Je l'ai envoyée » et « Dossier prêt › ».
+Les étapes de la préparation et l'écran « Dossier prêt » sont dans
+[CANDIDATURE.md](CANDIDATURE.md). Trois volets restent repliés :
+« Pourquoi ce score », « Notes » et « Autres actions ». Ce dernier mène au
+détail complet (le texte, les exigences, la vérification, l'historique) et,
+hors de l'état À voir, au retour à cet état.
 
 La configuration (critères, sources, gabarits) est un dossier que désigne
 `VEILLE_CONFIG`. Sans lui, la console sert l'exemple livré avec le code,

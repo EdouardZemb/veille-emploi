@@ -12,10 +12,11 @@ separement. C'est exactement le genre de chiffre qu'on a envie de fusionner
 « pour simplifier », et ce serait la pire des simplifications : il perdrait la
 seule information qui lui dit OU passer dix minutes.
 
-USAGE PRINCIPAL : le bouton « Generer le dossier ». Aujourd'hui il peut sortir
-une lettre a partir d'un extrait de trois lignes, et le resultat sera creux sans
-que rien ne l'avertisse. Le bilan previent AVANT, et dit CE QUI manque — « donnees
-insuffisantes » sans preciser laquelle ne sert a rien.
+USAGE PRINCIPAL : « Préparer ma candidature » (`preparation.py`), qui s'arrête
+sous le seuil, et le « Générer le dossier » des anciens écrans, jusqu'au lot 3.
+Sans le bilan, la génération sortirait une lettre d'un extrait de trois lignes,
+creuse sans que rien ne l'avertisse. Le bilan prévient AVANT, et dit CE QUI
+manque — « données insuffisantes » sans préciser laquelle ne sert à rien.
 """
 
 from __future__ import annotations
@@ -116,8 +117,8 @@ def evaluer(offre: dict[str, Any]) -> Bilan:
     if offre.get("donnees_partielles") or len(description) < 400:
         manques.append(Manque(
             "Description complete de l'annonce", 35,
-            "Ouvre l'annonce, selectionne tout, et colle le texte dans « Lire "
-            "l'annonce » : c'est le geste qui rapporte le plus.",
+            "Ouvre l'annonce, copie tout son texte et colle-le dans la console : "
+            "c'est le geste qui rapporte le plus.",
         ))
     else:
         score += 35

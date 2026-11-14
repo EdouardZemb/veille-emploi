@@ -1,8 +1,9 @@
-# Le bouton « Générer le dossier »
+# « Préparer ma candidature »
 
-Un clic par offre. La console crée un dossier daté, y met la lettre
-préremplie, les pièces de ton kit et une fiche de l'offre, puis te rend le tout
-en `.zip` téléchargeable.
+Un toucher par offre. « Je postule » lance la préparation : la console crée un
+dossier daté, y met la lettre préremplie, les pièces de ton kit et une fiche de
+l'offre, puis te rend chaque pièce, et le tout en `.zip`. Elle ne s'arrête que
+sur ce qui manque.
 
 **Rien n'est rédigé à ta place.** Le programme remplace des marqueurs dans un
 gabarit que tu as écrit, et copie des fichiers. C'est tout.
@@ -11,6 +12,51 @@ Les exemples ci-dessous sont ceux de l'exemple livré avec le code (Camille
 Exemple, `exemple/`). Le kit de l'instance réelle, ses lettres, les constats
 sur sa base et ce que l'affinement y réutilise sont dans
 le `docs/CANDIDATURE.md` du dépôt de données.
+
+---
+
+## D'un toucher au dossier prêt
+
+Sur une offre « À voir », ou mise de côté, « Je postule » passe l'offre à
+l'état « Je postule » et lance aussitôt la préparation. Sur la fiche d'une
+offre « Je postule » sans dossier, « Préparer ma candidature » la reprend. Une
+préparation laissée en route attend dans « À finir », sous
+« Dossier à préparer ».
+
+Pendant le travail, le bouton se désactive et compte les secondes
+(« Préparation… 12 s ») : un double toucher ne lance rien deux fois.
+
+La préparation enchaîne seule ce qui peut l'être. Elle ne s'arrête que sur
+l'une de ces étapes.
+
+**Le texte de l'annonce.** Une annonce reçue en extrait (moins de 400
+caractères, ou marquée données partielles) se lit d'abord toute seule, quand
+la source l'autorise et que la cadence des lectures le permet. Sinon, l'écran
+dit pourquoi, et propose « Ouvrir l'annonce › », une zone où coller le texte,
+puis « Préparer avec ce texte ». Un texte collé est enregistré avant toute
+génération : un échec ensuite ne le perd pas. Un texte complet déjà enregistré,
+collé ou lu, n'est plus un extrait, même court.
+
+Quand le texte ne se copie pas (au téléphone, une annonce LinkedIn qui s'ouvre
+dans son application), « Générer avec l'extrait » mène quand même au dossier.
+La lettre sera plus générique.
+
+**L'information trop mince.** La complétude reste sous le seuil (voir plus
+bas). L'écran montre le score, le seuil et les manques les plus lourds, trois
+au plus, chacun avec le geste qui le comble. « Coller le texte de l'annonce » ramène à
+l'étape du texte ; « Générer quand même » passe outre.
+
+**L'échec.** La génération a échoué : l'écran en dit la cause. L'offre reste
+« Je postule », un texte collé reste enregistré, et « Réessayer » relance la
+même demande.
+
+**Le dossier prêt.** Rien ne manque : l'écran « Dossier prêt » s'ouvre (voir
+plus bas).
+
+**L'alerte éliminatoire passe toujours en premier.** Quand le texte que la
+préparation enregistre révèle un critère éliminatoire, l'offre reste
+« Je postule », puisque tu viens de le dire. L'alerte s'affiche au-dessus de
+l'écran qui suit, quel qu'il soit.
 
 ---
 
@@ -69,8 +115,8 @@ préparation d'entretien, stratégie, annexes et certifications. Chaque pièce
 affiche son contexte (*français*, *Suisse, anglais*), sa taille et sa date.
 
 **Les dossiers générés**, un par candidature, rattachés à leur offre avec son
-statut. Les fichiers de chaque dossier sont aussi téléchargeables directement
-depuis la fiche de l'offre, via le bouton **Générer le dossier**.
+statut. Tant que l'offre est « Je postule », ses pièces d'envoi se téléchargent
+aussi depuis sa fiche, par « Dossier prêt › ».
 
 Tout est derrière ta connexion par passkey, comme le reste de la console. Aucun chemin
 n'est servi sans vérification : un fichier demandé doit être *contenu* dans le
@@ -199,7 +245,7 @@ non.
 
 ## Après l'envoi
 
-Dans la fiche de l'offre, touche **« Je l'ai envoyée »** et choisis le canal. La console :
+Sur « Dossier prêt », ou dans la fiche de l'offre, touche **« Je l'ai envoyée »** et choisis le canal. La console :
 
 - horodate l'envoi ;
 - programme la **relance à 10 jours**, qui apparaît dans *Plus › Relances* (et dans « À finir », sous « À faire ») ;
@@ -238,9 +284,10 @@ nulle part — et un test le vérifie.
 | Langue attendue | 5 | déterminant sur le bassin bâlois |
 | Interlocuteur nommé | 5 | une lettre adressée passe mieux |
 
-**Seuil : 55/100.** En dessous, « Générer le dossier » s'arrête et te dit **ce qui
-manque, dans l'ordre, avec le geste qui le comble**. Tu peux passer outre —
-*Générer quand même* — mais plus sans le savoir.
+**Seuil : 55/100.** En dessous, « Préparer ma candidature » s'arrête sur
+l'information trop mince et te dit **les manques les plus lourds, trois au
+plus, chacun avec le geste qui le comble**. Tu peux passer outre — « Générer quand même » —
+mais plus sans le savoir.
 
 **La conséquence pratique.** Le collage du texte complet vaut 35 points à lui
 seul, et c'est le seul geste qui débloque à peu près toutes les offres venues
@@ -275,7 +322,29 @@ lettre de l'atout logistique, pas la lettre générique.
 
 ---
 
-## Ce que « Générer le dossier » produit maintenant
+## Ce que « Préparer ma candidature » produit
+
+### L'écran « Dossier prêt »
+
+Il porte, de haut en bas :
+
+- à qui la lettre est adressée, ou, sans destinataire, qu'elle le laisse en
+  rouge dans le PDF ; puis la référence de l'annonce, si elle est enregistrée,
+  même sans destinataire, puisqu'elle part dans la lettre ;
+- les pièces d'envoi, une à une, chacune sous le nom qu'elle porte dans le
+  zip : un formulaire en ligne, au téléphone, les demande souvent une par une,
+  et doit recevoir `Camille-Exemple-CV-France.pdf`, jamais `cv.fr.pdf` ;
+- « Tout en un zip », le paquet d'envoi ;
+- « Voir l'annonce › » ;
+- « Je l'ai envoyée », « Ajouter un destinataire »
+  (« Modifier le destinataire » quand il y en a un) et « Affiner la lettre ».
+
+Un paquet d'envoi absent ou illisible (un dossier ancien, un zip tronqué) ne
+donne aucune pièce. L'écran le dit, et « Régénérer le dossier » prend la place
+de « Tout en un zip ».
+
+Sur la fiche d'une offre « Je postule » qui a déjà son dossier,
+« Dossier prêt › » ouvre cet écran sans rien générer.
 
 ### Deux paquets, et c'est le point important
 
@@ -289,11 +358,29 @@ lettre de l'atout logistique, pas la lettre générique.
 
 `fiche-offre.md` contient ton score, l'explication ligne à ligne et le texte
 brut de l'annonce : c'est ta note de préparation d'entretien. **Elle ne part
-jamais.** Le bouton de téléchargement sert le paquet d'envoi ; le dossier
-complet se demande explicitement.
+jamais.** « Tout en un zip » sert le paquet d'envoi ; le dossier complet se
+demande explicitement, dans *Plus › Documents*.
 
 Les paquets d'une génération précédente sont **supprimés** à chaque
 régénération : un paquet périmé qui traîne est un paquet qui peut partir.
+
+### Régénérer sans rien perdre
+
+Sur « Dossier prêt », changer le destinataire régénère le dossier, comme
+« Régénérer le dossier ». La lettre que la régénération remplace ne se perd
+pas : avant de régénérer, la console range la lettre en place, affinée ou non,
+dans l'historique du dossier (`lettre.historique/`), sous l'étiquette
+`avant-regeneration`.
+
+Un autre jour, la régénération crée un nouveau dossier daté. L'historique de
+l'ancien y est copié, si le nouveau n'en a pas déjà un, et l'ancien dossier
+reste sur le disque. Une régénération en échec ne perd rien non plus : la
+lettre remplacée est déjà dans l'historique, et l'offre garde son dossier.
+
+Les anciens écrans (*Plus › Toutes les offres*, *Plus › Relances*) gardent
+leur « Générer le dossier » jusqu'au lot 3 de l'ADR-0003, qui les refond. Ce
+bouton-là réécrit la lettre du jour sans ranger d'abord dans l'historique la
+version qu'il remplace ([les pistes](pistes.md)).
 
 ### La lettre est assemblée à partir de l'annonce
 
@@ -357,25 +444,36 @@ management » est plus spécifique que « wms ».
 
 ## Le destinataire — mémorisé, jamais obligatoire
 
-Trois champs dans la fiche de l'offre : **nom du recruteur**, **formule
-d'appel**, **adresse de l'entreprise**. Ils sont **enregistrés sur l'offre** :
-chercher un nom de recruteur prend cinq minutes, ça ne se perd pas à la
-régénération suivante.
+Quatre champs : **nom du recruteur**, **formule d'appel**, **adresse de
+l'entreprise**, et **référence de l'annonce**, que la console propose quand
+elle la trouve dans le texte. Ils sont **enregistrés sur l'offre** : chercher
+un nom de recruteur prend cinq minutes, ça ne se perd pas à la régénération
+suivante.
+
+**Le destinataire n'est jamais demandé avant le dossier.** Sur
+« Dossier prêt », « Ajouter un destinataire » ouvre les champs, et
+« Enregistrer et régénérer » les enregistre, puis régénère la lettre (voir
+« Régénérer sans rien perdre »). Les mêmes champs sont dans le détail de
+l'offre, où « Enregistrer » ne régénère rien.
 
 Ils ne sont **jamais obligatoires**. Il existe des offres où le nom n'est nulle
 part, et imposer la saisie transformerait une aide en obstacle. Laissés vides,
-ils apparaissent **en rouge dans le PDF**.
+le nom, la formule et l'adresse apparaissent **en rouge dans le PDF** ; la
+référence, elle, disparaît de la lettre.
 
 ---
 
 ## L'affinement — un bouton, jamais une étape
+
+Sur « Dossier prêt », « Affiner la lettre » l'ouvre, sans rien régénérer.
 
 ### Ce qu'il réutilise
 
 L'affinement **n'utilise aucune clé d'API** : il s'authentifie par le jeton de
 Claude Code (`CLAUDE_CODE_OAUTH_TOKEN`, rendu par `claude setup-token`, dans
 `config/.env`), et réutilise une installation existante du SDK Agent, que
-désigne `VEILLE_SDK_AGENT`. Sans identifiants, son bouton ne s'affiche pas.
+désigne `VEILLE_SDK_AGENT`. Sans identifiants, il se dit indisponible, avec
+sa raison.
 
 **Conséquence : aucune clé à créer, aucune ligne de facturation nouvelle.**
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
+import threading
 from contextlib import asynccontextmanager
 from datetime import date, timedelta
 from pathlib import Path
@@ -25,7 +26,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from . import auth, config, db, documents, dossier, enrichissement, etats, factice, notifications, passkeys, reglages
+from . import (
+    auth, config, db, documents, dossier, enrichissement, etats, factice, notifications, passkeys,
+    preparation, reglages, rendu,
+)
 from .config import CHEMIN_DOSSIERS, CHEMIN_KIT, charger_criteres, recharger
 from .debit import LimiteDebit, cle_client
 from .models import STATUTS
@@ -839,6 +843,41 @@ def api_dossier(offre_id: int, forcer: bool = False):
     }
 
 
+class DemandePreparation(BaseModel):
+    texte: str | None = None
+    forcer: bool = False
+    regenerer: bool = False
+
+
+# Les offres dont la préparation tourne : une seconde est refusée tant que la première dure.
+_EN_PREPARATION: set[int] = set()
+_VERROU_PREPARATION = threading.Lock()
+
+
+@app.post("/api/offres/{offre_id}/preparer", dependencies=[Depends(auth.exiger_session)])
+def api_preparer(offre_id: int, demande: DemandePreparation):
+    """« Je postule » : l'étape suivante de la candidature (`preparation.preparer`)."""
+    refus = _refus_sans_configuration_hors_conteneur()
+    if refus is not None:
+        return refus
+    with _VERROU_PREPARATION:
+        if offre_id in _EN_PREPARATION:
+            return _erreur(409, "preparation_en_cours")
+        _EN_PREPARATION.add(offre_id)
+    try:
+        etape = preparation.preparer(
+            offre_id, texte=demande.texte, forcer=demande.forcer, regenerer=demande.regenerer,
+        )
+    except preparation.OffreInconnue:
+        raise HTTPException(404, "offre inconnue") from None
+    except preparation.EtatIncompatible:
+        return _erreur(409, "etat_incompatible")
+    finally:
+        with _VERROU_PREPARATION:
+            _EN_PREPARATION.discard(offre_id)
+    return etape.as_dict()
+
+
 @app.get("/api/offres/{offre_id}/dossier/archive", dependencies=[Depends(auth.exiger_session)])
 def api_archive(offre_id: int, complet: bool = False):
     offre = db.lire_offre(offre_id)
@@ -848,8 +887,6 @@ def api_archive(offre_id: int, complet: bool = False):
     # Par defaut on sert le paquet D'ENVOI : celui qui ne contient que les
     # pieces destinees au recruteur, sous les noms qu'il verra. Le dossier
     # complet — avec sa note de preparation — se demande explicitement.
-    from . import rendu
-
     # Aucun repli sur l'ancien nom `<dossier>.zip` : ces paquets-la
     # contenaient la fiche de preparation d'entretien. Mieux vaut un 404 qui
     # invite a regenerer qu'un paquet qui emporte son score chez un recruteur.
@@ -864,7 +901,7 @@ def api_archive(offre_id: int, complet: bool = False):
 
 
 @app.get("/api/offres/{offre_id}/dossier/{nom_fichier}", dependencies=[Depends(auth.exiger_session)])
-def api_fichier_dossier(offre_id: int, nom_fichier: str):
+def api_fichier_dossier(offre_id: int, nom_fichier: str, pour_envoi: bool = False):
     offre = db.lire_offre(offre_id)
     chemin = dossier.chemin_du_dossier(offre) if offre else None
     if chemin is None:
@@ -874,7 +911,8 @@ def api_fichier_dossier(offre_id: int, nom_fichier: str):
     # Barriere anti-traversee : le fichier demande doit rester dans le dossier.
     if not str(cible).startswith(str(base)) or not cible.is_file():
         raise HTTPException(404, "fichier introuvable")
-    return FileResponse(cible, filename=cible.name)
+    # Une pièce envoyée seule porte le nom qu'elle a dans le paquet d'envoi.
+    return FileResponse(cible, filename=rendu.nom_pour_envoi(cible.name) if pour_envoi else cible.name)
 
 
 # --------------------------------------------------------------------------

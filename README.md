@@ -31,7 +31,7 @@ Pour une vraie recherche, [ce que tu dois faire, toi](docs/DEMARRAGE.md) vient d
 | [Le fonctionnement](docs/FONCTIONNEMENT.md) | pour la collecte, le score et les notifications |
 | [Les critères](docs/CRITERES.md) | pour régler le score : intitulés, planchers, allemand, atouts |
 | [Les alertes](docs/ALERTES.md) | pour écrire des alertes mail sans filtrer deux fois |
-| [La candidature](docs/CANDIDATURE.md) | pour le bouton « Générer le dossier » et le kit |
+| [La candidature](docs/CANDIDATURE.md) | pour « Préparer ma candidature », du toucher sur « Je postule » au dossier prêt, et le kit |
 | [Les données](docs/DONNEES.md) | pour savoir où elles vivent, les sauvegarder, les effacer |
 | [L'enrichissement](docs/ENRICHISSEMENT.md) | pour lire le texte complet d'une annonce : l'étude |
 | [Les limites](docs/LIMITES.md) | pour ce que la console ne fait pas, et pourquoi |
