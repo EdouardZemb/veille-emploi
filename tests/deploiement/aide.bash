@@ -320,19 +320,31 @@ aucune_ligne() {
 
 # --- Horloge des instantanés (déploiement, sauvegarde) ----------------------------------------
 
+# jour_de_l_horloge : le jour des horodatages de horloge_qui_avance, la veille de la vraie date,
+# relevé une fois par test : un test qui passe minuit garde son jour. Un jour figé vieillit, et la
+# purge de 30 jours, qui lit la vraie date, finit par retirer les instantanés du test
+# (modele-projet#136).
+jour_de_l_horloge() {
+  local fichier="$BATS_TEST_TMPDIR/horloge-jour"
+  [ -s "$fichier" ] || date -u -d yesterday +%Y%m%d >"$fichier"
+  cat "$fichier"
+}
+
 # horloge_qui_avance : l'horodatage d'un instantané (à la seconde) avance à chaque appel. Des
 # déploiements ou des sauvegardes qui se suivent en moins d'une seconde, comme ici avec des doubles,
-# viseraient sinon le même dossier, que la commande de l'image refuse d'écraser. Les autres appels de
-# `date` sont ceux de la vraie.
+# viseraient sinon le même dossier, que la commande de l'image refuse d'écraser. Il tombe la veille
+# de la vraie date (jour_de_l_horloge), le compteur dans les secondes. Les autres appels de `date`
+# sont ceux de la vraie.
 horloge_qui_avance() {
-  local reel
+  local reel jour
   reel="$(command -v date)"
+  jour="$(jour_de_l_horloge)"
   cat >"$DOUBLES/date" <<EOF
 #!/usr/bin/env bash
 if [ "\$*" = '-u +%Y%m%dT%H%M%SZ' ]; then
   n=\$(( \$(cat '$BATS_TEST_TMPDIR/horloge' 2>/dev/null || echo 0) + 1 ))
   echo "\$n" >'$BATS_TEST_TMPDIR/horloge'
-  printf '20261015T%06dZ\n' "\$n"
+  printf '%sT%06dZ\n' '$jour' "\$n"
 else
   exec '$reel' "\$@"
 fi
