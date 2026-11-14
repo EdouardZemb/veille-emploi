@@ -1,5 +1,5 @@
-"""La file « À faire », le panneau « Non », la fiche par état et les onglets « Candidatures » et
-« Plus », au téléphone (ADR-0003, §§ 2 à 4).
+"""La file « À faire », le panneau « Non », la fiche par état, les onglets « Candidatures » et
+« Plus », et « Préparer ma candidature », au téléphone (ADR-0003, §§ 2 à 5).
 
 Même forme que `test_cibles_tactiles.py` : Chromium à la taille d'un téléphone, une session
 ouverte par `auth.ouvrir_session`, aucune erreur dans la console. La base est partagée par
@@ -10,7 +10,9 @@ test qui change un statut a son offre à lui.
 from __future__ import annotations
 
 import json
+import re
 from datetime import date, timedelta
+from urllib.parse import urlsplit
 
 import pytest
 from playwright.sync_api import expect
@@ -47,13 +49,50 @@ FICHES = {
     "revenir": "relance_envoyee",
     "entretien": "entretien",
     "close": "ecartee",
-    "generer": "interessante",
+    "preparer": "interessante",
     # Elle garde la date de relance de son envoi : la fixture la pose, comme `changer_statut`
     # la laisse quand une réponse arrive.
     "reponse": "reponse_recue",
     # Écartée, puis refusée : le motif de l'écartement reste en base (la fixture la refuse).
     "refus": "ecartee",
     "recharge": "candidature_envoyee",
+    # « Préparer ma candidature » (lot 2) : la simulation de `/preparer` écrit le statut et le
+    # dossier, chaque test a donc son offre.
+    "temps": "nouveau",
+    "colle": "nouveau",
+    "echec": "nouveau",
+    "alerte": "nouveau",
+    "extrait": "interessante",
+    "texte_vide": "interessante",
+    "texte_refuse": "interessante",
+    "mince": "interessante",
+    "vers_pret": "interessante",
+    "destinataire": "interessante",
+    "sans_paquet": "interessante",
+    "reessayer": "interessante",
+    "affiner": "interessante",
+    "doigt": "interessante",
+}
+# Les offres qui ont déjà un dossier : un dossier temporaire (décision 11 du plan).
+AVEC_DOSSIER = ("pret", "vers_pret", "destinataire", "sans_paquet", "reessayer", "affiner", "doigt")
+
+# Les réponses simulées de `/preparer`, inventées.
+ANNONCE = "https://exemple.invalid/parcours/annonce-inventee"
+RAISON_TEXTE = "Raison inventée : ce site interdit la lecture automatique."
+TEXTE_COLLE = "Texte inventé de l'annonce, collé à la main : missions, profil, conditions."
+PANNE = "Panne inventée de la génération"
+ALERTE = "Alerte inventée : une astreinte le week-end, éliminatoire."
+# Une pièce au nom d'envoi accentué, et un fichier dont le nom porte une espace et un accent :
+# son adresse passe par `encodeURIComponent`.
+PIECES = [
+    {"nom": "Personne-Inventee-CV.pdf", "fichier": "cv.fr.pdf"},
+    {"nom": "Personne-Inventée-Lettre.pdf", "fichier": "lettre inventée.pdf"},
+]
+DESTINATAIRE = {
+    "contact_nom": "Dominique Inventé",
+    "contact_civilite": "Madame Inventé",
+    "adresse_entreprise": "Rue inventée 1\n0000 Ville inventée",
+    "reference_annonce": "REF-INVENTEE-1",
 }
 
 
@@ -103,8 +142,9 @@ def parcours(serveur):
 
 @pytest.fixture(scope="module")
 def fiches(parcours, tmp_path_factory):
-    """Une offre inventée par entrée de `FICHES`, créée après celles de la file. « pret » a
-    un dossier : un dossier temporaire, comme le test du parcours le pose (décision 7)."""
+    """Une offre inventée par entrée de `FICHES`, créée après celles de la file. Celles de
+    `AVEC_DOSSIER` ont un dossier : un dossier temporaire (décision 7 du lot 1) ; « destinataire »
+    a les quatre champs du destinataire."""
     from veille import db, reglages
     from veille.collectors.base import ingerer
     from veille.models import Offre
@@ -132,7 +172,9 @@ def fiches(parcours, tmp_path_factory):
                         json.dumps(EXPLICATION, ensure_ascii=False), ids[cle]))
     for cle, statut in FICHES.items():
         db.changer_statut(ids[cle], statut, motif=MOTIF if statut == "ecartee" else None)
-    db.maj_champs(ids["pret"], dossier_chemin=str(tmp_path_factory.mktemp("dossier-pret")))
+    for cle in AVEC_DOSSIER:
+        db.maj_champs(ids[cle], dossier_chemin=str(tmp_path_factory.mktemp(f"dossier-{cle}")))
+    db.maj_champs(ids["destinataire"], **DESTINATAIRE)
     db.maj_champs(ids["reponse"], date_relance_due=(date.today() + timedelta(days=10)).isoformat())
     db.changer_statut(ids["refus"], "refus")
     return ids
@@ -375,7 +417,8 @@ def test_non_nomme_l_offre_et_ecarte_la_bonne(telephone, parcours, deux_non):
     assert db.lire_offre(seconde)["statut"] == "ecartee"
     assert db.lire_offre(seconde)["motif_ecartement"] == "motif inventé de la seconde"
     assert db.lire_offre(premiere)["statut"] == "nouveau"
-    expect(fenetre.get_by_role("button", name="motif inventé de la première")).to_have_count(0)
+    # Un sélecteur, pas `get_by_role` : il ignore les éléments cachés, et la fenêtre est fermée.
+    expect(fenetre.locator('[data-motif="motif inventé de la première"]')).to_have_count(0)
     assert PREMIERE not in fenetre.inner_text()
 
 
@@ -486,25 +529,27 @@ def _statut_ecrit(page):
         lambda r: r.request.method == "POST" and r.url.endswith("/statut"))
 
 
-def test_le_parcours_de_la_file_a_l_entretien(telephone, parcours, fiches, tmp_path):
+def test_le_parcours_de_la_file_a_l_entretien(telephone, parcours, fiches):
     """De la carte « À voir » à l'entretien, chaque geste sur la fiche de l'état atteint."""
     from veille import db
 
     offre_id = fiches["parcours"]
+    # La préparation est testée en Python ; ici, elle est simulée (décision 11 du plan).
+    corps = _simuler_preparation(telephone, offre_id, [
+        _etape("pret", genere=True, dossier=_dossier())])
     _ouvrir(telephone, parcours["url"])
     _carte(telephone, offre_id).locator('[data-action="postuler"]').click()
-    fiche = _fiche(telephone, offre_id)
-    expect(fiche.locator(".etat-fiche")).to_have_text("Je postule")
-    expect(fiche.locator('[data-action="dossier"]')).to_have_count(1)
+    expect(telephone.locator("#fenetre h2")).to_have_text("Dossier prêt")
+    assert corps == [{}]
     assert db.lire_offre(offre_id)["statut"] == "interessante"
 
-    # La génération est testée en Python ; ici, le dossier est simulé (décision 7 du plan).
-    db.maj_champs(offre_id, dossier_chemin=str(tmp_path))
     _fermer(telephone)
     telephone.locator('.onglet[data-vue="a-faire"]').click()
     ligne = telephone.locator(f'#vue-a-faire .ligne-a-finir[data-id="{offre_id}"]')
     expect(ligne).to_contain_text("Dossier prêt à envoyer")
     ligne.click()
+    fiche = _fiche(telephone, offre_id)
+    expect(fiche.locator(".etat-fiche")).to_have_text("Je postule")
     expect(fiche.locator('[data-action="envoyee"]')).to_have_count(1)
 
     fiche.locator('[data-action="envoyee"]').click()
@@ -544,8 +589,8 @@ def test_chaque_etat_a_sa_ligne_d_actions(telephone, parcours, fiches):
         "a_voir": ("À voir", ["postuler", "plus-tard", "non"], False),
         "de_cote": ("Mise de côté", ["postuler", "plus-tard", "non"], True),
         "plus_tard": ("Plus tard", ["postuler", "non"], False),
-        "a_preparer": ("Je postule", ["dossier"], True),
-        "pret": ("Je postule", ["envoyee", "dossier"], True),
+        "a_preparer": ("Je postule", ["preparer"], True),
+        "pret": ("Je postule", ["envoyee", "preparer"], True),
         "envoyee": ("Envoyée", ["relance", "reponse", "reponse", "reponse"], True),
         "entretien": ("Entretien", ["entretien", "reponse", "reponse"], True),
         "close": ("Close", [], True),
@@ -559,9 +604,11 @@ def test_chaque_etat_a_sa_ligne_d_actions(telephone, parcours, fiches):
         assert _actions(fiche) == actions, cle
         expect(fiche.locator('[data-action="revenir"]')).to_have_count(1 if revenir else 0)
 
+    # Le paquet d'envoi est sur « Dossier prêt », plus sur la fiche (décision 12 du plan). La
+    # fiche d'abord : avant elle, celle de « close » ne porterait aucun lien non plus.
     telephone.evaluate("id => ouvrirFiche(id)", fiches["pret"])
-    expect(_fiche(telephone, fiches["pret"]).locator(".ligne-actions a[download]")).to_have_attribute(
-        "href", f"/api/offres/{fiches['pret']}/dossier/archive")
+    expect(_fiche(telephone, fiches["pret"])).to_be_visible()
+    expect(_fiche(telephone, fiches["pret"]).locator(".ligne-actions a[download]")).to_have_count(0)
     telephone.evaluate("id => ouvrirFiche(id)", fiches["envoyee"])
     relance = db.lire_offre(fiches["envoyee"])["date_relance_due"]
     expect(_fiche(telephone, fiches["envoyee"]).locator(".ligne-actions")).to_contain_text(relance)
@@ -665,29 +712,18 @@ def test_la_fiche_tient_dans_l_ecran(telephone, parcours):
     assert telephone.eval_on_selector("#fenetre", "f => f.scrollWidth <= f.clientWidth")
 
 
-def test_generer_le_dossier_recharge_a_finir(telephone, parcours, fiches, tmp_path):
-    """Derrière la fenêtre du dossier, « À finir » ne dit plus « Dossier à préparer ». La
-    génération est simulée (décision 7 du plan) : la route pose le dossier en base, puis
-    répond comme `api_generer_dossier`."""
-    from veille import db
-
-    offre_id = fiches["generer"]
-
-    def generer(route):
-        db.maj_champs(offre_id, dossier_chemin=str(tmp_path))
-        route.fulfill(status=200, content_type="application/json", body=json.dumps({
-            "ok": True, "dossier": tmp_path.name, "fichiers": [], "gabarit_lettre": None,
-            "kit_provisoire": False, "avertissements": [], "completude": None,
-            "pieces_envoi": [], "archive": f"/api/offres/{offre_id}/dossier/archive",
-            "archive_complete": f"/api/offres/{offre_id}/dossier/archive?complet=true"}))
-
-    telephone.route(f"**/api/offres/{offre_id}/dossier", generer)
+def test_preparer_recharge_a_finir(telephone, parcours, fiches):
+    """Derrière l'écran « Dossier prêt », « À finir » ne dit plus « Dossier à préparer ». La
+    préparation est simulée (décision 11 du plan) : la simulation pose le dossier en base, puis
+    répond comme la route."""
+    offre_id = fiches["preparer"]
+    _simuler_preparation(telephone, offre_id, [_etape("pret", genere=True, dossier=_dossier())])
     _ouvrir(telephone, parcours["url"])
     ligne = telephone.locator(f'#vue-a-faire .ligne-a-finir[data-id="{offre_id}"]')
     expect(ligne).to_contain_text("Dossier à préparer")
     ligne.click()
-    _fiche(telephone, offre_id).locator('[data-action="dossier"]').click()
-    expect(telephone.locator("#fenetre h2")).to_have_text("Dossier genere")
+    _fiche(telephone, offre_id).locator('[data-action="preparer"]').click()
+    expect(telephone.locator("#fenetre h2")).to_have_text("Dossier prêt")
     expect(ligne).to_contain_text("Dossier prêt à envoyer")
 
 
@@ -776,3 +812,449 @@ def test_plus_se_touche_du_doigt_et_tient_dans_l_ecran(telephone, parcours):
     retour = telephone.locator("#vue-offres .retour-plus")
     expect(retour).to_be_visible()
     assert retour.evaluate("e => e.getBoundingClientRect().height") >= DOIGT
+
+
+# ---------------------------------------------------------------------------
+# « Préparer ma candidature » (ADR-0003, § 5)
+# ---------------------------------------------------------------------------
+
+
+def _etape(etape: str, **champs) -> dict:
+    """Une réponse de `/preparer`, ses neuf clés : celles de `preparation.Etape`."""
+    from veille.preparation import Etape
+
+    return Etape(etape, **champs).as_dict()
+
+
+def _dossier(pieces: list[dict] = PIECES, archive: bool = True, **destinataire) -> dict:
+    """Le `dossier` d'une étape `pret`, tel que `preparation.dossier_pret` le rend."""
+    from veille.preparation import CHAMPS_DESTINATAIRE
+
+    return {"nom": "dossier-invente", "pieces": list(pieces), "archive": archive,
+            "destinataire": {cle: destinataire.get(cle, "") for cle in CHAMPS_DESTINATAIRE},
+            "avertissements": []}
+
+
+def _mince() -> dict:
+    """Une étape `mince` : la complétude sous le seuil, et ses deux manques les plus lourds."""
+    manques = [
+        {"libelle": "Manque inventé le plus lourd", "points": 20,
+         "quoi_faire": "Action inventée qui le comble"},
+        {"libelle": "Manque inventé moins lourd", "points": 10,
+         "quoi_faire": "Autre action inventée"},
+    ]
+    return _etape("mince", url=ANNONCE, manques=manques, completude={
+        "score": 35, "niveau": "insuffisant", "manques": manques, "acquis": [],
+        "suffisant_pour_dossier": False, "seuil": 55})
+
+
+def _simuler_preparation(page, offre_id: int, reponses: list[dict]) -> list[dict]:
+    """Simule `/preparer` pour cette offre (décision 11 du plan) : sert les réponses dans
+    l'ordre, et rend la liste des corps reçus, qui s'allonge à chaque appel.
+
+    Écrit en base ce que la route écrirait : `interessante` pour un statut que « Je postule »
+    prend, et sur `pret`, le dossier d'une offre qui n'en a pas (une régénération change son
+    chemin, que l'écran ne lit pas). Un appel de trop reçoit une erreur 500, que la console du
+    navigateur signale : la fixture `telephone` le refuse."""
+    from veille import db, dossier
+    from veille.preparation import STATUTS_A_PRENDRE
+
+    corps: list[dict] = []
+    restantes = list(reponses)
+
+    def servir(route):
+        corps.append(route.request.post_data_json)
+        if not restantes:
+            route.fulfill(status=500, body="appel de /preparer non prévu par le test")
+            return
+        reponse = restantes.pop(0)
+        offre = db.lire_offre(offre_id)
+        if offre["statut"] in STATUTS_A_PRENDRE:
+            db.changer_statut(offre_id, "interessante")
+        if reponse["etape"] == "pret" and not offre["dossier_chemin"]:
+            db.maj_champs(offre_id, dossier_chemin=str(
+                dossier.CHEMIN_DOSSIERS / reponse["dossier"]["nom"]))
+        route.fulfill(status=200, content_type="application/json",
+                      body=json.dumps(reponse, ensure_ascii=False))
+
+    page.route(f"**/api/offres/{offre_id}/preparer", servir)
+    return corps
+
+
+def _titre(page):
+    return page.locator("#fenetre h2")
+
+
+def _preparer_depuis_la_fiche(page, url: str, offre_id: int) -> None:
+    """La fiche « Je postule », puis son geste : « Préparer ma candidature » sans dossier,
+    « Dossier prêt › » avec."""
+    _ouvrir(page, url)
+    page.evaluate("id => ouvrirFiche(id)", offre_id)
+    _fiche(page, offre_id).locator('.ligne-actions [data-action="preparer"]').click()
+
+
+def _cibles(page) -> list:
+    """Le texte et la hauteur de chaque lien et bouton visible de la fenêtre."""
+    return page.locator("#fenetre").locator("a, button").evaluate_all(
+        """es => es.filter(e => e.getClientRects().length)
+                   .map(e => [e.textContent.trim(), e.getBoundingClientRect().height])""")
+
+
+def _tient_dans_l_ecran(page) -> None:
+    assert page.evaluate("document.documentElement.scrollWidth") <= TELEPHONE["viewport"]["width"]
+    # La fenêtre défile pour son compte : la page ne verrait pas son débordement.
+    assert page.eval_on_selector("#fenetre", "f => f.scrollWidth <= f.clientWidth")
+
+
+def test_je_postule_lance_la_preparation_et_montre_le_temps(telephone, parcours, fiches):
+    """La requête retenue, le bouton reste désactivé et dit le temps écoulé ; un double toucher
+    ne lance qu'une préparation (point d'attention 5). Servie, l'écran de l'étape s'ouvre."""
+    from veille import db
+
+    offre_id = fiches["temps"]
+    retenues: list = []
+    telephone.route(f"**/api/offres/{offre_id}/preparer", lambda route: retenues.append(route))
+    _ouvrir(telephone, parcours["url"])
+    bouton = _carte(telephone, offre_id).locator('[data-action="postuler"]')
+    bouton.dblclick()
+    expect(bouton).to_be_disabled()
+    expect(bouton).to_have_text(re.compile(r"^Préparation… \d+ s$"))
+    # Une seconde au moins : un second envoi aurait eu le temps de partir.
+    expect(bouton).to_have_text(re.compile(r"[1-9]\d* s$"))
+    expect(bouton).to_be_disabled()
+    assert len(retenues) == 1
+
+    db.changer_statut(offre_id, "interessante")
+    retenues[0].fulfill(status=200, content_type="application/json", body=json.dumps(
+        _etape("texte", message=RAISON_TEXTE, url=ANNONCE), ensure_ascii=False))
+    expect(_titre(telephone)).to_have_text("Il manque le texte de l'annonce")
+    assert len(retenues) == 1
+
+
+def test_le_texte_colle_mene_au_dossier_pret_puis_a_l_envoi(telephone, parcours, fiches):
+    """Le parcours de l'ADR-0003, § 7 : de la carte « À voir » à « Je l'ai envoyée », en
+    passant par le texte collé et « Dossier prêt »."""
+    from veille import db
+
+    offre_id = fiches["colle"]
+    corps = _simuler_preparation(telephone, offre_id, [
+        _etape("texte", message=RAISON_TEXTE, url=ANNONCE),
+        _etape("pret", url=ANNONCE, genere=True, dossier=_dossier(**DESTINATAIRE)),
+    ])
+    _ouvrir(telephone, parcours["url"])
+    _carte(telephone, offre_id).locator('[data-action="postuler"]').click()
+    fenetre = telephone.locator("#fenetre")
+    expect(_titre(telephone)).to_have_text("Il manque le texte de l'annonce")
+    expect(fenetre).to_contain_text(RAISON_TEXTE)
+    lien = fenetre.get_by_role("link", name="Ouvrir l'annonce ›")
+    expect(lien).to_have_attribute("href", ANNONCE)
+    expect(lien).to_have_attribute("target", "_blank")
+    expect(lien).to_have_attribute("rel", "noopener noreferrer")
+    fenetre.locator("textarea").fill(TEXTE_COLLE)
+    fenetre.get_by_role("button", name="Préparer avec ce texte").click()
+
+    expect(_titre(telephone)).to_have_text("Dossier prêt")
+    assert corps == [{}, {"texte": TEXTE_COLLE}]
+    pieces = fenetre.locator(".fichiers a")
+    expect(pieces).to_have_text([p["nom"] for p in PIECES])
+    assert pieces.evaluate_all("as => as.map(a => a.getAttribute('href'))") == [
+        f"/api/offres/{offre_id}/dossier/cv.fr.pdf?pour_envoi=true",
+        f"/api/offres/{offre_id}/dossier/lettre%20invent%C3%A9e.pdf?pour_envoi=true",
+    ]
+    assert pieces.evaluate_all("as => as.map(a => a.hasAttribute('download'))") == [True, True]
+    zip_ = fenetre.get_by_role("link", name="Tout en un zip")
+    expect(zip_).to_have_attribute("href", f"/api/offres/{offre_id}/dossier/archive")
+    expect(zip_).to_have_attribute("download", "")
+    expect(fenetre).to_contain_text("Adressée à")
+    expect(fenetre).to_contain_text(DESTINATAIRE["contact_nom"])
+    expect(fenetre.get_by_role("link", name="Voir l'annonce ›")).to_have_attribute("href", ANNONCE)
+
+    fenetre.get_by_role("button", name="Je l'ai envoyée").click()
+    with _statut_ecrit(telephone):
+        fenetre.get_by_role("button", name="LinkedIn", exact=True).click()
+    assert db.lire_offre(offre_id)["statut"] == "candidature_envoyee"
+
+
+def test_l_etape_texte_propose_de_generer_avec_l_extrait(telephone, parcours, fiches):
+    """Une annonce dont le texte ne se copie pas au téléphone mène quand même à son dossier
+    (décision 4 du plan, point d'attention 3)."""
+    offre_id = fiches["extrait"]
+    corps = _simuler_preparation(telephone, offre_id, [
+        _etape("texte", message=RAISON_TEXTE, url=ANNONCE),
+        _etape("pret", url=ANNONCE, genere=True, dossier=_dossier()),
+    ])
+    _preparer_depuis_la_fiche(telephone, parcours["url"], offre_id)
+    expect(_titre(telephone)).to_have_text("Il manque le texte de l'annonce")
+    telephone.locator("#fenetre").get_by_role("button", name="Générer avec l'extrait").click()
+    expect(_titre(telephone)).to_have_text("Dossier prêt")
+    assert corps == [{}, {"forcer": True}]
+
+
+def test_un_texte_vide_ne_part_pas(telephone, parcours, fiches):
+    """Une zone blanche ne part pas : un message le dit. Sans adresse, le lien de l'annonce
+    n'est pas montré."""
+    offre_id = fiches["texte_vide"]
+    corps = _simuler_preparation(telephone, offre_id, [_etape("texte", message=RAISON_TEXTE)])
+    _preparer_depuis_la_fiche(telephone, parcours["url"], offre_id)
+    fenetre = telephone.locator("#fenetre")
+    expect(_titre(telephone)).to_have_text("Il manque le texte de l'annonce")
+    expect(fenetre.locator("a.lien-annonce")).to_have_count(0)
+    fenetre.locator("textarea").fill("  \n  ")
+    fenetre.get_by_role("button", name="Préparer avec ce texte").click()
+    expect(telephone.locator(".message.erreur")).to_contain_text(
+        "Colle d'abord le texte de l'annonce.")
+    assert len(corps) == 1
+
+
+def test_un_texte_refuse_reste_dans_la_zone(telephone, parcours, fiches):
+    """Un texte que l'enregistrement refuse (un fragment) ramène l'étape `texte`, avec la
+    raison : ce qui a été collé reste dans la zone, à compléter plutôt qu'à recopier."""
+    offre_id = fiches["texte_refuse"]
+    refus = "Refus inventé : on dirait un fragment."
+    corps = _simuler_preparation(telephone, offre_id, [
+        _etape("texte", message=RAISON_TEXTE, url=ANNONCE),
+        _etape("texte", message=refus, url=ANNONCE),
+    ])
+    _preparer_depuis_la_fiche(telephone, parcours["url"], offre_id)
+    fenetre = telephone.locator("#fenetre")
+    expect(_titre(telephone)).to_have_text("Il manque le texte de l'annonce")
+    fenetre.locator("textarea").fill(TEXTE_COLLE)
+    fenetre.get_by_role("button", name="Préparer avec ce texte").click()
+    expect(fenetre).to_contain_text(refus)
+    expect(fenetre.locator("textarea")).to_have_value(TEXTE_COLLE)
+    assert corps == [{}, {"texte": TEXTE_COLLE}]
+
+
+def test_mince_propose_de_coller_le_texte_ou_de_generer(telephone, parcours, fiches):
+    offre_id = fiches["mince"]
+    corps = _simuler_preparation(telephone, offre_id, [
+        _mince(), _mince(), _etape("pret", url=ANNONCE, genere=True, dossier=_dossier())])
+    _preparer_depuis_la_fiche(telephone, parcours["url"], offre_id)
+    fenetre = telephone.locator("#fenetre")
+    expect(fenetre).to_contain_text("35/100")
+    expect(fenetre).to_contain_text("55")
+    for manque in _mince()["manques"]:
+        expect(fenetre).to_contain_text(manque["libelle"])
+        expect(fenetre).to_contain_text(manque["quoi_faire"])
+
+    # « Coller le texte de l'annonce » ouvre l'écran `texte`, sans rien envoyer.
+    fenetre.get_by_role("button", name="Coller le texte de l'annonce").click()
+    expect(_titre(telephone)).to_have_text("Il manque le texte de l'annonce")
+    expect(fenetre.locator("textarea")).to_be_visible()
+    assert len(corps) == 1
+
+    _fermer(telephone)
+    _preparer_depuis_la_fiche(telephone, parcours["url"], offre_id)
+    expect(fenetre).to_contain_text("35/100")
+    fenetre.get_by_role("button", name="Générer quand même").click()
+    expect(_titre(telephone)).to_have_text("Dossier prêt")
+    assert corps == [{}, {}, {"forcer": True}]
+
+
+def test_un_echec_propose_de_reessayer(telephone, parcours, fiches):
+    """La cause de l'échec, et « Réessayer » avec les mêmes options, le texte collé compris ;
+    l'offre reste « Je postule » (ADR-0003, § 5)."""
+    from veille import db
+
+    offre_id = fiches["echec"]
+    corps = _simuler_preparation(telephone, offre_id, [
+        _etape("texte", message=RAISON_TEXTE, url=ANNONCE),
+        _etape("echec", message=PANNE, url=ANNONCE),
+        _etape("echec", message=PANNE, url=ANNONCE),
+    ])
+    _ouvrir(telephone, parcours["url"])
+    _carte(telephone, offre_id).locator('[data-action="postuler"]').click()
+    fenetre = telephone.locator("#fenetre")
+    expect(_titre(telephone)).to_have_text("Il manque le texte de l'annonce")
+    fenetre.locator("textarea").fill(TEXTE_COLLE)
+    fenetre.get_by_role("button", name="Préparer avec ce texte").click()
+    expect(_titre(telephone)).to_have_text("La génération a échoué")
+    expect(fenetre).to_contain_text(PANNE)
+    with telephone.expect_response(lambda r: r.url.endswith(f"/api/offres/{offre_id}/preparer")):
+        fenetre.get_by_role("button", name="Réessayer").click()
+    expect(_titre(telephone)).to_have_text("La génération a échoué")
+    expect(fenetre.get_by_role("button", name="Réessayer")).to_be_enabled()
+    assert corps == [{}, {"texte": TEXTE_COLLE}, {"texte": TEXTE_COLLE}]
+
+    telephone.evaluate("id => ouvrirFiche(id)", offre_id)
+    fiche = _fiche(telephone, offre_id)
+    expect(fiche.locator(".etat-fiche")).to_have_text("Je postule")
+    assert _actions(fiche) == ["preparer"]
+    assert db.lire_offre(offre_id)["statut"] == "interessante"
+
+
+def test_reessayer_une_regeneration_regenere(telephone, parcours, fiches):
+    """Une régénération en échec se réessaie en régénérant : sans `regenerer`, la route
+    rendrait l'ancien dossier, l'ancien destinataire sur la lettre, sans le dire."""
+    offre_id = fiches["reessayer"]
+    corps = _simuler_preparation(telephone, offre_id, [
+        _etape("pret", url=ANNONCE, dossier=_dossier(pieces=[], archive=False)),
+        _etape("echec", message=PANNE, url=ANNONCE),
+        _etape("pret", url=ANNONCE, genere=True, dossier=_dossier()),
+    ])
+    _preparer_depuis_la_fiche(telephone, parcours["url"], offre_id)
+    fenetre = telephone.locator("#fenetre")
+    expect(_titre(telephone)).to_have_text("Dossier prêt")
+    fenetre.get_by_role("button", name="Régénérer le dossier").click()
+    expect(_titre(telephone)).to_have_text("La génération a échoué")
+    fenetre.get_by_role("button", name="Réessayer").click()
+    expect(fenetre.get_by_role("link", name="Tout en un zip")).to_be_visible()
+    assert corps == [{}, {"regenerer": True}, {"regenerer": True}]
+
+
+def test_l_alerte_eliminatoire_se_voit(telephone, parcours, fiches):
+    """L'offre reste « Je postule », et l'écran le dit d'abord (décision 5 du plan)."""
+    offre_id = fiches["alerte"]
+    _simuler_preparation(telephone, offre_id, [_etape(
+        "pret", url=ANNONCE, genere=True, dossier=_dossier(),
+        avertissements=[ALERTE, "Avertissement inventé de la génération"])])
+    _ouvrir(telephone, parcours["url"])
+    _carte(telephone, offre_id).locator('[data-action="postuler"]').click()
+    expect(_titre(telephone)).to_have_text("Dossier prêt")
+    texte = telephone.locator("#fenetre-contenu").inner_text()
+    assert texte.lstrip().startswith(ALERTE), texte[:200]
+
+
+def test_ajouter_un_destinataire_enregistre_puis_regenere(telephone, parcours, fiches):
+    """Le seul nom changé : la formule d'appel, l'adresse et la référence restent (point
+    d'attention 2). Le destinataire s'enregistre, puis la lettre se régénère, dans cet ordre."""
+    from veille import db
+
+    offre_id = fiches["destinataire"]
+    nom = "Camille Inventée"
+    corps = _simuler_preparation(telephone, offre_id, [
+        _etape("pret", url=ANNONCE, dossier=_dossier(**DESTINATAIRE)),
+        _etape("pret", url=ANNONCE, genere=True,
+               dossier=_dossier(**{**DESTINATAIRE, "contact_nom": nom})),
+    ])
+    chemins = {f"/api/offres/{offre_id}", f"/api/offres/{offre_id}/preparer"}
+    envois: list = []
+    telephone.on("request", lambda r: envois.append((urlsplit(r.url).path, r.post_data_json))
+                 if r.method == "POST" and urlsplit(r.url).path in chemins else None)
+    _preparer_depuis_la_fiche(telephone, parcours["url"], offre_id)
+    fenetre = telephone.locator("#fenetre")
+    expect(_titre(telephone)).to_have_text("Dossier prêt")
+    fenetre.get_by_role("button", name="Modifier le destinataire").click()
+    expect(fenetre.locator("#d-contact")).to_have_value(DESTINATAIRE["contact_nom"])
+    fenetre.locator("#d-contact").fill(nom)
+    fenetre.get_by_role("button", name="Enregistrer et régénérer").click()
+    expect(fenetre).to_contain_text(nom)
+    expect(fenetre.get_by_role("button", name="Modifier le destinataire")).to_be_visible()
+
+    assert envois == [
+        (f"/api/offres/{offre_id}/preparer", {}),
+        (f"/api/offres/{offre_id}", {**DESTINATAIRE, "contact_nom": nom}),
+        (f"/api/offres/{offre_id}/preparer", {"regenerer": True}),
+    ]
+    assert corps == [{}, {"regenerer": True}]
+    offre = db.lire_offre(offre_id)
+    assert {cle: offre[cle] for cle in DESTINATAIRE} == {**DESTINATAIRE, "contact_nom": nom}
+
+
+def test_sans_paquet_dossier_pret_propose_de_regenerer(telephone, parcours, fiches):
+    """Un dossier ancien, ou un paquet tronqué : aucune pièce, aucun zip, et « Régénérer le
+    dossier » (décision 12 du plan)."""
+    offre_id = fiches["sans_paquet"]
+    corps = _simuler_preparation(telephone, offre_id, [
+        _etape("pret", url=ANNONCE, dossier=_dossier(pieces=[], archive=False)),
+        _etape("pret", url=ANNONCE, genere=True, dossier=_dossier()),
+    ])
+    _preparer_depuis_la_fiche(telephone, parcours["url"], offre_id)
+    fenetre = telephone.locator("#fenetre")
+    expect(_titre(telephone)).to_have_text("Dossier prêt")
+    expect(fenetre.locator("a[download]")).to_have_count(0)
+    expect(fenetre).to_contain_text("Aucune pièce")
+    fenetre.get_by_role("button", name="Régénérer le dossier").click()
+    expect(fenetre.get_by_role("link", name="Tout en un zip")).to_be_visible()
+    assert corps == [{}, {"regenerer": True}]
+
+
+def test_affiner_la_lettre_ne_regenere_pas(telephone, parcours, fiches):
+    """« Affiner la lettre » montre l'affinement, sans rien régénérer (point reporté 4)."""
+    offre_id = fiches["affiner"]
+    corps = _simuler_preparation(telephone, offre_id, [
+        _etape("pret", url=ANNONCE, dossier=_dossier())])
+    _preparer_depuis_la_fiche(telephone, parcours["url"], offre_id)
+    fenetre = telephone.locator("#fenetre")
+    expect(_titre(telephone)).to_have_text("Dossier prêt")
+    fenetre.get_by_role("button", name="Affiner la lettre").click()
+    expect(fenetre.get_by_text(
+        re.compile("Proposer une version affinée|Affinement indisponible")).first).to_be_visible()
+    assert corps == [{}]
+
+
+def test_la_fiche_je_postule_avec_dossier_mene_au_dossier_pret(telephone, parcours, fiches):
+    """« Je l'ai envoyée » et « Dossier prêt › » : ni lien du paquet, ni « Régénérer »
+    (décision 12 du plan). « Dossier prêt › » passe par `/preparer`, sans rien demander."""
+    offre_id = fiches["vers_pret"]
+    corps = _simuler_preparation(telephone, offre_id, [
+        _etape("pret", url=ANNONCE, dossier=_dossier())])
+    _ouvrir(telephone, parcours["url"])
+    telephone.evaluate("id => ouvrirFiche(id)", offre_id)
+    fiche = _fiche(telephone, offre_id)
+    expect(fiche.locator(".etat-fiche")).to_have_text("Je postule")
+    lignes = fiche.locator(".ligne-actions button, .ligne-actions a").all_text_contents()
+    assert [t.strip() for t in lignes] == ["Je l'ai envoyée", "Dossier prêt ›"]
+    expect(fiche.locator(".ligne-actions a[download]")).to_have_count(0)
+    expect(fiche.locator("button", has_text="Régénérer")).to_have_count(0)
+
+    fiche.get_by_role("button", name="Dossier prêt ›").click()
+    expect(_titre(telephone)).to_have_text("Dossier prêt")
+    assert corps == [{}]
+
+
+def test_dossier_pret_se_touche_du_doigt_et_tient_dans_l_ecran(telephone, parcours, fiches):
+    """Une pièce au nom de 80 caractères sans espace, nommée aussi par un avertissement, le kit
+    provisoire, le destinataire et l'affinement ouverts : chaque lien et bouton fait 44 px, et
+    rien ne défile de côté (ADR-0003, § 7)."""
+    offre_id = fiches["doigt"]
+    nom = ("Piecejointeinventeeautreslongue" * 3)[:80]
+    assert len(nom) == 80 and " " not in nom
+    _simuler_preparation(telephone, offre_id, [_etape(
+        "pret", url=ANNONCE, genere=True, kit_provisoire=True,
+        avertissements=[f"Avertissement inventé : {nom} part sous un autre nom."],
+        dossier=_dossier(pieces=[{"nom": nom, "fichier": nom}, PIECES[0]], **DESTINATAIRE))])
+    _preparer_depuis_la_fiche(telephone, parcours["url"], offre_id)
+    fenetre = telephone.locator("#fenetre")
+    expect(_titre(telephone)).to_have_text("Dossier prêt")
+    fenetre.get_by_role("button", name="Modifier le destinataire").click()
+    expect(fenetre.get_by_role("button", name="Enregistrer et régénérer")).to_be_visible()
+    fenetre.get_by_role("button", name="Affiner la lettre").click()
+    expect(fenetre.get_by_text(
+        re.compile("Proposer une version affinée|Affinement indisponible")).first).to_be_visible()
+
+    mesures = _cibles(telephone)
+    textes = [texte for texte, _ in mesures]
+    for attendu in (nom, PIECES[0]["nom"], "Tout en un zip", "Voir l'annonce ›",
+                    "Je l'ai envoyée", "Enregistrer et régénérer", "Fermer"):
+        assert attendu in textes, attendu
+    for texte, hauteur in mesures:
+        assert hauteur >= DOIGT, (texte, hauteur)
+    _tient_dans_l_ecran(telephone)
+
+
+def test_les_ecrans_de_la_preparation_se_touchent_du_doigt(telephone, parcours, fiches):
+    """« Il manque le texte », « Information trop mince » et l'échec, chacun avec un
+    avertissement sans espace : au doigt, et dans l'écran (ADR-0003, § 7)."""
+    long = "Avertissementinventesansespace" * 4
+    ecrans = [
+        ("afficherEtapeTexte", "Il manque le texte de l'annonce",
+         _etape("texte", message=RAISON_TEXTE, url=ANNONCE, avertissements=[long]),
+         ["Ouvrir l'annonce ›", "Préparer avec ce texte", "Générer avec l'extrait"]),
+        ("afficherEtapeMince", "Information trop mince pour un dossier sérieux",
+         {**_mince(), "avertissements": [long]},
+         ["Coller le texte de l'annonce", "Générer quand même"]),
+        ("afficherEtapeEchec", "La génération a échoué",
+         _etape("echec", message=long, url=ANNONCE, avertissements=[long]), ["Réessayer"]),
+    ]
+    _ouvrir(telephone, parcours["url"])
+    for fonction, titre, etape, boutons in ecrans:
+        telephone.evaluate(f"([id, r]) => {fonction}(id, r)", [fiches["doigt"], etape])
+        expect(_titre(telephone)).to_have_text(titre)
+        mesures = _cibles(telephone)
+        textes = [texte for texte, _ in mesures]
+        for attendu in (*boutons, "Fermer"):
+            assert attendu in textes, (fonction, attendu)
+        for texte, hauteur in mesures:
+            assert hauteur >= DOIGT, (fonction, texte, hauteur)
+        _tient_dans_l_ecran(telephone)

@@ -225,6 +225,12 @@ details.plus-tard > .liste{margin-top:6px}
 .fiche details.repli > .contribs{padding-top:0;margin-bottom:10px}
 .fiche details.repli > .actions{margin:8px 0 12px}
 
+/* ---------- la préparation (ADR-0003, § 5) ---------- */
+/* Ses écrans vivent dans la fenêtre, comme la fiche : un nom de pièce ou un avertissement sans
+   espace s'y coupe, sans la faire défiler de côté. Le texte d'une annonce se colle en entier. */
+.etape{overflow-wrap:anywhere}
+.etape textarea{min-height:150px;font-family:inherit}
+
 /* ---------- pilotage ---------- */
 .bloc{background:var(--fond2);border:1px solid var(--trait);border-radius:var(--rayon);padding:14px 16px;margin-bottom:12px}
 .bloc h2{font-size:.95rem;margin:0 0 10px;color:var(--doux);font-weight:600;text-transform:uppercase;letter-spacing:.04em}

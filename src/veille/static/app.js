@@ -37,6 +37,8 @@ const ERREURS_API = {
   collecte_en_cours: "Une collecte ou une vérification est déjà en cours.",
   configuration_non_designee: "Aucune configuration n'est désignée : cette console sert l'exemple. Pose VEILLE_CONFIG (docs/exploitation.md, « La configuration désignée »).",
   connexion_impossible: "La passkey n'a pas été reconnue.",
+  etat_incompatible: "Cette offre n'a plus de candidature à préparer : elle est envoyée, en entretien ou close.",
+  preparation_en_cours: "La préparation de cette offre tourne déjà : attends qu'elle finisse.",
 };
 
 async function api(url, options = {}) {
@@ -664,7 +666,8 @@ function afficherCompletudeInsuffisante(id, c, bouton) {
 }
 
 async function genererDossier(id, bouton) {
-  // Le libellé revient tel qu'il était : « Générer » ou « Régénérer le dossier » (la fiche).
+  // Le libellé revient tel qu'il était. Seuls les anciens écrans gardent ce geste, jusqu'au
+  // lot 3 : la fiche passe par la préparation (`preparerCandidature`).
   const libelle = bouton.textContent;
   bouton.disabled = true;
   bouton.textContent = 'Generation...';
@@ -922,8 +925,8 @@ async function chargerPlus() {
 //
 // L'offre, son état, et une seule ligne d'actions : celle de cet état. Le reste attend,
 // replié : pourquoi ce score, les notes, les autres actions. Un geste fait depuis la fiche
-// la rouvre sur le nouvel état ; ceux qui ouvrent leur propre fenêtre (le dossier, le canal,
-// la relance, l'entretien, « Non ») y prennent sa place.
+// la rouvre sur le nouvel état ; ceux qui ouvrent leur propre fenêtre (la préparation, le
+// canal, la relance, l'entretien, « Non ») y prennent sa place.
 // ---------------------------------------------------------------------------
 
 // La réponse du recruteur, d'un toucher : chaque bouton écrit son statut.
@@ -941,11 +944,12 @@ function actionsDeFiche(o) {
         ${o.statut === 'a_traiter' ? '' : '<button class="discret" data-action="plus-tard">Plus tard</button>'}
         <button class="discret" data-action="non">Non</button>`;
     case 'je_postule':
-      // Au lot 1, sans dossier, le geste actuel : « Préparer ma candidature » vient au lot 2.
-      if (!o.dossier_chemin) return '<button data-action="dossier">Générer le dossier</button>';
+      // Sans dossier, la préparation ; avec, l'envoi, et « Dossier prêt », qui porte les pièces,
+      // le destinataire et l'affinement (décision 12 du plan du lot 2). Les deux passent par
+      // la même route : un dossier existant est rendu, jamais refait.
+      if (!o.dossier_chemin) return '<button data-action="preparer">Préparer ma candidature</button>';
       return `<button data-action="envoyee">Je l'ai envoyée</button>
-        <a href="/api/offres/${Number(o.id)}/dossier/archive" download>Paquet d'envoi (.zip)</a>
-        <button class="discret" data-action="dossier">Régénérer le dossier</button>`;
+        <button class="discret" data-action="preparer">Dossier prêt ›</button>`;
     case 'envoyee':
       return `<button data-action="relance">Mot de relance</button>
         ${boutonsReponse([['entretien', 'Entretien'], ['refus', 'Refus'], ['accepte', 'Acceptée']])}
@@ -1033,6 +1037,195 @@ async function enregistrerNotes(id, bouton) {
   await api(`/api/offres/${id}`, { method: 'POST', body: JSON.stringify({ notes }) });
   message('Notes enregistrées.');
   await ouvrirFiche(id);
+}
+
+// ---------------------------------------------------------------------------
+// « Préparer ma candidature » (ADR-0003, § 5)
+//
+// « Je postule » met l'offre en `interessante` et lance la préparation, qui ne s'arrête que
+// sur ce qui manque : le texte de l'annonce (`texte`), une information trop mince (`mince`),
+// ou une génération en échec (`echec`). Sinon, le dossier est prêt (`pret`). Chaque écran
+// prend la place de la fiche dans la fenêtre, et montre d'abord les avertissements de
+// l'étape, l'alerte éliminatoire en tête (décision 5 du plan du lot 2).
+// ---------------------------------------------------------------------------
+
+// Le bouton se désactive pendant le travail, avec le temps écoulé : un double toucher ne
+// lance rien deux fois. Il revient tel qu'il était s'il est encore dans la page, où l'écran
+// de l'étape l'a souvent remplacé. La vue de derrière se recharge : « À finir » change.
+async function preparerCandidature(id, bouton, options = {}) {
+  const libelle = bouton.textContent;
+  bouton.disabled = true;
+  // Le minuteur de l'affinement (`brancherAffinement`) : un bouton muet passe pour cassé.
+  const depart = Date.now();
+  const rendreTemps = () => {
+    bouton.textContent = `Préparation… ${Math.round((Date.now() - depart) / 1000)} s`;
+  };
+  rendreTemps();
+  const minuteur = setInterval(rendreTemps, 1000);
+  try {
+    const r = await api(`/api/offres/${Number(id)}/preparer`, {
+      method: 'POST',
+      body: JSON.stringify(options),
+    });
+    afficherEtape(id, r, options);
+    rafraichir();
+  } catch (e) {
+    message(e.message, true);
+  } finally {
+    clearInterval(minuteur);
+    if (bouton.isConnected) {
+      bouton.disabled = false;
+      bouton.textContent = libelle;
+    }
+  }
+}
+
+function afficherEtape(id, r, options) {
+  if (r.etape === 'texte') afficherEtapeTexte(id, r, options.texte);
+  else if (r.etape === 'mince') afficherEtapeMince(id, r);
+  else if (r.etape === 'echec') afficherEtapeEchec(id, r, options);
+  else if (r.etape === 'pret') afficherDossierPret(id, r);
+  else message(`Étape inconnue : ${r.etape}`, true);
+}
+
+// L'écran d'une étape, à la place de ce que montrait la fenêtre, ouverte s'il le faut.
+function montrerEtape(html) {
+  $('#fenetre-contenu').innerHTML = `<div class="etape">${html}</div>`;
+  const fenetre = $('#fenetre');
+  if (!fenetre.open) fenetre.showModal();
+}
+
+// Les avertissements de l'étape, dans l'ordre de la route : l'alerte éliminatoire d'abord.
+function avertissementsEtape(r) {
+  return (r.avertissements || []).map(a => `<p class="avert">${echapper(a)}</p>`).join('');
+}
+
+// Le lien de l'annonce ; sans adresse, rien.
+function lienAnnonce(url, texte) {
+  return url
+    ? `<a class="lien-annonce" href="${echapper(url)}" target="_blank" rel="noopener noreferrer">${texte}</a>`
+    : '';
+}
+
+// Le texte de l'annonce manque, et la lecture automatique n'a pas pu le prendre : il se colle.
+// « Générer avec l'extrait » mène au dossier quand il ne se copie pas, comme une annonce
+// LinkedIn ouverte dans son application (décision 4 du plan). Un texte refusé revient dans la
+// zone : on le complète, plutôt que de le recopier au téléphone.
+function afficherEtapeTexte(id, r, texte = '') {
+  montrerEtape(`${avertissementsEtape(r)}
+    <h2>Il manque le texte de l'annonce</h2>
+    ${r.message ? `<p class="resume">${echapper(r.message)}</p>` : ''}
+    ${lienAnnonce(r.url, "Ouvrir l'annonce ›")}
+    <textarea id="texte-etape" aria-label="Texte de l'annonce"
+              placeholder="Colle ici tout le texte de l'annonce, tel quel."></textarea>
+    <div class="actions ligne-actions">
+      <button id="btn-preparer-texte">Préparer avec ce texte</button>
+      <button class="discret" id="btn-avec-extrait">Générer avec l'extrait</button>
+    </div>
+    <p class="menu">Avec l'extrait seul, la lettre sera plus générique.</p>`);
+  $('#texte-etape').value = texte || '';
+  $('#btn-preparer-texte').onclick = ev => {
+    const colle = $('#texte-etape').value;
+    if (!colle.trim()) { message("Colle d'abord le texte de l'annonce.", true); return; }
+    preparerCandidature(id, ev.currentTarget, { texte: colle });
+  };
+  $('#btn-avec-extrait').onclick = ev => preparerCandidature(id, ev.currentTarget, { forcer: true });
+}
+
+// L'information reste trop mince pour une lettre qui tienne : ce qui manque, nommé, avec ce
+// qui le comble. Le texte de l'annonce se colle, ou l'on génère quand même (`forcer`).
+function afficherEtapeMince(id, r) {
+  const c = r.completude || {};
+  const manques = (r.manques || []).map(m =>
+    `<li class="contre"><span class="pts moins">-${echapper(m.points)}</span>
+      <span><b>${echapper(m.libelle)}</b><br>
+      <span class="citation">${echapper(m.quoi_faire)}</span></span></li>`).join('');
+  montrerEtape(`${avertissementsEtape(r)}
+    <h2>Information trop mince pour un dossier sérieux</h2>
+    <p class="avert grave"><b>Dossier ${echapper(c.score)}/100 — ${echapper(c.niveau)}</b><br>
+      Le seuil est à ${echapper(c.seuil)}. Une lettre écrite là-dessus sera générique. Ce
+      chiffre ne dit rien du score de correspondance : il dit ce qu'on sait du poste.</p>
+    ${manques ? `<p class="resume"><b>Ce qui manque, par ordre d'importance</b></p>
+      <ul class="preuves">${manques}</ul>` : ''}
+    <div class="actions ligne-actions">
+      <button id="btn-coller-texte">Coller le texte de l'annonce</button>
+      <button class="discret" id="btn-quand-meme">Générer quand même</button>
+    </div>`);
+  $('#btn-coller-texte').onclick = () => afficherEtapeTexte(id, {
+    ...r, message: "Colle tout le texte de l'annonce : la préparation reprend avec lui." });
+  $('#btn-quand-meme').onclick = ev => preparerCandidature(id, ev.currentTarget, { forcer: true });
+}
+
+// La génération a échoué : sa cause, et « Réessayer » avec les mêmes options. Une
+// régénération en échec se réessaie en régénérant : sans `regenerer`, la route rendrait
+// l'ancien dossier, avec l'ancien destinataire sur la lettre, sans le dire.
+function afficherEtapeEchec(id, r, options = {}) {
+  montrerEtape(`${avertissementsEtape(r)}
+    <h2>La génération a échoué</h2>
+    <p class="avert grave">${echapper(r.message)}</p>
+    <p class="resume">L'offre reste « Je postule », et un texte collé reste enregistré.</p>
+    <div class="actions ligne-actions"><button id="btn-reessayer">Réessayer</button></div>`);
+  $('#btn-reessayer').onclick = ev => preparerCandidature(id, ev.currentTarget, options);
+}
+
+// « Dossier prêt » : à qui la lettre est adressée, chaque pièce sous son nom d'envoi (un
+// formulaire en ligne, au téléphone, les demande une à une), le paquet en zip, l'annonce,
+// puis l'envoi. Le destinataire n'est jamais demandé avant : l'ajouter l'enregistre, puis
+// régénère la lettre. Affiner la lettre ne régénère rien. Sans paquet d'envoi lisible (un
+// dossier ancien, un paquet tronqué), ni pièce ni zip, mais « Régénérer le dossier »
+// (décision 12 du plan).
+function afficherDossierPret(id, r) {
+  const d = r.dossier || { pieces: [], archive: false, destinataire: {} };
+  const dest = d.destinataire || {};
+  // À qui : le nom, sinon la formule d'appel, puis l'adresse, ligne à ligne.
+  const qui = [dest.contact_nom || dest.contact_civilite,
+               ...String(dest.adresse_entreprise || '').split('\n')]
+    .map(l => String(l || '').trim()).filter(Boolean);
+  const adressee = qui.length
+    ? `<p class="resume">Adressée à <b>${echapper(qui[0])}</b>${qui.slice(1).map(l => `<br>${echapper(l)}`).join('')}
+        ${dest.reference_annonce ? `<br><span class="menu">Référence de l'annonce : ${echapper(dest.reference_annonce)}</span>` : ''}</p>`
+    : `<p class="resume">Aucun destinataire n'est enregistré : la lettre le laisse en rouge dans le PDF, à compléter.</p>`;
+  const pieces = (d.pieces || []).length
+    ? `<ul class="fichiers">${d.pieces.map(p => `<li class="fichier">
+        <a href="/api/offres/${Number(id)}/dossier/${encodeURIComponent(p.fichier)}?pour_envoi=true" download>${echapper(p.nom)}</a></li>`).join('')}</ul>`
+    : `<p class="resume">Aucune pièce à télécharger une à une${d.archive ? '.'
+        : " : le paquet d'envoi manque ou ne se lit pas. Régénère le dossier pour le refaire."}</p>`;
+  const paquet = d.archive
+    ? `<a href="/api/offres/${Number(id)}/dossier/archive" download>Tout en un zip</a>`
+    : '<button class="discret" id="btn-regenerer">Régénérer le dossier</button>';
+  // Quand le kit n'est pas branché, la lettre n'est qu'un squelette et aucun CV n'est joint :
+  // le dire d'abord, sans quoi un dossier creux passe pour une panne.
+  const provisoire = r.kit_provisoire ? `<p class="avert grave"><b>⚠ Ton kit de candidature n'est pas branché</b><br>
+      Ce dossier contient un <b>squelette</b> de lettre et <b>aucun CV</b> : la console n'a rien
+      à joindre. Ce n'est pas une panne.</p>` : '';
+  montrerEtape(`${avertissementsEtape(r)}
+    <h2>Dossier prêt</h2>
+    ${provisoire}
+    ${adressee}
+    ${pieces}
+    <div class="actions ligne-actions">${paquet}</div>
+    ${lienAnnonce(r.url, "Voir l'annonce ›")}
+    <div class="actions ligne-actions">
+      <button id="btn-envoyee-pret">Je l'ai envoyée</button>
+      <button class="discret" id="btn-destinataire-pret">${qui.length ? 'Modifier le destinataire' : 'Ajouter un destinataire'}</button>
+      <button class="discret" id="btn-affiner-pret">Affiner la lettre</button>
+    </div>
+    <div id="zone-destinataire"></div>
+    <div id="zone-affinement"></div>`);
+  $('#btn-envoyee-pret').onclick = () => demanderCanal(id);
+  const regenerer = $('#btn-regenerer');
+  if (regenerer) regenerer.onclick = () => preparerCandidature(id, regenerer, { regenerer: true });
+  // Chaque bouton s'efface devant ce qu'il montre : le bloc porte son propre titre.
+  $('#btn-destinataire-pret').onclick = ev => {
+    ev.currentTarget.hidden = true;
+    $('#zone-destinataire').innerHTML = blocDestinataire(dest, 'Enregistrer et régénérer');
+    brancherDestinataire(id, bouton => preparerCandidature(id, bouton, { regenerer: true }));
+  };
+  $('#btn-affiner-pret').onclick = async ev => {
+    ev.currentTarget.hidden = true;
+    $('#zone-affinement').innerHTML = await blocAffinement(id);
+    brancherAffinement(id);
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1434,7 +1627,9 @@ document.addEventListener('click', ev => {
   else if (a === 'entretien') ouvrirEntretien(id);
   else if (a === 'detail') ouvrirDetail(id);
   else if (a === 'obsolete') constater(id, false).catch(e => message(e.message, true));
-  else if (a === 'postuler') gesteNeuf(bouton, () => changerStatutPuisFiche(id, 'interessante'));
+  // « Je postule » lance la préparation ; la fiche « Je postule » la reprend (« Préparer ma
+  // candidature », « Dossier prêt › »).
+  else if (a === 'postuler' || a === 'preparer') preparerCandidature(id, bouton);
   else if (a === 'plus-tard') gesteNeuf(bouton, () => (dansFiche
     ? changerStatutPuisFiche(id, 'a_traiter') : changerStatut(id, 'a_traiter')));
   // Le panneau « Non » nomme l'offre : l'intitulé de sa carte, ou de sa fiche.
@@ -1657,7 +1852,9 @@ function brancherAffinement(id) {
   };
 }
 
-function blocDestinataire(o) {
+// `libelle` nomme le bouton : « Enregistrer » dans la vue détaillée, « Enregistrer et
+// régénérer » sur « Dossier prêt ».
+function blocDestinataire(o, libelle = 'Enregistrer') {
   const v = s => echapper(s || '');
   return `<div class="bloc">
     <h3>Le destinataire</h3>
@@ -1675,12 +1872,15 @@ function blocDestinataire(o) {
       <input id="d-reference" placeholder="laissé vide, la mention disparaît de la lettre"
              value="${v(o.reference_annonce)}"></label>
     <p class="menu" id="proposition-reference"></p>
-    <div class="actions"><button class="discret" id="btn-destinataire">Enregistrer</button>
+    <div class="actions"><button class="discret" id="btn-destinataire">${echapper(libelle)}</button>
       <span class="menu" id="etat-destinataire"></span></div>
   </div>`;
 }
 
-function brancherDestinataire(id) {
+// `apres`, facultatif, suit l'enregistrement, avec le bouton : « Dossier prêt » y régénère la
+// lettre. Le bouton se désactive le temps d'enregistrer : un double toucher n'enregistre
+// qu'une fois.
+function brancherDestinataire(id, apres) {
   const b = $('#btn-destinataire');
   if (!b) return;
 
@@ -1701,6 +1901,7 @@ function brancherDestinataire(id) {
       — vérifie-le.<br><i>« ${echapper(r.preuve)} »</i>`;
   }).catch(() => {});
   b.onclick = async () => {
+    b.disabled = true;
     try {
       await api(`/api/offres/${id}`, {
         method: 'POST',
@@ -1711,8 +1912,14 @@ function brancherDestinataire(id) {
           reference_annonce: $('#d-reference').value.trim(),
         }),
       });
-      $('#etat-destinataire').textContent = 'enregistré — il sera repris à chaque génération';
-    } catch (e) { message(e.message, true); }
+    } catch (e) {
+      b.disabled = false;
+      message(e.message, true);
+      return;
+    }
+    b.disabled = false;
+    $('#etat-destinataire').textContent = 'enregistré — il sera repris à chaque génération';
+    if (apres) apres(b);
   };
 }
 
