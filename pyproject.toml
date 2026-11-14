@@ -48,10 +48,11 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 
 [tool.mutmut]
-# Tout `src` est copié (etats.py importe son paquet) ; seul etats.py est muté.
+# Tout `src` est copié (les modules mutés importent leur paquet) ; seuls les états du parcours et
+# la préparation sont mutés (ADR-0003, § 7), chacun sous ses tests.
 source_paths = ["src"]
-only_mutate = ["src/veille/etats.py"]
-pytest_add_cli_args_test_selection = ["tests/test_etats.py"]
+only_mutate = ["src/veille/etats.py", "src/veille/preparation.py"]
+pytest_add_cli_args_test_selection = ["tests/test_etats.py", "tests/test_preparation.py"]
 # Les tests lisent la configuration de l'exemple, que `tests/conftest.py` désigne à côté de
 # `tests/` : dans la copie où mutmut les lance, `mutants/`, elle doit être aussi.
 also_copy = ["exemple"]

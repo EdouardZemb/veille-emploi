@@ -1,0 +1,203 @@
+"""« Préparer ma candidature » : de « Je postule » au dossier prêt (ADR-0003, § 5).
+
+`preparer` enchaîne ce qui se fait seul et ne s'arrête que sur ce qui manque : le texte de
+l'annonce (étape `texte`), une information trop mince (`mince`), ou une génération en échec
+(`echec`). Sinon, le dossier est prêt (`pret`). Le module n'appelle que l'existant, sans le
+changer : la lecture et l'enregistrement du texte (`enrichissement`), la complétude, la
+génération (`dossier`), les noms d'envoi (`rendu`), les états et la base.
+
+L'ORDRE COMPTE.
+- Le statut s'écrit avant le texte. `db.enregistrer_texte_complet` peut écarter une offre
+  dont le statut est automatique (`nouveau`), jamais une offre `interessante` : écrit après,
+  un texte qui révèle un critère éliminatoire écarterait l'offre dont Edouard vient de dire
+  « Je postule ». L'alerte se dit à la place, en tête des avertissements de l'étape.
+- Un texte fourni s'enregistre avant toute génération : une génération en échec ne le perd
+  pas (invariant 2 du projet).
+"""
+
+from __future__ import annotations
+
+import logging
+import zipfile
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass, field
+from typing import Any
+
+from . import completude, db, dossier, enrichissement, etats, rendu
+
+log = logging.getLogger(__name__)
+
+ETAPES: tuple[str, ...] = ("texte", "mince", "pret", "echec")
+# Les statuts que « Je postule » fait passer en `interessante`. `differee` aussi : la fiche
+# d'une offre mise de côté propose « Je postule » depuis le lot 1.
+STATUTS_A_PRENDRE: tuple[str, ...] = ("nouveau", "a_traiter", "differee")
+# Une offre envoyée, en entretien ou close n'a plus de candidature à préparer.
+ETATS_PREPARABLES: tuple[str, ...] = ("a_voir", "mise_de_cote", "je_postule")
+# Un extrait : une description plus courte, ou marquée `donnees_partielles` (ADR-0003, Contexte).
+LONGUEUR_EXTRAIT = 400
+MANQUES_MONTRES = 3
+# À qui la lettre est adressée, sous les clés de l'offre (la route `api_maj` les enregistre).
+CHAMPS_DESTINATAIRE: tuple[str, ...] = (
+    "contact_nom", "contact_civilite", "adresse_entreprise", "reference_annonce",
+)
+
+
+class OffreInconnue(LookupError):
+    """Aucune offre ne porte cet identifiant."""
+
+
+class EtatIncompatible(ValueError):
+    """L'offre est envoyée, en entretien ou close : il n'y a plus de candidature à préparer."""
+
+
+@dataclass
+class Etape:
+    """Ce que rend la préparation : l'étape suivante, et de quoi l'afficher.
+
+    `url` porte toujours le lien de l'annonce. `mince` porte la complétude et ses manques les
+    plus lourds ; `pret`, la complétude et le dossier. `avertissements` commence par l'alerte
+    éliminatoire du texte enregistré par ce passage, s'il en porte une."""
+
+    etape: str
+    message: str = ""
+    url: str = ""
+    manques: list[dict[str, Any]] = field(default_factory=list)
+    completude: dict[str, Any] | None = None
+    dossier: dict[str, Any] | None = None
+    genere: bool = False
+    avertissements: list[str] = field(default_factory=list)
+    kit_provisoire: bool = False
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def preparer(
+    offre_id: int,
+    texte: str | None = None,
+    forcer: bool = False,
+    # Pas encore lu : son défaut changé est un mutant équivalent, tant qu'aucun code ne le lit.
+    regenerer: bool = False,  # pragma: no mutate
+) -> Etape:
+    """L'étape suivante de la candidature à cette offre.
+
+    `texte`, le texte de l'annonce collé par Edouard, s'enregistre d'abord ; vide ou blanc, il
+    vaut None. `forcer` génère malgré un extrait ou une complétude mince (« Générer avec
+    l'extrait », « Générer quand même »). Lève `OffreInconnue`, ou `EtatIncompatible` sans
+    rien écrire."""
+    offre = db.lire_offre(offre_id)
+    if offre is None:
+        raise OffreInconnue
+    if etats.etat_de(offre) not in ETATS_PREPARABLES:
+        raise EtatIncompatible
+    if offre["statut"] in STATUTS_A_PRENDRE:
+        db.changer_statut(offre_id, "interessante")
+    # Le lien montré à Edouard, comme la fiche ; vide, l'écran ne le montre pas.
+    lien = offre["url"] or offre["url_canonique"] or ""
+    alertes: list[str] = []
+    if (texte or "").strip():
+        refus = _enregistrer(offre_id, texte, "colle a la main", alertes)
+        if refus is not None:
+            return Etape("texte", message=refus, url=lien)
+    offre = db.lire_offre(offre_id)
+    if not forcer and _est_un_extrait(offre):
+        refus = _lire_l_annonce(offre_id, offre, alertes)
+        if refus is not None:
+            return Etape("texte", message=refus, url=lien, avertissements=alertes)
+        offre = db.lire_offre(offre_id)
+    bilan = completude.evaluer(offre)
+    if not forcer and not bilan.suffisant_pour_dossier:
+        return Etape(
+            "mince", url=lien, manques=[m.as_dict() for m in bilan.manques[:MANQUES_MONTRES]],
+            completude=bilan.as_dict(), avertissements=alertes,
+        )
+    try:
+        resultat = dossier.generer(offre)
+    except Exception as erreur:
+        log.exception("offre %s : la génération du dossier a échoué", offre_id)  # pragma: no mutate
+        return Etape(
+            "echec", message=str(erreur) or type(erreur).__name__, url=lien, avertissements=alertes,
+        )
+    db.maj_champs(offre_id, dossier_chemin=str(resultat.chemin))
+    db.journaliser(offre_id, "dossier_genere", resultat.gabarit_lettre)
+    pret = dossier_pret(db.lire_offre(offre_id))
+    return Etape(
+        "pret", url=lien, completude=bilan.as_dict(), dossier=pret, genere=True,
+        avertissements=[*alertes, *resultat.avertissements, *pret["avertissements"]],
+        kit_provisoire=resultat.kit_provisoire,
+    )
+
+
+def _est_un_extrait(offre: Mapping[str, Any]) -> bool:
+    """Une description plus courte que `LONGUEUR_EXTRAIT`, ou marquée partielle."""
+    return offre["donnees_partielles"] or len(offre["description"] or "") < LONGUEUR_EXTRAIT
+
+
+def _enregistrer(offre_id: int, texte: str, origine: str, alertes: list[str]) -> str | None:
+    """Enregistre le texte de l'annonce et garde son alerte ; rend le refus du `Rapport`, ou None."""
+    rapport = enrichissement.appliquer_texte(offre_id, texte, origine)
+    if not rapport.ok:
+        return rapport.message
+    if rapport.alerte_eliminatoire:
+        alertes.append(rapport.alerte_eliminatoire)
+    return None
+
+
+def _lire_l_annonce(offre_id: int, offre: Mapping[str, Any], alertes: list[str]) -> str | None:
+    """Lit le texte de l'annonce quand la source et la cadence le permettent ; rend le premier
+    refus, ou None. La lecture prend l'adresse canonique, sinon l'adresse, comme `api_enrichir`."""
+    adresse = offre["url_canonique"] or offre["url"] or ""
+    politique = enrichissement.politique(adresse)
+    if not politique.autorise:
+        return politique.raison
+    possible, message = enrichissement.verifier_cadence()
+    if not possible:
+        return message
+    texte, message = enrichissement.recuperer(adresse)
+    if not texte:
+        return message
+    return _enregistrer(offre_id, texte, f"recupere sur {politique.domaine}", alertes)
+
+
+def dossier_pret(offre: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Ce que montre l'écran « Dossier prêt » ; None sans dossier sur le disque.
+
+    Une pièce est un fichier du dossier dont le nom d'envoi figure dans le paquet d'envoi : un
+    formulaire en ligne reçoit les mêmes noms que le zip. Un paquet absent ou illisible (un
+    dossier ancien, un paquet tronqué) ne donne aucune pièce, et `archive` le dit. Deux pièces
+    au même nom d'envoi n'arriveraient pas toutes les deux : un avertissement les nomme."""
+    repertoire = dossier.chemin_du_dossier(offre)
+    if repertoire is None or not repertoire.is_dir():
+        return None
+    try:
+        # Refermé en sortant : ouvert, Windows refuserait à `generer` de supprimer le paquet.
+        with zipfile.ZipFile(repertoire / f"{rendu.prefixe()}-candidature.zip") as paquet:
+            noms = set(paquet.namelist())
+    except (FileNotFoundError, zipfile.BadZipFile):
+        noms, archive = set(), False
+    else:
+        archive = True
+    # Les fichiers dans l'ordre de leur nom (des chaînes : l'ordre ne dépend pas du système),
+    # puis triés par nom d'envoi : deux pièces au même nom d'envoi gardent l'ordre de leur nom.
+    noms_sur_le_disque = sorted(f.name for f in repertoire.iterdir())
+    envoi = {fichier: rendu.nom_pour_envoi(fichier) for fichier in noms_sur_le_disque}
+    pieces = sorted(
+        ({"nom": nom, "fichier": fichier} for fichier, nom in envoi.items() if nom in noms),
+        key=lambda piece: piece["nom"],
+    )
+    par_nom: dict[str, list[str]] = {}
+    for piece in pieces:
+        par_nom.setdefault(piece["nom"], []).append(piece["fichier"])
+    avertissements = [
+        f"{', '.join(memes)} partent sous le même nom, {nom} : le recruteur n'en recevra "
+        f"qu'une. Renomme les autres dans le kit."
+        for nom, memes in par_nom.items()
+        if len(memes) > 1
+    ]
+    return {
+        "nom": repertoire.name,
+        "pieces": pieces,
+        "archive": archive,
+        "destinataire": {cle: offre.get(cle) or "" for cle in CHAMPS_DESTINATAIRE},
+        "avertissements": avertissements,
+    }
