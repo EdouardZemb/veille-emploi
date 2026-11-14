@@ -72,9 +72,12 @@ FICHES = {
     "reessayer": "interessante",
     "affiner": "interessante",
     "doigt": "interessante",
+    "en_cours": "interessante",
+    "defiler": "interessante",
 }
 # Les offres qui ont déjà un dossier : un dossier temporaire (décision 11 du plan).
-AVEC_DOSSIER = ("pret", "vers_pret", "destinataire", "sans_paquet", "reessayer", "affiner", "doigt")
+AVEC_DOSSIER = ("pret", "vers_pret", "destinataire", "sans_paquet", "reessayer", "affiner", "doigt",
+                "en_cours", "defiler")
 
 # Les réponses simulées de `/preparer`, inventées.
 ANNONCE = "https://exemple.invalid/parcours/annonce-inventee"
@@ -227,7 +230,14 @@ def longue_candidature(parcours):
 
 
 @pytest.fixture
-def telephone(navigateur, parcours):
+def console_attendue() -> list[str]:
+    """Les erreurs de la console qu'un test provoque exprès, par fragment : Chromium écrit
+    « Failed to load resource … 409 (Conflict) » pour toute réponse en erreur, même attendue."""
+    return []
+
+
+@pytest.fixture
+def telephone(navigateur, parcours, console_attendue):
     from veille import auth
 
     contexte = navigateur.new_context(**TELEPHONE)
@@ -241,7 +251,7 @@ def telephone(navigateur, parcours):
         yield page
     finally:
         contexte.close()
-    assert erreurs == []
+    assert [e for e in erreurs if not any(f in e for f in console_attendue)] == []
 
 
 def _ouvrir(page, url: str, chemin: str = "/") -> None:
@@ -967,6 +977,11 @@ def test_le_texte_colle_mene_au_dossier_pret_puis_a_l_envoi(telephone, parcours,
     expect(zip_).to_have_attribute("download", "")
     expect(fenetre).to_contain_text("Adressée à")
     expect(fenetre).to_contain_text(DESTINATAIRE["contact_nom"])
+    expect(fenetre).to_contain_text(
+        f"Référence de l'annonce : {DESTINATAIRE['reference_annonce']}")
+    expect(fenetre.get_by_role("button", name="Modifier le destinataire")).to_be_visible()
+    # Sans `kit_provisoire`, pas de bloc du kit ; `test_dossier_pret_sans_destinataire…` l'a.
+    expect(fenetre).not_to_contain_text("Ton kit de candidature n'est pas branché")
     expect(fenetre.get_by_role("link", name="Voir l'annonce ›")).to_have_attribute("href", ANNONCE)
 
     fenetre.get_by_role("button", name="Je l'ai envoyée").click()
@@ -1032,7 +1047,7 @@ def test_mince_propose_de_coller_le_texte_ou_de_generer(telephone, parcours, fic
     _preparer_depuis_la_fiche(telephone, parcours["url"], offre_id)
     fenetre = telephone.locator("#fenetre")
     expect(fenetre).to_contain_text("35/100")
-    expect(fenetre).to_contain_text("55")
+    expect(fenetre).to_contain_text("Le seuil est à 55.")
     for manque in _mince()["manques"]:
         expect(fenetre).to_contain_text(manque["libelle"])
         expect(fenetre).to_contain_text(manque["quoi_faire"])
@@ -1117,7 +1132,8 @@ def test_l_alerte_eliminatoire_se_voit(telephone, parcours, fiches):
 
 def test_ajouter_un_destinataire_enregistre_puis_regenere(telephone, parcours, fiches):
     """Le seul nom changé : la formule d'appel, l'adresse et la référence restent (point
-    d'attention 2). Le destinataire s'enregistre, puis la lettre se régénère, dans cet ordre."""
+    d'attention 2). Le destinataire s'enregistre, puis la lettre se régénère : `/preparer` ne
+    part qu'une fois l'enregistrement fini, jamais à son départ."""
     from veille import db
 
     offre_id = fiches["destinataire"]
@@ -1131,13 +1147,30 @@ def test_ajouter_un_destinataire_enregistre_puis_regenere(telephone, parcours, f
     envois: list = []
     telephone.on("request", lambda r: envois.append((urlsplit(r.url).path, r.post_data_json))
                  if r.method == "POST" and urlsplit(r.url).path in chemins else None)
+    # L'enregistrement est retenu ; la lecture de la fiche passe.
+    retenus: list = []
+    telephone.route(f"**/api/offres/{offre_id}", lambda route: retenus.append(route)
+                    if route.request.method == "POST" else route.continue_())
     _preparer_depuis_la_fiche(telephone, parcours["url"], offre_id)
     fenetre = telephone.locator("#fenetre")
     expect(_titre(telephone)).to_have_text("Dossier prêt")
     fenetre.get_by_role("button", name="Modifier le destinataire").click()
     expect(fenetre.locator("#d-contact")).to_have_value(DESTINATAIRE["contact_nom"])
     fenetre.locator("#d-contact").fill(nom)
-    fenetre.get_by_role("button", name="Enregistrer et régénérer").click()
+    bouton = fenetre.get_by_role("button", name="Enregistrer et régénérer")
+    bouton.click()
+    expect(bouton).to_be_disabled()
+    for _ in range(100):
+        if retenus:
+            break
+        telephone.wait_for_timeout(50)
+    assert len(retenus) == 1
+    # Tant que l'enregistrement n'a pas répondu, rien ne régénère.
+    telephone.wait_for_timeout(500)
+    expect(bouton).to_have_text("Enregistrer et régénérer")
+    assert corps == [{}]
+
+    retenus[0].continue_()
     expect(fenetre).to_contain_text(nom)
     expect(fenetre.get_by_role("button", name="Modifier le destinataire")).to_be_visible()
 
@@ -1164,6 +1197,10 @@ def test_sans_paquet_dossier_pret_propose_de_regenerer(telephone, parcours, fich
     expect(_titre(telephone)).to_have_text("Dossier prêt")
     expect(fenetre.locator("a[download]")).to_have_count(0)
     expect(fenetre).to_contain_text("Aucune pièce")
+    mesures = _cibles(telephone)
+    assert "Régénérer le dossier" in [texte for texte, _ in mesures]
+    for texte, hauteur in mesures:
+        assert hauteur >= DOIGT, (texte, hauteur)
     fenetre.get_by_role("button", name="Régénérer le dossier").click()
     expect(fenetre.get_by_role("link", name="Tout en un zip")).to_be_visible()
     assert corps == [{}, {"regenerer": True}]
@@ -1204,9 +1241,10 @@ def test_la_fiche_je_postule_avec_dossier_mene_au_dossier_pret(telephone, parcou
 
 
 def test_dossier_pret_se_touche_du_doigt_et_tient_dans_l_ecran(telephone, parcours, fiches):
-    """Une pièce au nom de 80 caractères sans espace, nommée aussi par un avertissement, le kit
-    provisoire, le destinataire et l'affinement ouverts : chaque lien et bouton fait 44 px, et
-    rien ne défile de côté (ADR-0003, § 7)."""
+    """Une pièce au nom de 80 caractères sans espace, nommée aussi par un avertissement, et le
+    kit provisoire : chaque lien et bouton fait 44 px, et rien ne défile de côté (ADR-0003,
+    § 7). Une mesure avant d'ouvrir le destinataire et l'affinement, dont les boutons
+    s'effacent ensuite, puis une autre, les deux blocs ouverts."""
     offre_id = fiches["doigt"]
     nom = ("Piecejointeinventeeautreslongue" * 3)[:80]
     assert len(nom) == 80 and " " not in nom
@@ -1217,20 +1255,25 @@ def test_dossier_pret_se_touche_du_doigt_et_tient_dans_l_ecran(telephone, parcou
     _preparer_depuis_la_fiche(telephone, parcours["url"], offre_id)
     fenetre = telephone.locator("#fenetre")
     expect(_titre(telephone)).to_have_text("Dossier prêt")
+    expect(fenetre).to_contain_text("Ton kit de candidature n'est pas branché")
+
+    def mesurer(attendus: tuple[str, ...]) -> None:
+        mesures = _cibles(telephone)
+        textes = [texte for texte, _ in mesures]
+        for attendu in (nom, PIECES[0]["nom"], "Tout en un zip", "Voir l'annonce ›",
+                        "Je l'ai envoyée", "Fermer", *attendus):
+            assert attendu in textes, attendu
+        for texte, hauteur in mesures:
+            assert hauteur >= DOIGT, (texte, hauteur)
+        _tient_dans_l_ecran(telephone)
+
+    mesurer(("Modifier le destinataire", "Affiner la lettre"))
     fenetre.get_by_role("button", name="Modifier le destinataire").click()
     expect(fenetre.get_by_role("button", name="Enregistrer et régénérer")).to_be_visible()
     fenetre.get_by_role("button", name="Affiner la lettre").click()
     expect(fenetre.get_by_text(
         re.compile("Proposer une version affinée|Affinement indisponible")).first).to_be_visible()
-
-    mesures = _cibles(telephone)
-    textes = [texte for texte, _ in mesures]
-    for attendu in (nom, PIECES[0]["nom"], "Tout en un zip", "Voir l'annonce ›",
-                    "Je l'ai envoyée", "Enregistrer et régénérer", "Fermer"):
-        assert attendu in textes, attendu
-    for texte, hauteur in mesures:
-        assert hauteur >= DOIGT, (texte, hauteur)
-    _tient_dans_l_ecran(telephone)
+    mesurer(("Enregistrer et régénérer",))
 
 
 def test_les_ecrans_de_la_preparation_se_touchent_du_doigt(telephone, parcours, fiches):
@@ -1258,3 +1301,76 @@ def test_les_ecrans_de_la_preparation_se_touchent_du_doigt(telephone, parcours, 
         for texte, hauteur in mesures:
             assert hauteur >= DOIGT, (fonction, texte, hauteur)
         _tient_dans_l_ecran(telephone)
+
+
+def test_dossier_pret_sans_destinataire_le_dit_et_montre_la_reference(telephone, parcours, fiches):
+    """Sans destinataire : la phrase qui le dit, « Ajouter un destinataire », et la référence de
+    l'annonce, montrée quand même (arbitrage du tour de correction 1). Avec le kit provisoire,
+    son bloc ; sans adresse, pas de « Voir l'annonce › »."""
+    reference = DESTINATAIRE["reference_annonce"]
+    etape = _etape("pret", kit_provisoire=True, dossier=_dossier(reference_annonce=reference))
+    _ouvrir(telephone, parcours["url"])
+    telephone.evaluate("([id, r]) => afficherDossierPret(id, r)", [fiches["doigt"], etape])
+    fenetre = telephone.locator("#fenetre")
+    expect(_titre(telephone)).to_have_text("Dossier prêt")
+    expect(fenetre).to_contain_text(
+        "Aucun destinataire n'est enregistré : la lettre le laisse en rouge dans le PDF")
+    expect(fenetre).not_to_contain_text("Adressée à")
+    expect(fenetre).to_contain_text(f"Référence de l'annonce : {reference}")
+    expect(fenetre.get_by_role("button", name="Ajouter un destinataire")).to_be_visible()
+    expect(fenetre.locator("button", has_text="Modifier le destinataire")).to_have_count(0)
+    expect(fenetre).to_contain_text("Ton kit de candidature n'est pas branché")
+    expect(fenetre.locator("a.lien-annonce")).to_have_count(0)
+
+
+def test_une_preparation_en_cours_rend_le_bouton(telephone, parcours, fiches, console_attendue):
+    """Un 409 `preparation_en_cours` : la phrase d'`ERREURS_API`, puis le bouton rendu actif sous
+    son libellé, et qui le garde (le minuteur est arrêté) : un bouton figé sur « Préparation… »
+    obligerait à recharger la page au téléphone."""
+    console_attendue.append("status of 409")
+    offre_id = fiches["en_cours"]
+    telephone.route(f"**/api/offres/{offre_id}/preparer", lambda route: route.fulfill(
+        status=409, content_type="application/json",
+        body=json.dumps({"erreur": "preparation_en_cours"})))
+    _ouvrir(telephone, parcours["url"])
+    telephone.evaluate("id => ouvrirFiche(id)", offre_id)
+    bouton = _fiche(telephone, offre_id).locator('.ligne-actions [data-action="preparer"]')
+    expect(bouton).to_have_text("Dossier prêt ›")
+    bouton.click()
+    expect(telephone.locator(".message.erreur")).to_have_text(
+        "La préparation de cette offre tourne déjà : attends qu'elle finisse.")
+    expect(bouton).to_be_enabled()
+    expect(bouton).to_have_text("Dossier prêt ›")
+    # Plus d'une seconde après : un minuteur resté en marche aurait réécrit le libellé.
+    telephone.wait_for_timeout(1500)
+    assert bouton.text_content().strip() == "Dossier prêt ›"
+    assert bouton.is_enabled()
+
+
+def test_un_ecran_regenere_s_ouvre_en_haut(telephone, parcours, fiches):
+    """« Enregistrer et régénérer », touché au bas d'un écran allongé par le destinataire :
+    l'écran régénéré s'ouvre en haut, sur ses avertissements (décision 6 : seul le passage qui
+    génère les porte), pas défilé vers le bas."""
+    offre_id = fiches["defiler"]
+    pieces = [{"nom": f"Piece-inventee-{n}.pdf", "fichier": f"piece-{n}.pdf"} for n in range(12)]
+    nom = "Camille Inventée"
+    _simuler_preparation(telephone, offre_id, [
+        _etape("pret", url=ANNONCE, dossier=_dossier(pieces=pieces, **DESTINATAIRE)),
+        _etape("pret", url=ANNONCE, genere=True, avertissements=[ALERTE],
+               dossier=_dossier(pieces=pieces, **{**DESTINATAIRE, "contact_nom": nom})),
+    ])
+    _preparer_depuis_la_fiche(telephone, parcours["url"], offre_id)
+    fenetre = telephone.locator("#fenetre")
+    expect(_titre(telephone)).to_have_text("Dossier prêt")
+    fenetre.get_by_role("button", name="Modifier le destinataire").click()
+    expect(fenetre.get_by_role("button", name="Enregistrer et régénérer")).to_be_visible()
+    # C'est la fenêtre qui défile, pas la page.
+    assert fenetre.evaluate("f => f.scrollHeight > f.clientHeight")
+    fenetre.evaluate("f => { f.scrollTop = f.scrollHeight; }")
+    assert fenetre.evaluate("f => f.scrollTop") > 0
+    fenetre.get_by_role("button", name="Enregistrer et régénérer").click()
+    expect(fenetre).to_contain_text(nom)
+    expect(fenetre).to_contain_text(ALERTE)
+    # L'écran régénéré défile encore : sans retour en haut, il resterait défilé.
+    assert fenetre.evaluate("f => f.scrollHeight > f.clientHeight")
+    assert fenetre.evaluate("f => f.scrollTop") == 0

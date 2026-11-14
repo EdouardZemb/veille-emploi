@@ -1088,11 +1088,14 @@ function afficherEtape(id, r, options) {
   else message(`Étape inconnue : ${r.etape}`, true);
 }
 
-// L'écran d'une étape, à la place de ce que montrait la fenêtre, ouverte s'il le faut.
+// L'écran d'une étape, à la place de ce que montrait la fenêtre, ouverte s'il le faut. Il
+// s'ouvre en haut, sur ses avertissements : la fenêtre (le `<dialog>`, qui défile) garderait
+// sinon la position de l'écran d'avant, comme après « Enregistrer et régénérer » touché en bas.
 function montrerEtape(html) {
   $('#fenetre-contenu').innerHTML = `<div class="etape">${html}</div>`;
   const fenetre = $('#fenetre');
   if (!fenetre.open) fenetre.showModal();
+  fenetre.scrollTop = 0;
 }
 
 // Les avertissements de l'étape, dans l'ordre de la route : l'alerte éliminatoire d'abord.
@@ -1182,9 +1185,11 @@ function afficherDossierPret(id, r) {
                ...String(dest.adresse_entreprise || '').split('\n')]
     .map(l => String(l || '').trim()).filter(Boolean);
   const adressee = qui.length
-    ? `<p class="resume">Adressée à <b>${echapper(qui[0])}</b>${qui.slice(1).map(l => `<br>${echapper(l)}`).join('')}
-        ${dest.reference_annonce ? `<br><span class="menu">Référence de l'annonce : ${echapper(dest.reference_annonce)}</span>` : ''}</p>`
+    ? `<p class="resume">Adressée à <b>${echapper(qui[0])}</b>${qui.slice(1).map(l => `<br>${echapper(l)}`).join('')}</p>`
     : `<p class="resume">Aucun destinataire n'est enregistré : la lettre le laisse en rouge dans le PDF, à compléter.</p>`;
+  // La référence part dans la lettre avec ou sans destinataire : elle se montre toujours.
+  const reference = dest.reference_annonce
+    ? `<p class="resume menu">Référence de l'annonce : ${echapper(dest.reference_annonce)}</p>` : '';
   const pieces = (d.pieces || []).length
     ? `<ul class="fichiers">${d.pieces.map(p => `<li class="fichier">
         <a href="/api/offres/${Number(id)}/dossier/${encodeURIComponent(p.fichier)}?pour_envoi=true" download>${echapper(p.nom)}</a></li>`).join('')}</ul>`
@@ -1202,6 +1207,7 @@ function afficherDossierPret(id, r) {
     <h2>Dossier prêt</h2>
     ${provisoire}
     ${adressee}
+    ${reference}
     ${pieces}
     <div class="actions ligne-actions">${paquet}</div>
     ${lienAnnonce(r.url, "Voir l'annonce ›")}
