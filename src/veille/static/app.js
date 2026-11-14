@@ -397,8 +397,8 @@ async function chargerDocuments() {
       html += '</div>';
     } else {
       html += `<div class="bloc"><h2>Dossiers générés</h2>
-        <p class="resume">Aucun pour l'instant. Le bouton « Générer le dossier »
-        d'une offre en crée un, et il apparaîtra ici.</p></div>`;
+        <p class="resume">Aucun pour l'instant. « Je postule », sur une offre,
+        prépare son dossier, et il apparaîtra ici.</p></div>`;
     }
 
     cible.innerHTML = html;

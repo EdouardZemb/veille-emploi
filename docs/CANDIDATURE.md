@@ -329,8 +329,8 @@ lettre de l'atout logistique, pas la lettre générique.
 Il porte, de haut en bas :
 
 - à qui la lettre est adressée, ou, sans destinataire, qu'elle le laisse en
-  rouge dans le PDF ; puis la référence de l'annonce, même sans destinataire,
-  puisqu'elle part dans la lettre ;
+  rouge dans le PDF ; puis la référence de l'annonce, si elle est enregistrée,
+  même sans destinataire, puisqu'elle part dans la lettre ;
 - les pièces d'envoi, une à une, chacune sous le nom qu'elle porte dans le
   zip : un formulaire en ligne, au téléphone, les demande souvent une par une,
   et doit recevoir `Camille-Exemple-CV-France.pdf`, jamais `cv.fr.pdf` ;
@@ -367,9 +367,10 @@ régénération : un paquet périmé qui traîne est un paquet qui peut partir.
 ### Régénérer sans rien perdre
 
 Sur « Dossier prêt », changer le destinataire régénère le dossier, comme
-« Régénérer le dossier ». Rien de ce que la régénération remplace ne se perd. Avant de régénérer, la console range la
-lettre en place, affinée ou non, dans l'historique du dossier
-(`lettre.historique/`), sous l'étiquette `avant-regeneration`.
+« Régénérer le dossier ». La lettre que la régénération remplace ne se perd
+pas : avant de régénérer, la console range la lettre en place, affinée ou non,
+dans l'historique du dossier (`lettre.historique/`), sous l'étiquette
+`avant-regeneration`.
 
 Un autre jour, la régénération crée un nouveau dossier daté. L'historique de
 l'ancien y est copié, si le nouveau n'en a pas déjà un, et l'ancien dossier
@@ -378,8 +379,8 @@ lettre remplacée est déjà dans l'historique, et l'offre garde son dossier.
 
 Les anciens écrans (*Plus › Toutes les offres*, *Plus › Relances*) gardent
 leur « Générer le dossier » jusqu'au lot 3 de l'ADR-0003, qui les refond. Ce
-bouton-là réécrit la lettre du jour sans la ranger dans l'historique
-([les pistes](pistes.md)).
+bouton-là réécrit la lettre du jour sans ranger d'abord dans l'historique la
+version qu'il remplace ([les pistes](pistes.md)).
 
 ### La lettre est assemblée à partir de l'annonce
 
