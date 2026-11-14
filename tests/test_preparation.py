@@ -13,6 +13,7 @@ vérifie (`_verifier_etape`), chaque chaîne écrite en base se lit, et les list
 from __future__ import annotations
 
 import dataclasses
+import json
 import uuid
 import zipfile
 
@@ -41,6 +42,11 @@ AUTRES = (
 DESTINATAIRE_VIDE = {
     "contact_nom": "", "contact_civilite": "", "adresse_entreprise": "", "reference_annonce": "",
 }
+# L'avertissement de « Dossier prêt » quand la base porte un autre destinataire que la lettre.
+ECART = (
+    "Un autre destinataire est enregistré, que la lettre n'a pas encore. Pour l'y mettre, touche "
+    "« Modifier le destinataire », puis « Enregistrer et régénérer »."
+)
 
 DEFAUTS = {
     "message": "", "url": "", "manques": [], "completude": None, "dossier": None,
@@ -86,9 +92,11 @@ class Voisins:
 
     Chacun note ce qu'il reçoit, dans `appels`, et l'ordre des appels, dans `ordre`. Le faux
     `generer` écrit un dossier sous `dossier.CHEMIN_DOSSIERS` : une lettre (`texte_lettre`), les
-    `pieces`, et le paquet d'envoi qui les porte sous leur nom d'envoi. Le dossier s'appelle
-    `nom_dossier`, un nom fixe qu'un test peut changer (une génération d'un autre jour). Comme le
-    vrai, il réécrit la lettre d'un dossier qui existe, sans l'historiser."""
+    `pieces`, le paquet d'envoi qui les porte sous leur nom d'envoi, puis la note du destinataire.
+    Le dossier s'appelle `nom_dossier`, un nom fixe qu'un test peut changer (une génération d'un
+    autre jour). Comme le vrai, il réécrit la lettre d'un dossier qui existe, sans l'historiser,
+    et retire la note avant de la réécrire. `panne` lève avant toute écriture, ou, avec
+    `lettre_avant_la_panne`, juste après la lettre réécrite, comme le vrai qui casse plus loin."""
 
     def __init__(self) -> None:
         self.politique = Politique(True, DOMAINE, "autorisée (inventé)")
@@ -96,6 +104,7 @@ class Voisins:
         self.lecture = (TEXTE_LU, "")
         self.bilan = BILAN_SUFFISANT
         self.panne: Exception | None = None
+        self.lettre_avant_la_panne = False
         self.nom_dossier = NOM_DOSSIER
         self.texte_lettre = "Lettre générée inventée."
         self.pieces = ["cv.fr.pdf"]
@@ -127,16 +136,20 @@ class Voisins:
 
     def faux_generer(self, offre):
         self._noter("generer", offre)
-        if self.panne is not None:
+        if self.panne is not None and not self.lettre_avant_la_panne:
             raise self.panne
         cible = dossier.CHEMIN_DOSSIERS / self.nom_dossier
         cible.mkdir(parents=True, exist_ok=True)
+        (cible / lettre.NOM_DESTINATAIRE).unlink(missing_ok=True)
         (cible / "lettre-de-motivation.md").write_text(self.texte_lettre, encoding="utf-8")
+        if self.panne is not None:
+            raise self.panne
         for piece in self.pieces:
             (cible / piece).write_bytes(b"%PDF-1.4 piece inventee")
         with zipfile.ZipFile(cible / f"{rendu.prefixe()}-candidature.zip", "w") as paquet:
             for piece in self.pieces:
                 paquet.writestr(rendu.nom_pour_envoi(piece), b"%PDF-1.4 piece inventee")
+        dossier.ecrire_note_destinataire(cible, offre)
         return dossier.ResultatDossier(
             chemin=cible,
             fichiers=["lettre-de-motivation.md", *self.pieces],
@@ -213,12 +226,17 @@ def _verifier_etape(e, **attendu) -> None:
     assert vus == {**DEFAUTS, **attendu}
 
 
-def _dossier_attendu(pieces=("cv.fr.pdf",), avertissements=(), nom=NOM_DOSSIER) -> dict:
+def _dossier_attendu(
+    pieces=("cv.fr.pdf",), avertissements=(), nom=NOM_DOSSIER, note=DESTINATAIRE_VIDE,
+) -> dict:
+    """`note` : le destinataire de la note du dossier, celle qu'écrit le faux `generer` ; None
+    pour un dossier sans note."""
     return {
         "nom": nom,
         "pieces": [{"nom": rendu.nom_pour_envoi(f), "fichier": f} for f in pieces],
         "archive": True,
         "destinataire": DESTINATAIRE_VIDE,
+        "destinataire_lettre": note,
         "avertissements": list(avertissements),
     }
 
@@ -637,6 +655,7 @@ def test_le_dossier_pret_liste_les_pieces_du_paquet_d_envoi():
         ],
         "archive": True,
         "destinataire": DESTINATAIRE_VIDE,
+        "destinataire_lettre": None,
         "avertissements": [],
     }
     # Le paquet est refermé : `generer` peut le supprimer, ce que Windows refuse à un fichier ouvert.
@@ -647,7 +666,7 @@ def test_sans_paquet_d_envoi_le_dossier_pret_n_a_aucune_piece():
     offre_id, _ = _dossier_sur_disque(["cv.fr.pdf", "lettre-de-motivation.md"])
     assert preparation.dossier_pret(db.lire_offre(offre_id)) == {
         "nom": NOM_DOSSIER, "pieces": [], "archive": False, "destinataire": DESTINATAIRE_VIDE,
-        "avertissements": [],
+        "destinataire_lettre": None, "avertissements": [],
     }
 
 
@@ -656,7 +675,7 @@ def test_un_paquet_tronque_vaut_un_paquet_absent():
     _paquet(repertoire).write_bytes(b"PK\x03\x04 tronque")
     assert preparation.dossier_pret(db.lire_offre(offre_id)) == {
         "nom": NOM_DOSSIER, "pieces": [], "archive": False, "destinataire": DESTINATAIRE_VIDE,
-        "avertissements": [],
+        "destinataire_lettre": None, "avertissements": [],
     }
     _paquet(repertoire).unlink()
 
@@ -705,6 +724,151 @@ def test_sans_dossier_sur_le_disque_le_dossier_pret_est_none():
 
 
 # --------------------------------------------------------------------------
+# La note du destinataire : « Dossier prêt » dit celui que porte la lettre
+# --------------------------------------------------------------------------
+
+ADRESSEE = {
+    "contact_nom": "Alex Inventé",
+    "contact_civilite": "Madame",
+    "adresse_entreprise": "1 rue Inventée\n68000 Exempleville",
+    "reference_annonce": "REF-INVENTEE-42",
+}
+# Écrits en clair : un champ retiré de la note doit faire échouer un test.
+CHAMPS = ("contact_nom", "contact_civilite", "adresse_entreprise", "reference_annonce")
+
+
+def _dossier_note(**base):
+    """Un dossier sur le disque, sa note écrite d'après la base `base`, comme `generer` la
+    laisse."""
+    offre_id, repertoire = _dossier_sur_disque(
+        ["cv.fr.pdf"], paquet=[rendu.nom_pour_envoi("cv.fr.pdf")],
+    )
+    if base:
+        db.maj_champs(offre_id, **base)
+    dossier.ecrire_note_destinataire(repertoire, db.lire_offre(offre_id))
+    return offre_id, repertoire
+
+
+def test_les_champs_de_la_note_sont_ceux_du_destinataire():
+    assert dossier.CHAMPS_DESTINATAIRE == CHAMPS
+    assert preparation.CHAMPS_DESTINATAIRE == CHAMPS
+    assert lettre.NOM_DESTINATAIRE == "lettre.destinataire.json"
+    assert lettre.NOM_DESTINATAIRE in lettre.JAMAIS_AU_RECRUTEUR
+
+
+def test_une_note_egale_a_la_base_dit_a_qui_la_lettre_est_adressee():
+    offre_id, _ = _dossier_note(**ADRESSEE)
+    d = preparation.dossier_pret(db.lire_offre(offre_id))
+    assert d["destinataire"] == ADRESSEE
+    assert d["destinataire_lettre"] == ADRESSEE
+    assert d["avertissements"] == []
+
+
+@pytest.mark.parametrize("champ", CHAMPS)
+@pytest.mark.parametrize("enregistre", ["Valeur inventée enregistrée après la lettre", ""])
+def test_une_note_differente_montre_la_lettre_et_le_dit(champ, enregistre):
+    """La vue détaillée enregistre un destinataire sans régénérer : la lettre garde le sien,
+    l'écran le montre, et dit l'écart et le geste qui le corrige."""
+    offre_id, _ = _dossier_note(**ADRESSEE)
+    db.maj_champs(offre_id, **{champ: enregistre})
+    d = preparation.dossier_pret(db.lire_offre(offre_id))
+    assert d["destinataire_lettre"] == ADRESSEE
+    assert d["destinataire"] == {**ADRESSEE, champ: enregistre}
+    assert d["avertissements"] == [ECART]
+
+
+def test_une_lettre_sans_destinataire_et_une_base_qui_en_a_un():
+    offre_id, _ = _dossier_note()
+    db.maj_champs(offre_id, **ADRESSEE)
+    d = preparation.dossier_pret(db.lire_offre(offre_id))
+    assert d["destinataire_lettre"] == DESTINATAIRE_VIDE
+    assert d["destinataire"] == ADRESSEE
+    assert d["avertissements"] == [ECART]
+
+
+def test_sans_note_le_dossier_pret_n_affirme_aucun_destinataire():
+    """Un dossier d'avant le lot 2, déjà en prod : rien ne dit ce que porte sa lettre."""
+    offre_id, _ = _dossier_sur_disque(["cv.fr.pdf"], paquet=[rendu.nom_pour_envoi("cv.fr.pdf")])
+    db.maj_champs(offre_id, **ADRESSEE)
+    d = preparation.dossier_pret(db.lire_offre(offre_id))
+    assert d["destinataire_lettre"] is None
+    assert d["destinataire"] == ADRESSEE
+    assert d["avertissements"] == []
+
+
+@pytest.mark.parametrize(
+    "contenu",
+    [
+        b"{ tronque",
+        b"[]",
+        b'"une chaine"',
+        b'{"contact_nom": "", "contact_civilite": "", "adresse_entreprise": ""}',
+        b'{"contact_nom": 3, "contact_civilite": "", "adresse_entreprise": "", '
+        b'"reference_annonce": ""}',
+        b"\xff\xfe\x00",
+    ],
+)
+def test_une_note_illisible_vaut_une_note_absente(contenu):
+    offre_id, repertoire = _dossier_note(**ADRESSEE)
+    (repertoire / lettre.NOM_DESTINATAIRE).write_bytes(contenu)
+    d = preparation.dossier_pret(db.lire_offre(offre_id))
+    assert d["destinataire_lettre"] is None
+    assert d["avertissements"] == []
+
+
+def test_une_note_qui_n_est_pas_un_fichier_vaut_une_note_absente():
+    offre_id, repertoire = _dossier_sur_disque(["cv.fr.pdf"])
+    (repertoire / lettre.NOM_DESTINATAIRE).mkdir()
+    assert dossier.lire_note_destinataire(repertoire) is None
+    assert preparation.dossier_pret(db.lire_offre(offre_id))["destinataire_lettre"] is None
+
+
+def test_la_note_porte_les_quatre_champs_et_rien_d_autre(tmp_path):
+    dossier.ecrire_note_destinataire(tmp_path, {**ADRESSEE, "titre": "Poste inventé"})
+    assert dossier.lire_note_destinataire(tmp_path) == ADRESSEE
+    note = json.loads((tmp_path / lettre.NOM_DESTINATAIRE).read_text(encoding="utf-8"))
+    assert note == ADRESSEE
+    # Un champ absent ou vide de l'offre est une chaîne vide.
+    dossier.ecrire_note_destinataire(tmp_path, {"contact_nom": None})
+    assert dossier.lire_note_destinataire(tmp_path) == DESTINATAIRE_VIDE
+
+
+@pytest.mark.filterwarnings("ignore:Duplicate name")
+def test_l_ecart_du_destinataire_suit_l_alerte_puis_les_doublons(voisins):
+    """L'ordre R5 : l'alerte éliminatoire, puis la génération, puis `dossier_pret`, qui dit les
+    noms d'envoi en double, puis l'écart du destinataire."""
+    nom = rendu.nom_pour_envoi("lettre-de-motivation.pdf")
+    offre_id, repertoire = _dossier_sur_disque(
+        ["lettre-de-motivation.pdf", "lettre-de-recommandation-inventee.pdf"], paquet=[nom],
+        score=reglages.lire_seuil() + 10,
+    )
+    dossier.ecrire_note_destinataire(repertoire, db.lire_offre(offre_id))
+    db.maj_champs(offre_id, contact_nom=ADRESSEE["contact_nom"])
+    e = preparation.preparer(offre_id, texte=_texte(400, GRAINE_ASTREINTE))
+    doublon = (
+        f"lettre-de-motivation.pdf, lettre-de-recommandation-inventee.pdf partent sous le même "
+        f"nom, {nom} : le recruteur n'en recevra qu'une. Renomme les autres dans le kit."
+    )
+    assert e.etape == "pret"
+    assert e.dossier["avertissements"] == [doublon, ECART]
+    assert e.avertissements == [_alerte(voisins), doublon, ECART]
+    assert voisins.ordre == []
+
+
+def test_regenerer_met_le_destinataire_enregistre_dans_la_lettre(voisins):
+    """« Enregistrer et régénérer » : la note suit la lettre refaite, et l'écart disparaît."""
+    offre_id, repertoire = _dossier_note()
+    db.maj_champs(offre_id, **ADRESSEE)
+    assert preparation.preparer(offre_id).avertissements == [ECART]
+    e = preparation.preparer(offre_id, regenerer=True)
+    assert e.etape == "pret"
+    assert e.dossier["destinataire_lettre"] == ADRESSEE
+    assert e.dossier["destinataire"] == ADRESSEE
+    assert e.avertissements == AVERTISSEMENTS_GENERES
+    assert dossier.lire_note_destinataire(repertoire) == ADRESSEE
+
+
+# --------------------------------------------------------------------------
 # Un dossier existant, et la régénération (décisions 6 à 8, invariant 4)
 # --------------------------------------------------------------------------
 
@@ -750,8 +914,9 @@ def test_sans_regenerer_un_dossier_existant_est_rendu_sans_generer(voisins):
     offre_id, repertoire = _dossier_existant()
     lien = db.lire_offre(offre_id)["url"]
     e = preparation.preparer(offre_id)
-    # Ni avertissements ni kit provisoire : ils ne valent qu'au passage qui génère.
-    _verifier_etape(e, etape="pret", url=lien, dossier=_dossier_attendu())
+    # Ni avertissements ni kit provisoire : ils ne valent qu'au passage qui génère. Un dossier
+    # écrit à la main n'a pas de note.
+    _verifier_etape(e, etape="pret", url=lien, dossier=_dossier_attendu(note=None))
     assert voisins.ordre == []
     assert [t for t, _ in _journal(offre_id) if t.startswith("dossier_")] == []
     # Le dossier n'est plus sur le disque : la préparation le génère.
@@ -873,16 +1038,28 @@ def test_regenerer_ne_redemande_ni_texte_ni_completude(voisins):
     assert db.lire_offre(offre_id)["description"] == EXTRAIT
 
 
-def test_une_regeneration_en_echec_garde_l_ancien_dossier(voisins):
-    offre_id, ancien = _dossier_existant(lettre_courante=LETTRE_AFFINEE)
+def test_une_regeneration_en_echec_peut_laisser_le_dossier_a_moitie_refait(voisins):
+    """Le même jour, `generer` réécrit la lettre, puis casse (T2-M2 de la revue finale). Rien
+    ne remet l'ancienne : la lettre est la neuve, le paquet d'envoi l'ancien, et la note du
+    destinataire est partie. La lettre d'avant est dans l'historique (invariant 4), et l'offre
+    garde son dossier, sans rien au journal."""
+    offre_id, repertoire = _dossier_existant(lettre_courante=LETTRE_AFFINEE)
+    dossier.ecrire_note_destinataire(repertoire, db.lire_offre(offre_id))
+    paquet_avant = _paquet(repertoire).read_bytes()
     voisins.panne = RuntimeError("panne inventée")
-    voisins.nom_dossier = NOM_AUTRE_JOUR
+    voisins.lettre_avant_la_panne = True
+    voisins.texte_lettre = LETTRE_REGENEREE
     e = preparation.preparer(offre_id, regenerer=True)
     _verifier_etape(e, etape="echec", message="panne inventée", url=db.lire_offre(offre_id)["url"])
-    assert db.lire_offre(offre_id)["dossier_chemin"] == str(ancien)
-    assert _lire_lettre(ancien) == LETTRE_AFFINEE
-    [version] = lettre.versions(ancien)
+    assert voisins.ordre == ["evaluer", "generer"]
+    assert db.lire_offre(offre_id)["dossier_chemin"] == str(repertoire)
+    # Ce qui reste sur le disque.
+    assert _lire_lettre(repertoire) == LETTRE_REGENEREE
+    assert _paquet(repertoire).read_bytes() == paquet_avant
+    assert dossier.lire_note_destinataire(repertoire) is None
+    [version] = lettre.versions(repertoire)
     assert version.etiquette == "avant-regeneration"
-    assert lettre.texte_de_version(ancien, version.numero) == LETTRE_AFFINEE
-    assert not (dossier.CHEMIN_DOSSIERS / NOM_AUTRE_JOUR).exists()
+    assert lettre.texte_de_version(repertoire, version.numero) == LETTRE_AFFINEE
     assert [t for t, _ in _journal(offre_id) if t.startswith("dossier_")] == []
+    # Revenu sur « Dossier prêt », l'écran n'affirme aucun destinataire.
+    assert preparation.dossier_pret(db.lire_offre(offre_id))["destinataire_lettre"] is None

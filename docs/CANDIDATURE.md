@@ -329,8 +329,8 @@ lettre de l'atout logistique, pas la lettre générique.
 Il porte, de haut en bas :
 
 - à qui la lettre est adressée, ou, sans destinataire, qu'elle le laisse en
-  rouge dans le PDF ; puis la référence de l'annonce, si elle est enregistrée,
-  même sans destinataire, puisqu'elle part dans la lettre ;
+  rouge dans le PDF ; puis la référence de l'annonce que porte la lettre, même
+  sans destinataire, puisqu'elle part dans la lettre ;
 - les pièces d'envoi, une à une, chacune sous le nom qu'elle porte dans le
   zip : un formulaire en ligne, au téléphone, les demande souvent une par une,
   et doit recevoir `Camille-Exemple-CV-France.pdf`, jamais `cv.fr.pdf` ;
@@ -342,6 +342,22 @@ Il porte, de haut en bas :
 Un paquet d'envoi absent ou illisible (un dossier ancien, un zip tronqué) ne
 donne aucune pièce. L'écran le dit, et « Régénérer le dossier » prend la place
 de « Tout en un zip ».
+
+L'écran lit à qui la lettre est adressée dans la note que chaque génération
+complète laisse dans le dossier, `lettre.destinataire.json`, et non dans la
+base. Un destinataire enregistré depuis, dans le détail de l'offre (où
+« Enregistrer » ne régénère rien) ou avant une régénération en échec, n'est pas
+dans la lettre : l'écran montre celui de la lettre, et le dit en tête, « Un
+autre destinataire est enregistré, que la lettre n'a pas encore. Pour l'y
+mettre, touche « Modifier le destinataire », puis « Enregistrer et
+régénérer ». » Le bouton préremplit le destinataire enregistré. La note ne part
+jamais : ni pièce, ni zip, ni *Plus › Documents*.
+
+Un dossier sans note, généré avant le lot 2 de l'ADR-0003 ou laissé par une
+génération en échec, ne dit pas à qui sa lettre est adressée : l'écran affiche
+« Destinataire enregistré », celui de la base, sans affirmer que la lettre le
+porte. « Régénérer le dossier » n'y paraît pas pour autant : « Modifier le
+destinataire », puis « Enregistrer et régénérer », refait la lettre.
 
 Sur la fiche d'une offre « Je postule » qui a déjà son dossier,
 « Dossier prêt › » ouvre cet écran sans rien générer.
@@ -376,6 +392,11 @@ Un autre jour, la régénération crée un nouveau dossier daté. L'historique d
 l'ancien y est copié, si le nouveau n'en a pas déjà un, et l'ancien dossier
 reste sur le disque. Une régénération en échec ne perd rien non plus : la
 lettre remplacée est déjà dans l'historique, et l'offre garde son dossier.
+Mais le même jour, elle peut le laisser à moitié refait : la lettre, et son
+PDF, déjà neufs, le zip encore l'ancien, ou supprimé. L'écran d'échec le dit :
+réessaie avant d'envoyer. La note du destinataire part dès que la lettre se
+réécrit, et ne revient qu'à la fin d'une génération complète : « Dossier
+prêt » n'affirme alors aucun destinataire.
 
 Les anciens écrans (*Plus › Toutes les offres*, *Plus › Relances*) gardent
 leur « Générer le dossier » jusqu'au lot 3 de l'ADR-0003, qui les refond. Ce
@@ -453,8 +474,11 @@ suivante.
 **Le destinataire n'est jamais demandé avant le dossier.** Sur
 « Dossier prêt », « Ajouter un destinataire » ouvre les champs, et
 « Enregistrer et régénérer » les enregistre, puis régénère la lettre (voir
-« Régénérer sans rien perdre »). Les mêmes champs sont dans le détail de
-l'offre, où « Enregistrer » ne régénère rien.
+« Régénérer sans rien perdre ») : le bloc rappelle que la régénération
+remplace la lettre, même affinée, et que l'ancienne reste dans l'historique du
+dossier. Les mêmes champs sont dans le détail de l'offre, où « Enregistrer »
+ne régénère rien : la lettre garde alors son destinataire, et « Dossier prêt »
+dit l'écart (voir « L'écran « Dossier prêt » »).
 
 Ils ne sont **jamais obligatoires**. Il existe des offres où le nom n'est nulle
 part, et imposer la saisie transformerait une aide en obstacle. Laissés vides,

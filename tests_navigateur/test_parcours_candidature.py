@@ -836,13 +836,48 @@ def _etape(etape: str, **champs) -> dict:
     return Etape(etape, **champs).as_dict()
 
 
-def _dossier(pieces: list[dict] = PIECES, archive: bool = True, **destinataire) -> dict:
-    """Le `dossier` d'une étape `pret`, tel que `preparation.dossier_pret` le rend."""
+_MEME = object()
+
+
+def _dossier(pieces: list[dict] = PIECES, archive: bool = True, lettre=_MEME,
+             **destinataire) -> dict:
+    """Le `dossier` d'une étape `pret`, tel que `preparation.dossier_pret` le rend
+    (`test_le_dossier_simule_a_les_cles_du_vrai`). `destinataire` est celui de la base ;
+    `lettre`, celui de la note de la lettre : par défaut le même, comme après une génération,
+    None pour un dossier sans note (d'avant le lot 2), ou un autre."""
     from veille.preparation import CHAMPS_DESTINATAIRE
 
+    base = {cle: destinataire.get(cle, "") for cle in CHAMPS_DESTINATAIRE}
     return {"nom": "dossier-invente", "pieces": list(pieces), "archive": archive,
-            "destinataire": {cle: destinataire.get(cle, "") for cle in CHAMPS_DESTINATAIRE},
+            "destinataire": base,
+            "destinataire_lettre": dict(base) if lettre is _MEME else lettre,
             "avertissements": []}
+
+
+def test_le_dossier_simule_a_les_cles_du_vrai(tmp_path, monkeypatch):
+    """`_dossier()` est écrit à la main : ses clés, celles d'une pièce, du destinataire et de la
+    note de la lettre sont celles d'un vrai `dossier_pret` (mineure 7 de la revue finale)."""
+    import zipfile
+
+    from veille import dossier, preparation, rendu
+
+    monkeypatch.setattr(dossier, "CHEMIN_DOSSIERS", tmp_path)
+    repertoire = tmp_path / "dossier-invente"
+    repertoire.mkdir()
+    (repertoire / "cv.fr.pdf").write_bytes(b"%PDF-1.4 piece inventee")
+    with zipfile.ZipFile(repertoire / f"{rendu.prefixe()}-candidature.zip", "w") as paquet:
+        paquet.writestr(rendu.nom_pour_envoi("cv.fr.pdf"), b"%PDF-1.4 piece inventee")
+    offre = {"dossier_chemin": str(repertoire), **DESTINATAIRE}
+    sans_note = preparation.dossier_pret(offre)
+    dossier.ecrire_note_destinataire(repertoire, offre)
+    vrai = preparation.dossier_pret(offre)
+    simule = _dossier(**DESTINATAIRE)
+    assert list(simule) == list(vrai)
+    [piece] = vrai["pieces"]
+    assert [list(p) for p in simule["pieces"]] == [list(piece)] * len(PIECES)
+    assert simule["destinataire"] == vrai["destinataire"]
+    assert simule["destinataire_lettre"] == vrai["destinataire_lettre"]
+    assert _dossier(lettre=None)["destinataire_lettre"] is sans_note["destinataire_lettre"] is None
 
 
 def _mince() -> dict:
@@ -1089,6 +1124,8 @@ def test_un_echec_propose_de_reessayer(telephone, parcours, fiches):
         fenetre.get_by_role("button", name="Réessayer").click()
     expect(_titre(telephone)).to_have_text("La génération a échoué")
     expect(fenetre.get_by_role("button", name="Réessayer")).to_be_enabled()
+    # Une première génération n'a pas de dossier d'avant à dire à moitié refait.
+    expect(fenetre).not_to_contain_text("à moitié refait")
     assert corps == [{}, {"texte": TEXTE_COLLE}, {"texte": TEXTE_COLLE}]
 
     telephone.evaluate("id => ouvrirFiche(id)", offre_id)
@@ -1100,7 +1137,9 @@ def test_un_echec_propose_de_reessayer(telephone, parcours, fiches):
 
 def test_reessayer_une_regeneration_regenere(telephone, parcours, fiches):
     """Une régénération en échec se réessaie en régénérant : sans `regenerer`, la route
-    rendrait l'ancien dossier, l'ancien destinataire sur la lettre, sans le dire."""
+    rendrait l'ancien dossier, l'ancien destinataire sur la lettre, sans le dire. L'écran dit
+    l'état du dossier, tel que le montre le test T2-M2 de la préparation : la lettre a pu être
+    refaite, et le zip rester l'ancien."""
     offre_id = fiches["reessayer"]
     corps = _simuler_preparation(telephone, offre_id, [
         _etape("pret", url=ANNONCE, dossier=_dossier(pieces=[], archive=False)),
@@ -1112,6 +1151,10 @@ def test_reessayer_une_regeneration_regenere(telephone, parcours, fiches):
     expect(_titre(telephone)).to_have_text("Dossier prêt")
     fenetre.get_by_role("button", name="Régénérer le dossier").click()
     expect(_titre(telephone)).to_have_text("La génération a échoué")
+    expect(fenetre).to_contain_text(
+        "Le dossier a pu rester à moitié refait : la lettre peut être déjà la nouvelle, et le "
+        "zip encore l'ancien. Réessaie avant d'envoyer. La lettre d'avant est rangée dans "
+        "l'historique du dossier.")
     fenetre.get_by_role("button", name="Réessayer").click()
     expect(fenetre.get_by_role("link", name="Tout en un zip")).to_be_visible()
     assert corps == [{}, {"regenerer": True}, {"regenerer": True}]
@@ -1156,6 +1199,10 @@ def test_ajouter_un_destinataire_enregistre_puis_regenere(telephone, parcours, f
     expect(_titre(telephone)).to_have_text("Dossier prêt")
     fenetre.get_by_role("button", name="Modifier le destinataire").click()
     expect(fenetre.locator("#d-contact")).to_have_value(DESTINATAIRE["contact_nom"])
+    # Régénérer remplace la lettre, même affinée : le bloc le dit (mineure 2 de la revue finale).
+    expect(fenetre.locator("#zone-destinataire")).to_contain_text(
+        "Régénérer remplace la lettre, même affinée : l'ancienne reste dans l'historique du "
+        "dossier.")
     fenetre.locator("#d-contact").fill(nom)
     bouton = fenetre.get_by_role("button", name="Enregistrer et régénérer")
     bouton.click()
@@ -1305,29 +1352,103 @@ def test_les_ecrans_de_la_preparation_se_touchent_du_doigt(telephone, parcours, 
 
 def test_dossier_pret_sans_destinataire_le_dit_et_montre_la_reference(telephone, parcours, fiches):
     """Sans destinataire : la phrase qui le dit, « Ajouter un destinataire », et la référence de
-    l'annonce, montrée quand même (arbitrage du tour de correction 1). Avec le kit provisoire,
-    son bloc ; sans adresse, pas de « Voir l'annonce › »."""
+    l'annonce, montrée quand même (arbitrage du tour de correction 1). Avec la note, la phrase
+    parle de la lettre ; sans elle (un dossier d'avant le lot 2), de ce qui est enregistré. Avec
+    le kit provisoire, son bloc ; sans adresse, pas de « Voir l'annonce › »."""
     reference = DESTINATAIRE["reference_annonce"]
-    etape = _etape("pret", kit_provisoire=True, dossier=_dossier(reference_annonce=reference))
+    phrases = {
+        "note": "La lettre n'a pas de destinataire : elle le laisse en rouge dans le PDF, à "
+                "compléter.",
+        "sans_note": "Aucun destinataire n'est enregistré : la lettre le laisse en rouge dans le "
+                     "PDF, à compléter.",
+    }
+    _ouvrir(telephone, parcours["url"])
+    fenetre = telephone.locator("#fenetre")
+    for cas, lettre in (("note", _MEME), ("sans_note", None)):
+        etape = _etape("pret", kit_provisoire=True,
+                       dossier=_dossier(lettre=lettre, reference_annonce=reference))
+        telephone.evaluate("([id, r]) => afficherDossierPret(id, r)", [fiches["doigt"], etape])
+        expect(_titre(telephone)).to_have_text("Dossier prêt")
+        expect(fenetre).to_contain_text(phrases[cas])
+        autre = phrases["sans_note" if cas == "note" else "note"]
+        expect(fenetre).not_to_contain_text(autre)
+        expect(fenetre).not_to_contain_text("Adressée à")
+        expect(fenetre).not_to_contain_text("Destinataire enregistré")
+        expect(fenetre).to_contain_text(f"Référence de l'annonce : {reference}")
+        expect(fenetre.get_by_role("button", name="Ajouter un destinataire")).to_be_visible()
+        expect(fenetre.locator("button", has_text="Modifier le destinataire")).to_have_count(0)
+        expect(fenetre).to_contain_text("Ton kit de candidature n'est pas branché")
+        expect(fenetre.locator("a.lien-annonce")).to_have_count(0)
+
+
+def test_dossier_pret_sans_note_ne_dit_que_le_destinataire_enregistre(telephone, parcours, fiches):
+    """Un dossier d'avant le lot 2 n'a pas de note : rien ne dit ce que porte sa lettre, et
+    l'écran dit « Destinataire enregistré », jamais « Adressée à »."""
+    etape = _etape("pret", url=ANNONCE, dossier=_dossier(lettre=None, **DESTINATAIRE))
     _ouvrir(telephone, parcours["url"])
     telephone.evaluate("([id, r]) => afficherDossierPret(id, r)", [fiches["doigt"], etape])
     fenetre = telephone.locator("#fenetre")
     expect(_titre(telephone)).to_have_text("Dossier prêt")
-    expect(fenetre).to_contain_text(
-        "Aucun destinataire n'est enregistré : la lettre le laisse en rouge dans le PDF")
+    expect(fenetre).to_contain_text(f"Destinataire enregistré : {DESTINATAIRE['contact_nom']}")
     expect(fenetre).not_to_contain_text("Adressée à")
-    expect(fenetre).to_contain_text(f"Référence de l'annonce : {reference}")
-    expect(fenetre.get_by_role("button", name="Ajouter un destinataire")).to_be_visible()
-    expect(fenetre.locator("button", has_text="Modifier le destinataire")).to_have_count(0)
-    expect(fenetre).to_contain_text("Ton kit de candidature n'est pas branché")
-    expect(fenetre.locator("a.lien-annonce")).to_have_count(0)
+    expect(fenetre).to_contain_text(
+        f"Référence de l'annonce : {DESTINATAIRE['reference_annonce']}")
+    expect(fenetre.get_by_role("button", name="Modifier le destinataire")).to_be_visible()
+
+
+def test_dossier_pret_montre_le_destinataire_de_la_lettre_et_dit_l_ecart(
+        telephone, parcours, fiches):
+    """La vue détaillée a enregistré un autre destinataire, sans régénérer : l'écran montre
+    celui que porte la lettre, d'après sa note, et l'avertissement de `dossier_pret` dit
+    l'écart et le geste qui le corrige. « Modifier le destinataire » préremplit celui de la
+    base, qu'« Enregistrer et régénérer » mettra dans la lettre."""
+    from veille.preparation import ECART_DESTINATAIRE
+
+    nom = "Camille Inventée"
+    reference = "REF-INVENTEE-2"
+    etape = _etape(
+        "pret", url=ANNONCE, avertissements=[ECART_DESTINATAIRE],
+        dossier=_dossier(lettre=DESTINATAIRE,
+                         **{**DESTINATAIRE, "contact_nom": nom, "reference_annonce": reference}))
+    _ouvrir(telephone, parcours["url"])
+    telephone.evaluate("([id, r]) => afficherDossierPret(id, r)", [fiches["doigt"], etape])
+    fenetre = telephone.locator("#fenetre")
+    expect(_titre(telephone)).to_have_text("Dossier prêt")
+    expect(fenetre.locator(".avert").first).to_have_text(ECART_DESTINATAIRE)
+    expect(fenetre).to_contain_text(f"Adressée à {DESTINATAIRE['contact_nom']}")
+    expect(fenetre).to_contain_text(
+        f"Référence de l'annonce : {DESTINATAIRE['reference_annonce']}")
+    expect(fenetre).not_to_contain_text(nom)
+    expect(fenetre).not_to_contain_text(reference)
+    fenetre.get_by_role("button", name="Modifier le destinataire").click()
+    expect(fenetre.locator("#d-contact")).to_have_value(nom)
+    expect(fenetre.locator("#d-reference")).to_have_value(reference)
+    expect(fenetre.get_by_role("button", name="Enregistrer et régénérer")).to_be_visible()
+
+
+def test_un_ecart_sur_la_seule_reference_propose_de_modifier(telephone, parcours, fiches):
+    """Ni la lettre ni la base n'ont de nom : l'écart ne porte que sur la référence, et le bouton
+    est celui que nomme l'avertissement, « Modifier le destinataire »."""
+    from veille.preparation import ECART_DESTINATAIRE
+
+    etape = _etape(
+        "pret", url=ANNONCE, avertissements=[ECART_DESTINATAIRE],
+        dossier=_dossier(lettre={**_dossier()["destinataire"], "reference_annonce": "REF-A"},
+                         reference_annonce="REF-B"))
+    _ouvrir(telephone, parcours["url"])
+    telephone.evaluate("([id, r]) => afficherDossierPret(id, r)", [fiches["doigt"], etape])
+    fenetre = telephone.locator("#fenetre")
+    expect(fenetre).to_contain_text("La lettre n'a pas de destinataire")
+    expect(fenetre).to_contain_text("Référence de l'annonce : REF-A")
+    expect(fenetre.get_by_role("button", name="Modifier le destinataire")).to_be_visible()
+    expect(fenetre.locator("button", has_text="Ajouter un destinataire")).to_have_count(0)
 
 
 def test_une_preparation_en_cours_rend_le_bouton(telephone, parcours, fiches, console_attendue):
     """Un 409 `preparation_en_cours` : la phrase d'`ERREURS_API`, puis le bouton rendu actif sous
     son libellé, et qui le garde (le minuteur est arrêté) : un bouton figé sur « Préparation… »
     obligerait à recharger la page au téléphone."""
-    console_attendue.append("status of 409")
+    console_attendue.append("status of 409 (Conflict)")
     offre_id = fiches["en_cours"]
     telephone.route(f"**/api/offres/{offre_id}/preparer", lambda route: route.fulfill(
         status=409, content_type="application/json",

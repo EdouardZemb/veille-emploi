@@ -4,9 +4,9 @@
 l'annonce (étape `texte`), une information trop mince (`mince`), ou une génération en échec
 (`echec`). Sinon, le dossier est prêt (`pret`). Un dossier déjà sur le disque est rendu, pas
 refait : seul `regenerer` le refait. Le module n'appelle que l'existant, sans le changer : la
-lecture et l'enregistrement du texte (`enrichissement`), la complétude, la génération
-(`dossier`), l'historique de la lettre (`lettre`), les noms d'envoi (`rendu`), les états et la
-base.
+lecture et l'enregistrement du texte (`enrichissement`), la complétude, la génération et la
+note du destinataire qu'elle laisse (`dossier`), l'historique de la lettre (`lettre`), les noms
+d'envoi (`rendu`), les états et la base.
 
 L'ORDRE COMPTE.
 - Le statut s'écrit avant le texte. `db.enregistrer_texte_complet` peut écarter une offre
@@ -46,8 +46,12 @@ ETATS_PREPARABLES: tuple[str, ...] = ("a_voir", "mise_de_cote", "je_postule")
 LONGUEUR_EXTRAIT = 400
 MANQUES_MONTRES = 3
 # À qui la lettre est adressée, sous les clés de l'offre (la route `api_maj` les enregistre).
-CHAMPS_DESTINATAIRE: tuple[str, ...] = (
-    "contact_nom", "contact_civilite", "adresse_entreprise", "reference_annonce",
+CHAMPS_DESTINATAIRE = dossier.CHAMPS_DESTINATAIRE
+# La base porte un autre destinataire que la lettre : la vue détaillée l'a enregistré sans
+# régénérer, ou une régénération a échoué. Le geste nommé est celui de « Dossier prêt ».
+ECART_DESTINATAIRE = (
+    "Un autre destinataire est enregistré, que la lettre n'a pas encore. Pour l'y mettre, touche "
+    "« Modifier le destinataire », puis « Enregistrer et régénérer »."
 )
 
 
@@ -213,7 +217,12 @@ def dossier_pret(offre: Mapping[str, Any]) -> dict[str, Any] | None:
     Une pièce est un fichier du dossier dont le nom d'envoi figure dans le paquet d'envoi : un
     formulaire en ligne reçoit les mêmes noms que le zip. Un paquet absent ou illisible (un
     dossier ancien, un paquet tronqué) ne donne aucune pièce, et `archive` le dit. Deux pièces
-    au même nom d'envoi n'arriveraient pas toutes les deux : un avertissement les nomme."""
+    au même nom d'envoi n'arriveraient pas toutes les deux : un avertissement les nomme.
+
+    `destinataire` est celui de la base, que « Modifier le destinataire » préremplit ;
+    `destinataire_lettre`, celui que porte la lettre, d'après la note que chaque génération
+    complète laisse dans le dossier, ou None sans note (un dossier d'avant le lot 2, une
+    génération en échec). Quand les deux diffèrent, un dernier avertissement le dit."""
     repertoire = dossier.chemin_du_dossier(offre)
     if repertoire is None or not repertoire.is_dir():
         return None
@@ -242,10 +251,15 @@ def dossier_pret(offre: Mapping[str, Any]) -> dict[str, Any] | None:
         for nom, memes in par_nom.items()
         if len(memes) > 1
     ]
+    enregistre = {cle: offre.get(cle) or "" for cle in CHAMPS_DESTINATAIRE}
+    note = dossier.lire_note_destinataire(repertoire)
+    if note is not None and note != enregistre:
+        avertissements.append(ECART_DESTINATAIRE)
     return {
         "nom": repertoire.name,
         "pieces": pieces,
         "archive": archive,
-        "destinataire": {cle: offre.get(cle) or "" for cle in CHAMPS_DESTINATAIRE},
+        "destinataire": enregistre,
+        "destinataire_lettre": note,
         "avertissements": avertissements,
     }

@@ -1161,11 +1161,18 @@ function afficherEtapeMince(id, r) {
 
 // La génération a échoué : sa cause, et « Réessayer » avec les mêmes options. Une
 // régénération en échec se réessaie en régénérant : sans `regenerer`, la route rendrait
-// l'ancien dossier, avec l'ancien destinataire sur la lettre, sans le dire.
+// l'ancien dossier, avec l'ancien destinataire sur la lettre, sans le dire. Elle a pu casser
+// après avoir réécrit la lettre, avant le zip (le test T2-M2 de la préparation) : l'écran dit
+// ce dossier à moitié refait, sans rien promettre de plus.
 function afficherEtapeEchec(id, r, options = {}) {
+  const moitie = options.regenerer
+    ? `<p class="avert">Le dossier a pu rester à moitié refait : la lettre peut être déjà la
+        nouvelle, et le zip encore l'ancien. Réessaie avant d'envoyer. La lettre d'avant est
+        rangée dans l'historique du dossier.</p>` : '';
   montrerEtape(`${avertissementsEtape(r)}
     <h2>La génération a échoué</h2>
     <p class="avert grave">${echapper(r.message)}</p>
+    ${moitie}
     <p class="resume">L'offre reste « Je postule », et un texte collé reste enregistré.</p>
     <div class="actions ligne-actions"><button id="btn-reessayer">Réessayer</button></div>`);
   $('#btn-reessayer').onclick = ev => preparerCandidature(id, ev.currentTarget, options);
@@ -1177,19 +1184,34 @@ function afficherEtapeEchec(id, r, options = {}) {
 // régénère la lettre. Affiner la lettre ne régénère rien. Sans paquet d'envoi lisible (un
 // dossier ancien, un paquet tronqué), ni pièce ni zip, mais « Régénérer le dossier »
 // (décision 12 du plan).
+//
+// Le destinataire montré est celui de la lettre, d'après la note que chaque génération laisse
+// (`destinataire_lettre`) : la base peut en porter un autre, enregistré depuis sans régénérer,
+// et l'avertissement de la route le dit. Sans note (un dossier d'avant le lot 2), l'écran ne
+// dit que le destinataire enregistré, sans affirmer que la lettre le porte. « Modifier le
+// destinataire » préremplit toujours celui de la base (`destinataire`).
 function afficherDossierPret(id, r) {
   const d = r.dossier || { pieces: [], archive: false, destinataire: {} };
   const dest = d.destinataire || {};
+  const lettre = d.destinataire_lettre || null;
+  const montre = lettre || dest;
   // À qui : le nom, sinon la formule d'appel, puis l'adresse, ligne à ligne.
-  const qui = [dest.contact_nom || dest.contact_civilite,
-               ...String(dest.adresse_entreprise || '').split('\n')]
+  const qui = [montre.contact_nom || montre.contact_civilite,
+               ...String(montre.adresse_entreprise || '').split('\n')]
     .map(l => String(l || '').trim()).filter(Boolean);
-  const adressee = qui.length
-    ? `<p class="resume">Adressée à <b>${echapper(qui[0])}</b>${qui.slice(1).map(l => `<br>${echapper(l)}`).join('')}</p>`
-    : `<p class="resume">Aucun destinataire n'est enregistré : la lettre le laisse en rouge dans le PDF, à compléter.</p>`;
+  const ecart = Boolean(lettre)
+    && Object.keys(dest).some(cle => (lettre[cle] || '') !== (dest[cle] || ''));
+  let adressee;
+  if (qui.length) {
+    adressee = `<p class="resume">${lettre ? 'Adressée à' : 'Destinataire enregistré :'} <b>${echapper(qui[0])}</b>${qui.slice(1).map(l => `<br>${echapper(l)}`).join('')}</p>`;
+  } else if (lettre) {
+    adressee = `<p class="resume">La lettre n'a pas de destinataire : elle le laisse en rouge dans le PDF, à compléter.</p>`;
+  } else {
+    adressee = `<p class="resume">Aucun destinataire n'est enregistré : la lettre le laisse en rouge dans le PDF, à compléter.</p>`;
+  }
   // La référence part dans la lettre avec ou sans destinataire : elle se montre toujours.
-  const reference = dest.reference_annonce
-    ? `<p class="resume menu">Référence de l'annonce : ${echapper(dest.reference_annonce)}</p>` : '';
+  const reference = montre.reference_annonce
+    ? `<p class="resume menu">Référence de l'annonce : ${echapper(montre.reference_annonce)}</p>` : '';
   const pieces = (d.pieces || []).length
     ? `<ul class="fichiers">${d.pieces.map(p => `<li class="fichier">
         <a href="/api/offres/${Number(id)}/dossier/${encodeURIComponent(p.fichier)}?pour_envoi=true" download>${echapper(p.nom)}</a></li>`).join('')}</ul>`
@@ -1213,7 +1235,7 @@ function afficherDossierPret(id, r) {
     ${lienAnnonce(r.url, "Voir l'annonce ›")}
     <div class="actions ligne-actions">
       <button id="btn-envoyee-pret">Je l'ai envoyée</button>
-      <button class="discret" id="btn-destinataire-pret">${qui.length ? 'Modifier le destinataire' : 'Ajouter un destinataire'}</button>
+      <button class="discret" id="btn-destinataire-pret">${qui.length || ecart ? 'Modifier le destinataire' : 'Ajouter un destinataire'}</button>
       <button class="discret" id="btn-affiner-pret">Affiner la lettre</button>
     </div>
     <div id="zone-destinataire"></div>
@@ -1224,7 +1246,8 @@ function afficherDossierPret(id, r) {
   // Chaque bouton s'efface devant ce qu'il montre : le bloc porte son propre titre.
   $('#btn-destinataire-pret').onclick = ev => {
     ev.currentTarget.hidden = true;
-    $('#zone-destinataire').innerHTML = blocDestinataire(dest, 'Enregistrer et régénérer');
+    $('#zone-destinataire').innerHTML = blocDestinataire(dest, 'Enregistrer et régénérer',
+      "Régénérer remplace la lettre, même affinée : l'ancienne reste dans l'historique du dossier.");
     brancherDestinataire(id, bouton => preparerCandidature(id, bouton, { regenerer: true }));
   };
   $('#btn-affiner-pret').onclick = async ev => {
@@ -1859,8 +1882,9 @@ function brancherAffinement(id) {
 }
 
 // `libelle` nomme le bouton : « Enregistrer » dans la vue détaillée, « Enregistrer et
-// régénérer » sur « Dossier prêt ».
-function blocDestinataire(o, libelle = 'Enregistrer') {
+// régénérer » sur « Dossier prêt ». `precision`, facultative, se dit juste au-dessus : sur
+// « Dossier prêt », ce que la régénération remplace.
+function blocDestinataire(o, libelle = 'Enregistrer', precision = '') {
   const v = s => echapper(s || '');
   return `<div class="bloc">
     <h3>Le destinataire</h3>
@@ -1878,6 +1902,7 @@ function blocDestinataire(o, libelle = 'Enregistrer') {
       <input id="d-reference" placeholder="laissé vide, la mention disparaît de la lettre"
              value="${v(o.reference_annonce)}"></label>
     <p class="menu" id="proposition-reference"></p>
+    ${precision ? `<p class="menu">${echapper(precision)}</p>` : ''}
     <div class="actions"><button class="discret" id="btn-destinataire">${echapper(libelle)}</button>
       <span class="menu" id="etat-destinataire"></span></div>
   </div>`;

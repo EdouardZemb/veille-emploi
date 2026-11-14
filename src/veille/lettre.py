@@ -54,12 +54,15 @@ NOM_PROPOSITION = "lettre-affinee.md"
 # et le differentiel « voici ce qui a change dans le gabarit » devient possible
 # sans versionner le kit.
 NOM_GABARIT = "gabarit-source.md"
+# Le destinataire dont la lettre a ete faite, note a chaque generation complete
+# (`dossier.ecrire_note_destinataire`) : « Dossier prêt » le compare a la base.
+NOM_DESTINATAIRE = "lettre.destinataire.json"
 
 # Ce qui ne part JAMAIS au recruteur. Par NOM DECLARE, pas par extension :
 # `fiche-offre.md` n'est exclu du paquet d'envoi aujourd'hui que parce qu'il
 # finit par `.md`, ce qui est un controle accidentel et non une intention.
 JAMAIS_AU_RECRUTEUR = (NOM_META, NOM_HISTORIQUE, NOM_GABARIT, NOM_ASSEMBLEE,
-                       NOM_PROPOSITION, "fiche-offre.md",
+                       NOM_PROPOSITION, NOM_DESTINATAIRE, "fiche-offre.md",
                        "preparation-entretien.md")
 
 ETATS = ("assemblee", "proposee", "redigee")

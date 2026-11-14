@@ -6,14 +6,15 @@ import shutil
 import tempfile
 import threading
 import uuid
-from pathlib import Path
+import zipfile
 from email.message import Message
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from veille import app as module_app
-from veille import db, dossier, preparation, rendu
+from veille import db, documents, dossier, entretien, lettre, preparation, rendu
 from veille.app import app
 from veille.models import Offre
 from veille.scoring import scorer
@@ -200,3 +201,99 @@ def test_sans_pour_envoi_une_piece_garde_son_nom(connecte):
     r = connecte.get(f"/api/offres/{offre_id}/dossier/cv.fr.pdf")
     assert r.status_code == 200
     assert _nom_telecharge(r) == "cv.fr.pdf"
+
+
+# --------------------------------------------------------------------------
+# La note du destinataire, sur le vrai `generer`
+# --------------------------------------------------------------------------
+
+DESTINATAIRE = {
+    "contact_nom": "Alex Inventé",
+    "contact_civilite": "Madame",
+    "adresse_entreprise": "1 rue Inventée\n68000 Exempleville",
+    "reference_annonce": "REF-INVENTEE-7",
+}
+AUTRE_NOM = "Dominique Inventée"
+
+
+def _repertoire(offre_id) -> Path:
+    return dossier.chemin_du_dossier(db.lire_offre(offre_id))
+
+
+def _paquet(repertoire: Path) -> Path:
+    return repertoire / f"{rendu.prefixe()}-candidature.zip"
+
+
+def test_preparer_note_le_destinataire_de_la_lettre(connecte, monkeypatch):
+    """La note suit chaque génération, et ne part jamais : ni dans les paquets, ni parmi les
+    pièces, ni dans *Plus › Documents*."""
+    monkeypatch.setattr(documents, "CHEMIN_DOSSIERS", dossier.CHEMIN_DOSSIERS)
+    offre_id = _offre(**DESTINATAIRE)
+    d = _preparer(connecte, offre_id, forcer=True).json()
+    assert d["etape"] == "pret"
+    repertoire = _repertoire(offre_id)
+    assert dossier.lire_note_destinataire(repertoire) == DESTINATAIRE
+    assert d["dossier"]["destinataire_lettre"] == DESTINATAIRE
+    assert d["dossier"]["destinataire"] == DESTINATAIRE
+    assert d["dossier"]["avertissements"] == []
+    paquets = sorted(repertoire.glob("*.zip"))
+    assert len(paquets) == 2
+    for paquet in paquets:
+        with zipfile.ZipFile(paquet) as z:
+            assert not [n for n in z.namelist() if n.endswith(".json")], paquet.name
+    assert lettre.NOM_DESTINATAIRE not in [p["fichier"] for p in d["dossier"]["pieces"]]
+    [ligne] = [x for x in documents.lister_dossiers() if x["dossier"] == repertoire.name]
+    assert ligne["fichiers"]
+    assert lettre.NOM_DESTINATAIRE not in [f["nom"] for f in ligne["fichiers"]]
+    r = connecte.get(f"/api/documents/dossiers/{repertoire.name}/{lettre.NOM_DESTINATAIRE}")
+    assert r.status_code == 404
+
+
+def test_l_ancien_generer_le_dossier_note_aussi_le_destinataire(connecte):
+    """« Générer le dossier », que les anciens écrans gardent jusqu'au lot 3, passe par le même
+    `generer`. Un destinataire enregistré ensuite, sans régénérer (la vue détaillée), se dit sur
+    « Dossier prêt », qui montre toujours celui de la lettre."""
+    offre_id = _offre("interessante", **DESTINATAIRE)
+    assert connecte.post(f"/api/offres/{offre_id}/dossier?forcer=true").json()["ok"] is True
+    assert dossier.lire_note_destinataire(_repertoire(offre_id)) == DESTINATAIRE
+    r = connecte.post(f"/api/offres/{offre_id}", json={"contact_nom": AUTRE_NOM})
+    assert r.status_code == 200
+    d = _preparer(connecte, offre_id).json()
+    assert d["etape"] == "pret"
+    assert d["genere"] is False
+    assert d["dossier"]["destinataire_lettre"] == DESTINATAIRE
+    assert d["dossier"]["destinataire"] == {**DESTINATAIRE, "contact_nom": AUTRE_NOM}
+    assert d["avertissements"][-1].startswith("Un autre destinataire est enregistré")
+
+
+def test_une_generation_en_echec_n_ecrit_pas_de_note(connecte, monkeypatch):
+    """Le vrai `generer` casse après avoir réécrit la lettre (dans la note d'entretien) : la
+    lettre est neuve, le paquet d'envoi l'ancien, et la note de la génération d'avant est
+    partie, sans qu'une neuve soit écrite. La lettre d'avant est dans l'historique."""
+    offre_id = _offre(**DESTINATAIRE)
+    assert _preparer(connecte, offre_id, forcer=True).json()["etape"] == "pret"
+    repertoire = _repertoire(offre_id)
+    assert dossier.lire_note_destinataire(repertoire) == DESTINATAIRE
+    (repertoire / lettre.NOM_LETTRE).write_text("Lettre inventée d'avant.", encoding="utf-8")
+    paquet_avant = _paquet(repertoire).read_bytes()
+    db.maj_champs(offre_id, contact_nom=AUTRE_NOM)
+
+    def casse(*_, **__):
+        raise RuntimeError("panne inventée de la note d'entretien")
+
+    monkeypatch.setattr(entretien, "preparer", casse)
+    d = _preparer(connecte, offre_id, regenerer=True).json()
+    assert d["etape"] == "echec"
+    assert d["message"] == "panne inventée de la note d'entretien"
+    assert _repertoire(offre_id) == repertoire
+    assert (repertoire / lettre.NOM_LETTRE).read_text(encoding="utf-8") != "Lettre inventée d'avant."
+    assert _paquet(repertoire).read_bytes() == paquet_avant
+    assert not (repertoire / lettre.NOM_DESTINATAIRE).exists()
+    [version] = lettre.versions(repertoire)
+    assert lettre.texte_de_version(repertoire, version.numero) == "Lettre inventée d'avant."
+    # Revenu sur « Dossier prêt » : aucun destinataire affirmé, aucun écart inventé.
+    d = _preparer(connecte, offre_id).json()
+    assert d["etape"] == "pret"
+    assert d["dossier"]["destinataire_lettre"] is None
+    assert d["dossier"]["destinataire"]["contact_nom"] == AUTRE_NOM
+    assert d["avertissements"] == []
