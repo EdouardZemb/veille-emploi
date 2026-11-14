@@ -4,7 +4,7 @@
 
 ## Écarts à la spec
 
-<!-- « Aucun. », ou une ligne par écart à la spec ou à l'issue, avec la date de l'accord d'Edouard : - <écart> — promesse : <§ de la spec, ou de l'issue> — accord d'Edouard : JJ/MM/AAAA -->
+<!-- « Aucun. », ou une ligne par écart à la spec ou à l'issue, avec la date de l'accord : - <écart> — promesse : <§ de la spec, ou de l'issue> — accord : JJ/MM/AAAA -->
 
 Aucun.
 
@@ -18,7 +18,7 @@ Aucun.
 - [ ] README relu, à la clôture d'un lot (`docs/modele/documentation.md`)
 
 Tête relue : 
-<!-- Toute PR qui ferme une issue porte cette ligne, quel que soit le mot-clé : le SHA complet de la tête qu'a lue la dernière relecture. Dans un lot, c'est la seule PR de clôture ; hors des lots, un correctif par `Fixes #N`, ou toute autre PR qui ferme son issue. -->
+<!-- Toute PR qui ferme une issue porte cette ligne, quel que soit le mot-clé : le SHA complet de la tête qu'a lue la dernière relecture. Dans un lot, c'est la seule PR de clôture ; hors des lots, un correctif par `Fixes #N`, ou toute autre PR qui ferme son issue. Une PR qui ne ferme aucune issue laisse la ligne vide, ou la retire : elle n'est lue qu'avec une fermeture. -->
 
 ## Reste ouvert
 

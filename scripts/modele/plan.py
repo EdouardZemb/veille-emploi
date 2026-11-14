@@ -41,20 +41,26 @@ la CI vérifie ainsi un plan modifié, dont les numéros de ligne dérivent avec
 Outils et cas limites. Une puce, coupée aux deux premiers séparateurs hors du code en ligne, en
 trois morceaux non vides : l'outil, le cas limite qu'il traite autrement, le test qui l'exerce.
 
-Revues. Une puce par temps de revue, qui cite au moins une tâche, `Tâche N` ou `Task N`, sans égard
-à la casse, présente dans les titres de niveau 3 (`### Tâche N : …`, `### Task N: …`), lus hors des
-blocs de code clôturés et des blocs de commentaire HTML, fermés ou non. Deux titres ne portent
-jamais le même numéro. La clôture est la première tâche dont le titre dit « clôture » ou
-« closure » : chaque tâche citée la précède. Un titre après elle ne refuse pas, mais une revue qui
-le cite refuse.
+Revues. Une puce par temps de revue, qui cite au moins une unité du plan, présente dans ses titres
+de niveau 3, lus hors des blocs de code clôturés et des blocs de commentaire HTML, fermés ou non.
+Une unité est une tâche, `### Tâche N : …` ou `### Task N: …`, citée par `Tâche N` ou `Task N`, ou
+une tranche, `### Tranche N`, citée par `Tranche N`, sans égard à la casse. Un plan à tâches,
+ou sans unité, ne cite que des tâches ; un plan maître, qui a des tranches et aucune tâche, ne cite
+que des tranches : l'autre mot n'est que du texte. Un plan qui a les deux sortes est mêlé : il
+refuse (`MELE`), juste avant le résumé, et ses citations se lisent dans les deux sortes, chacune
+contre les titres de sa sorte. Un numéro suivi d'un point reste le numéro : `### Tranche 2.1` est
+la tranche 2. Deux titres de la même sorte ne portent jamais le même numéro. La clôture est la
+première unité dont le titre dit « clôture » ou « closure » : chaque unité citée la précède. Un
+titre après elle ne refuse pas, mais une revue qui le cite refuse.
 
 Les fichiers. Un plan qui commence par un BOM UTF-16 se lit en UTF-16, ce qu'écrivent `>` et
 `Out-File` de PowerShell 5.1 ; sinon, le plan et les fichiers cités se lisent en UTF-8, BOM retiré,
 chaque octet qui n'est pas de l'UTF-8 remplacé.
 
 La sortie ne cite jamais une ligne du plan : seulement des chemins, des rangs, des numéros de tâche
-et les titres des sections, chaque caractère de contrôle ou séparateur de ligne d'un nom remplacé
-par `?`. Elle finit par un résumé, puis par `refus` s'il y a refus.
+ou de tranche, les titres des sections et les formes fixes des refus (la forme attendue d'une
+section, le commentaire jamais fermé), chaque caractère de contrôle ou séparateur de ligne d'un nom
+remplacé par `?`. Elle finit par un résumé, puis par `refus` s'il y a refus.
 
 Bibliothèque standard seule, Python 3.10 ou plus.
 
@@ -83,7 +89,24 @@ MECANISMES = "Mécanismes annoncés"
 OUTILS = "Outils et cas limites"
 REVUES = "Revues"
 AUCUN = "Aucun."
-FORME = "forme attendue"
+TACHE = "Tâche"
+TRANCHE = "Tranche"
+MELE = "le plan mêle des tâches et des tranches"
+COMMENTAIRE_OUVERT = "commentaire HTML jamais fermé, qui cache la suite"
+# Une revue sans citation : un texte fixe par sorte citée.
+AUCUNE_CITATION = {
+    (TACHE,): "aucune tâche citée",
+    (TRANCHE,): "aucune tranche citée",
+    (TACHE, TRANCHE): "aucune tâche ni tranche citée",
+}
+# Chaque refus de forme dit la forme de sa section.
+FORMES = {
+    MECANISMES: "forme attendue : - `<chemin>:<ligne>` — `<extrait>` — <comportement annoncé>, "
+    "ou « Aucun. » seul",
+    OUTILS: "forme attendue : - <outil> — <cas limite> — <test>, ou « Aucun. » seul",
+    REVUES: "forme attendue : - <revue> : Tâche N, ou Tranche N dans un plan maître ; "
+    "jamais « Aucun. »",
+}
 
 _TRADUCTION = str.maketrans({"\u2019": "'", "\u02bc": "'", "\u00a0": " ", "\u202f": " "})
 _PUCE = re.compile(r"[-*](?:[ \t]+|$)")
@@ -91,8 +114,9 @@ _PUCE = re.compile(r"[-*](?:[ \t]+|$)")
 _SEPARATEUR = re.compile(r"[ \t]+[\u2014\u2013][ \t]+")
 _NOM = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _LIGNES = re.compile(r"([1-9][0-9]{0,8})(?:-([1-9][0-9]{0,8}))?")
-_TITRE_DE_TACHE = re.compile(r" {0,3}###[ \t]+(?:tâche|task)[ \t]+([0-9]{1,9})\b", re.IGNORECASE)
+_TITRE = re.compile(r" {0,3}###[ \t]+(tâche|task|tranche)[ \t]+([0-9]{1,9})\b", re.IGNORECASE)
 _CITATION = re.compile(r"\b(?:tâche|task)[ \t]+([0-9]{1,9})\b", re.IGNORECASE)
+_CITATION_DE_TRANCHE = re.compile(r"\btranche[ \t]+([0-9]{1,9})\b", re.IGNORECASE)
 _CLOTURE = ("clôture", "closure")
 
 
@@ -168,22 +192,26 @@ def _normaliser(texte: str, doc) -> str:
     )
 
 
-def _lire_section(brute: str, doc) -> tuple[list[tuple[int, str]], list[int], list[int]]:
+def _lire_section(
+    brute: str, doc
+) -> tuple[list[tuple[int, str]], list[int], list[int], int | None]:
     """Les lignes d'une section : (puces, chacune avec son rang et ses lignes de continuation
-    jointes ; rangs des « Aucun. » ; rangs des lignes refusées). Un `<!--` jamais fermé refuse sa
-    ligne, et cache la suite. Une sous-liste, ou une ligne ouverte par un commentaire puis portant
-    un texte, que GitHub rend en bloc HTML, ne continue pas la puce d'avant : elle refuse."""
+    jointes ; rangs des « Aucun. » ; rangs des lignes refusées ; rang d'un `<!--` jamais fermé, ou
+    `None`). Ce `<!--` refuse sa ligne, à part des lignes refusées, et cache la suite. Une
+    sous-liste, ou une ligne ouverte par un commentaire puis portant un texte, que GitHub rend en
+    bloc HTML, ne continue pas la puce d'avant : elle refuse."""
     propre = doc.sans_bloc_ni_commentaire(brute)
     masque = doc.CODE_EN_LIGNE.sub(lambda m: re.sub(r"[^\n]", "x", m.group(0)), propre)
     en_bloc_html = doc.lignes_en_bloc_html(brute)
     puces: list[tuple[int, list[str]]] = []
     aucuns: list[int] = []
     refusees: list[int] = []
+    ouvert = None
     ouverte = False
     lignes = zip(_normaliser(propre, doc).split("\n"), masque.split("\n"))
     for rang, (ligne, hors_du_code) in enumerate(lignes, start=1):
         if "<!--" in hors_du_code:
-            refusees.append(rang)
+            ouvert = rang
             break
         if not ligne.strip():
             continue
@@ -203,7 +231,7 @@ def _lire_section(brute: str, doc) -> tuple[list[tuple[int, str]], list[int], li
             continue
         ouverte = False
         refusees.append(rang)
-    return [(rang, " ".join(morceaux)) for rang, morceaux in puces], aucuns, refusees
+    return [(rang, " ".join(morceaux)) for rang, morceaux in puces], aucuns, refusees, ouvert
 
 
 def _code_en_ligne(texte: str, position: int, doc) -> tuple[str, int] | None:
@@ -278,7 +306,7 @@ def _mecanisme(
     """Une ligne de mécanisme : (« vérifié », « non vérifié » ou « refus » ; message)."""
     lu = _lieu_et_extrait(texte, doc)
     if lu is None:
-        return "refus", FORME
+        return "refus", FORMES[MECANISMES]
     texte_du_lieu, extrait = lu
     try:
         prefixe, chemin, debut, fin = lieu(texte_du_lieu)
@@ -300,21 +328,22 @@ def _mecanisme(
     return "refus", f"extrait absent de {doc._affichable(texte_du_lieu)}"
 
 
-def _taches(texte: str, doc) -> list[tuple[int, str]]:
-    """Les tâches du plan, dans l'ordre : (numéro, titre replié), d'après les titres de niveau 3
-    lus hors des blocs de code clôturés et des blocs de commentaire HTML, fermés ou non. Comme
-    dans `sections()`, chaque bloc se retire, ses fins de ligne gardées : un `<!--` jamais fermé
-    qui ouvre un bloc cache tout ce qui le suit, comme sur GitHub."""
+def _unites(texte: str, doc) -> list[tuple[str, int, str]]:
+    """Les unités du plan, dans l'ordre : (sorte, `TACHE` ou `TRANCHE` ; numéro ; titre replié),
+    d'après les titres de niveau 3 lus hors des blocs de code clôturés et des blocs de commentaire
+    HTML, fermés ou non. Comme dans `sections()`, chaque bloc se retire, ses fins de ligne gardées :
+    un `<!--` jamais fermé qui ouvre un bloc cache tout ce qui le suit, comme sur GitHub."""
     visibles = doc._BLOC_DE_COMMENTAIRE.sub(
         lambda m: "\n" * m.group(0).count("\n"), doc._hors_des_blocs(doc._en_lf(texte))
     )
-    taches = []
+    unites = []
     for ligne in doc.sans_bloc_ni_commentaire(visibles).split("\n"):
         ligne = unicodedata.normalize("NFC", ligne)
-        m = _TITRE_DE_TACHE.match(ligne)
+        m = _TITRE.match(ligne)
         if m is not None:
-            taches.append((int(m.group(1)), ligne.casefold()))
-    return taches
+            sorte = TRANCHE if m.group(1).casefold() == "tranche" else TACHE
+            unites.append((sorte, int(m.group(2)), ligne.casefold()))
+    return unites
 
 
 def verifier(
@@ -328,22 +357,37 @@ def verifier(
     refus = False
     resolues: dict[Path, Path] = {}
     comptes = {"vérifié": 0, "non vérifié": 0, OUTILS: 0, REVUES: 0}
-    taches = _taches(texte, doc)
-    numeros = [numero for numero, _ in taches]
+    unites = _unites(texte, doc)
+    sortes = {sorte for sorte, _, _ in unites}
+    mele = len(sortes) == 2
+    # un plan maître a des tranches et aucune tâche ; un plan sans unité est un plan à tâches
+    if mele:
+        citees = (TACHE, TRANCHE)
+    else:
+        citees = (TRANCHE,) if sortes == {TRANCHE} else (TACHE,)
     cloture = next(
-        (i for i, (_, titre) in enumerate(taches) if any(mot in titre for mot in _CLOTURE)), None
+        (i for i, (_, _, titre) in enumerate(unites) if any(mot in titre for mot in _CLOTURE)),
+        None,
     )
 
     def revue(ligne: str) -> list[str]:
-        cites = list(dict.fromkeys(int(m.group(1)) for m in _CITATION.finditer(ligne)))
+        cites = []
+        for sorte in citees:
+            motif = _CITATION if sorte == TACHE else _CITATION_DE_TRANCHE
+            cites += [(sorte, int(m.group(1))) for m in motif.finditer(ligne)]
+        cites = list(dict.fromkeys(cites))
         if not cites:
-            return ["aucune tâche citée"]
+            return [AUCUNE_CITATION[citees]]
         motifs = []
-        for n in cites:
-            if n not in numeros:
-                motifs.append(f"Tâche {n} absente des titres")
-            elif cloture is not None and numeros.index(n) >= cloture:
-                motifs.append(f"Tâche {n} ne précède pas la clôture (Tâche {numeros[cloture]})")
+        for sorte, n in cites:
+            rang = next((i for i, (s, num, _) in enumerate(unites) if (s, num) == (sorte, n)), None)
+            if rang is None:
+                motifs.append(f"{sorte} {n} absente des titres")
+            elif cloture is not None and rang >= cloture:
+                sorte_cloture, numero_cloture, _ = unites[cloture]
+                motifs.append(
+                    f"{sorte} {n} ne précède pas la clôture ({sorte_cloture} {numero_cloture})"
+                )
         return motifs
 
     for titre in (MECANISMES, OUTILS, REVUES):
@@ -356,15 +400,17 @@ def verifier(
             lignes.append(f"section « {titre} » en double")
             refus = True
             continue
-        puces, aucuns, refusees = _lire_section(morceaux[0], doc)
-        if not (puces or aucuns or refusees):
+        puces, aucuns, refusees, ouvert = _lire_section(morceaux[0], doc)
+        if not (puces or aucuns or refusees or ouvert is not None):
             lignes.append(f"section « {titre} » vide")
             refus = True
             continue
         # « Aucun. » n'est admis que seul, et jamais dans « Revues »
-        constats = [(rang, FORME, True) for rang in refusees]
+        constats = [(rang, FORMES[titre], True) for rang in refusees]
         if puces or titre == REVUES:
-            constats += [(rang, FORME, True) for rang in aucuns]
+            constats += [(rang, FORMES[titre], True) for rang in aucuns]
+        if ouvert is not None:
+            constats.append((ouvert, COMMENTAIRE_OUVERT, True))
         for rang, ligne in puces:
             if titre == MECANISMES:
                 etat, message = _mecanisme(ligne, racine, depots, lieux, doc, resolues)
@@ -380,7 +426,7 @@ def verifier(
                 if len(morceaux) == 3 and all(morceau.strip() for morceau in morceaux):
                     comptes[OUTILS] += 1
                 else:
-                    constats.append((rang, FORME, True))
+                    constats.append((rang, FORMES[OUTILS], True))
             else:
                 motifs = revue(ligne)
                 constats += [(rang, motif, True) for motif in motifs]
@@ -388,8 +434,12 @@ def verifier(
         for rang, message, refuse in sorted(constats, key=lambda c: c[0]):
             lignes.append(f"{titre}, ligne {rang} : {message}")
             refus = refus or refuse
-    for n in sorted({n for n in numeros if numeros.count(n) > 1}):
-        lignes.append(f"Tâche {n} en double")
+    numeros = [(sorte, numero) for sorte, numero, _ in unites]
+    for sorte, n in sorted({u for u in numeros if numeros.count(u) > 1}):
+        lignes.append(f"{sorte} {n} en double")
+        refus = True
+    if mele:
+        lignes.append(MELE)
         refus = True
     if lieux:
         tete = f"{comptes['vérifié']} mécanismes vérifiés, {comptes['non vérifié']} non vérifiés"

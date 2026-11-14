@@ -334,6 +334,32 @@ nombre_de_lancements() {
   [ "$(cat "$instantane.couple")" = "$NOUVELLE 0.2.0 -" ]
 }
 
+# L'horloge des instantanés ne vieillit pas (modele-projet#136) : ses horodatages tombent la veille
+# de la vraie date, avant la vraie heure et après la limite de la purge de 30 jours, qui lit la
+# vraie horloge.
+# Un jour figé, le 15/10/2026, est passé sous cette limite le 14/11/2026 : la purge retirait alors
+# les instantanés des tests.
+@test "aide : l'horloge des instantanés reste dans la fenêtre de la purge" {
+  local premier second maintenant limite jour
+  # le jour de l'horloge, relevé à neuf : la veille de la vraie date, après la limite de la purge
+  [[ "$(jour_de_l_horloge)" < "$(date -u +%Y%m%d)" ]]
+  [[ "$(date -u -d '30 days ago' +%Y%m%d)" < "$(jour_de_l_horloge)" ]]
+  # un jour déjà relevé dans le test reste le sien : un test qui passe minuit garde son jour. Le
+  # double ne s'installe qu'une fois par test : installé de nouveau, il prendrait pour la vraie
+  # `date` le double déjà en place, et s'appellerait sans fin.
+  jour="$(date -u -d '2 days ago' +%Y%m%d)"
+  echo "$jour" >"$BATS_TEST_TMPDIR/horloge-jour"
+  horloge_qui_avance
+  premier="$(date -u +%Y%m%dT%H%M%SZ)"
+  second="$(date -u +%Y%m%dT%H%M%SZ)"
+  maintenant="$(date -u -d now +%Y%m%dT%H%M%SZ)"
+  limite="$(date -u -d '30 days ago' +%Y%m%dT%H%M%SZ)"
+  [ "$premier" = "${jour}T000001Z" ]
+  [[ "$premier" < "$second" ]]
+  [[ "$limite" < "$premier" ]]
+  [[ "$second" < "$maintenant" ]]
+}
+
 # Le retour arrière manuel prend son instantané comme un déploiement : son .couple nomme le couple
 # qu'il quitte, celui de deploye avant le retour, et non celui vers lequel il revient (M-0005, § 3).
 @test "deployer : le retour arrière note le couple qu'il quitte" {
@@ -383,8 +409,8 @@ nombre_de_lancements() {
   # un seul .partiel qui ne soit pas un lien : celui de la seconde tentative, intact
   partiels="$(find "$pre" -mindepth 1 -maxdepth 1 ! -type l -regextype posix-extended \
     -regex '.*/[0-9]{8}T[0-9]{6}Z\.partiel')"
-  [ "$partiels" = "$pre/20261015T000002Z.partiel" ]
-  [ -f "$pre/20261015T000002Z.partiel/donnees.txt" ]
+  [ "$partiels" = "$pre/$(jour_de_l_horloge)T000002Z.partiel" ]
+  [ -f "$pre/$(jour_de_l_horloge)T000002Z.partiel/donnees.txt" ]
   # l'instantané complet et les autres noms restent, en entier ; le lien et sa cible aussi
   for nom in "$complet" "${autres[@]}"; do
     [ "$(cat "$pre/$nom/sous/donnees.txt")" = "$nom" ]

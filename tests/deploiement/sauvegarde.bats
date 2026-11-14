@@ -364,8 +364,8 @@ aucune_copie_jetable() {
   # un seul .partiel qui ne soit pas un lien : celui de la seconde nuit, intact
   partiels="$(find "$q" -mindepth 1 -maxdepth 1 ! -type l -regextype posix-extended \
     -regex '.*/veille-emploi-[0-9]{8}T[0-9]{6}Z\.partiel')"
-  [ "$partiels" = "$q/veille-emploi-20261015T000002Z.partiel" ]
-  [ -f "$q/veille-emploi-20261015T000002Z.partiel/donnees.txt" ]
+  [ "$partiels" = "$q/veille-emploi-$(jour_de_l_horloge)T000002Z.partiel" ]
+  [ -f "$q/veille-emploi-$(jour_de_l_horloge)T000002Z.partiel/donnees.txt" ]
   # la sauvegarde complète et les autres noms restent, en entier ; le lien et sa cible aussi
   [ "$(cat "$q/$complet/donnees.txt")" = "instantané de test $complet" ]
   [ -f "$q/$complet/sous/profond.txt" ]
@@ -2854,15 +2854,15 @@ exec '"$vrai"' "$@"'
   aucun_temporaire
   # mkdir échoue : un lien occupe déjà le nom de la copie ; il n'est pas à elle, et reste
   horloge_qui_avance
-  ln -s /nulle-part "$SAUVEGARDES/report-20261015T000001Z"
+  ln -s /nulle-part "$SAUVEGARDES/report-$(jour_de_l_horloge)T000001Z"
   : >"$APPELS"
   restaurer prod "$SAUVEGARDES/quotidiennes/$SNAPSHOT" --oui
   [ "$status" -eq 1 ]
   echo "$output" \
-    | grep -F "copie jetable $SAUVEGARDES/report-20261015T000001Z impossible à créer : la restauration est abandonnée, rien n'a changé" \
+    | grep -F "copie jetable $SAUVEGARDES/report-$(jour_de_l_horloge)T000001Z impossible à créer : la restauration est abandonnée, rien n'a changé" \
     | grep -F -- "relancer avec --sans-report, puis « $SECTION » (docs/exploitation.md)"
   [ -z "$(appels_de docker | grep -F '/actuel' || true)" ]
-  [ -L "$SAUVEGARDES/report-20261015T000001Z" ]
+  [ -L "$SAUVEGARDES/report-$(jour_de_l_horloge)T000001Z" ]
   [ -f "$EN_SERVICE" ]
   contenu_courant_intact
   [ ! -e "$DONNEES.nouvelle" ]
