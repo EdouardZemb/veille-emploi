@@ -267,11 +267,41 @@ def test_un_extrait_d_une_source_autorisee_est_lu_puis_pret(voisins):
 
 def test_une_description_courte_est_un_extrait(voisins):
     courte = _offre(description=_texte(399))
+    assert db.lire_offre(courte)["enrichi_le"] is None
+    assert db.lire_offre(courte)["donnees_partielles"] is False
     preparation.preparer(courte)
     assert voisins.appels["politique"] == [db.lire_offre(courte)["url_canonique"]]
     pleine = _offre(description=_texte(400))
     assert preparation.preparer(pleine).etape == "pret"
     assert len(voisins.appels["politique"]) == 1
+
+
+@pytest.mark.parametrize("bilan, etape", [(BILAN_MINCE, "mince"), (BILAN_SUFFISANT, "pret")])
+def test_un_texte_colle_court_n_est_plus_un_extrait(voisins, bilan, etape):
+    """Un texte complet enregistré n'est plus un extrait, même court : la préparation ne le relit
+    pas et ne le redemande pas, et la complétude dit s'il est trop mince (arbitrage R6)."""
+    voisins.bilan = bilan
+    voisins.politique = Politique(False, DOMAINE, RAISON)
+    offre_id = _offre(description=EXTRAIT, donnees_partielles=True)
+    court = _texte(300)
+    e = preparation.preparer(offre_id, texte=court)
+    assert e.etape == etape
+    assert "politique" not in voisins.ordre
+    assert voisins.ordre[0] == "evaluer"
+    assert voisins.appels["evaluer"][0]["description"] == court
+    assert db.lire_offre(offre_id)["enrichi_par"] == "colle a la main"
+
+
+def test_un_texte_colle_un_autre_jour_n_est_pas_relu(voisins):
+    """Une description courte, mais collée un autre jour (`enrichi_le` posé) : jamais relue."""
+    offre_id = _offre(description=_texte(300))
+    with db.connexion() as cx:
+        cx.execute(
+            "UPDATE offres SET enrichi_le = ?, enrichi_par = ? WHERE id = ?",
+            ("2026-11-12T08:30:00", "colle a la main", offre_id),
+        )
+    assert preparation.preparer(offre_id).etape == "pret"
+    assert voisins.ordre == ["evaluer", "generer"]
 
 
 def test_une_source_interdite_mene_a_l_etape_texte(voisins):
@@ -462,20 +492,16 @@ def test_l_alerte_eliminatoire_du_texte_colle_se_dit(voisins):
     assert len(e.dossier["avertissements"]) == 1
 
 
-@pytest.mark.parametrize("etape", ["mince", "echec", "texte"])
+@pytest.mark.parametrize("etape", ["mince", "echec"])
 def test_l_alerte_precede_aussi_les_etapes_qui_s_arretent(voisins, etape):
-    """Une alerte s'ajoute en tête des avertissements de toute étape qui suit un texte enregistré."""
-    longueur = 400
+    """Une alerte s'ajoute en tête des avertissements de toute étape qui suit un texte enregistré.
+    L'étape `texte` n'en suit jamais : un texte enregistré n'est plus un extrait (arbitrage R6)."""
     if etape == "mince":
         voisins.bilan = BILAN_MINCE
-    elif etape == "echec":
-        voisins.panne = RuntimeError("panne inventée")
     else:
-        # Un texte collé plus court qu'un extrait : la lecture suit, et la source la refuse.
-        longueur = 300
-        voisins.politique = Politique(False, DOMAINE, RAISON)
+        voisins.panne = RuntimeError("panne inventée")
     offre_id = _au_dessus_du_seuil()
-    e = preparation.preparer(offre_id, texte=_texte(longueur, GRAINE_ASTREINTE))
+    e = preparation.preparer(offre_id, texte=_texte(400, GRAINE_ASTREINTE))
     assert e.etape == etape
     assert e.avertissements == [_alerte(voisins)]
     assert db.lire_offre(offre_id)["statut"] == "interessante"

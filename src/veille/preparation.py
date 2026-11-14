@@ -33,7 +33,8 @@ ETAPES: tuple[str, ...] = ("texte", "mince", "pret", "echec")
 STATUTS_A_PRENDRE: tuple[str, ...] = ("nouveau", "a_traiter", "differee")
 # Une offre envoyée, en entretien ou close n'a plus de candidature à préparer.
 ETATS_PREPARABLES: tuple[str, ...] = ("a_voir", "mise_de_cote", "je_postule")
-# Un extrait : une description plus courte, ou marquée `donnees_partielles` (ADR-0003, Contexte).
+# Un extrait, l'annonce « reçue en extrait » (ADR-0003, Contexte) : une description plus courte,
+# ou marquée `donnees_partielles`, telle que la source l'a donnée.
 LONGUEUR_EXTRAIT = 400
 MANQUES_MONTRES = 3
 # À qui la lettre est adressée, sous les clés de l'offre (la route `api_maj` les enregistre).
@@ -101,9 +102,10 @@ def preparer(
             return Etape("texte", message=refus, url=lien)
     offre = db.lire_offre(offre_id)
     if not forcer and _est_un_extrait(offre):
+        # Un extrait n'a aucun texte enregistré : un refus de la lecture ne suit aucune alerte.
         refus = _lire_l_annonce(offre_id, offre, alertes)
         if refus is not None:
-            return Etape("texte", message=refus, url=lien, avertissements=alertes)
+            return Etape("texte", message=refus, url=lien)
         offre = db.lire_offre(offre_id)
     bilan = completude.evaluer(offre)
     if not forcer and not bilan.suffisant_pour_dossier:
@@ -129,8 +131,12 @@ def preparer(
 
 
 def _est_un_extrait(offre: Mapping[str, Any]) -> bool:
-    """Une description plus courte que `LONGUEUR_EXTRAIT`, ou marquée partielle."""
-    return offre["donnees_partielles"] or len(offre["description"] or "") < LONGUEUR_EXTRAIT
+    """Une description plus courte que `LONGUEUR_EXTRAIT`, ou marquée partielle, que la source a
+    donnée : un texte complet déjà enregistré (`enrichi_le`, que `appliquer_texte` pose et que
+    `db.annuler_texte_complet` retire) n'en est plus un, quelle que soit sa longueur. Court, la
+    complétude le dira (« Description complète ») ; la préparation ne le redemande pas."""
+    recue_en_extrait = offre["donnees_partielles"] or len(offre["description"] or "") < LONGUEUR_EXTRAIT
+    return recue_en_extrait and not offre["enrichi_le"]
 
 
 def _enregistrer(offre_id: int, texte: str, origine: str, alertes: list[str]) -> str | None:
