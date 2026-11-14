@@ -18,13 +18,15 @@ import zipfile
 
 import pytest
 
-from veille import db, dossier, enrichissement, models, preparation, reglages, rendu
+from veille import db, dossier, enrichissement, lettre, models, preparation, reglages, rendu
 from veille.completude import Bilan, Manque
 from veille.enrichissement import Politique
 from veille.models import Offre
 
 DOMAINE = "annonces.exemple.invalid"
 NOM_DOSSIER = "2026-11-13_societe-inventee_poste-invente"
+# Le dossier que la même offre reçoit un autre jour : `generer` le date du jour.
+NOM_AUTRE_JOUR = "2026-11-14_societe-inventee_poste-invente"
 GABARIT = "lettre_inventee.md"
 AVERTISSEMENTS_GENERES = ["Avertissement inventé de la génération."]
 RAISON = "raison inventée"
@@ -74,15 +76,19 @@ MANQUES_INVENTES = [
 BILAN_MINCE = Bilan(
     score=40, niveau="mince", manques=MANQUES_INVENTES, acquis=[], suffisant_pour_dossier=False,
 )
+BILAN_30 = Bilan(
+    score=30, niveau="mince", manques=MANQUES_INVENTES, acquis=[], suffisant_pour_dossier=False,
+)
 
 
 class Voisins:
     """Les faux voisins de `preparer`, réglables test par test.
 
     Chacun note ce qu'il reçoit, dans `appels`, et l'ordre des appels, dans `ordre`. Le faux
-    `generer` écrit un dossier sous `dossier.CHEMIN_DOSSIERS` : une lettre, les `pieces`, et le
-    paquet d'envoi qui les porte sous leur nom d'envoi. Le dossier s'appelle `nom_dossier`, un
-    nom fixe qu'un test peut changer (une génération d'un autre jour)."""
+    `generer` écrit un dossier sous `dossier.CHEMIN_DOSSIERS` : une lettre (`texte_lettre`), les
+    `pieces`, et le paquet d'envoi qui les porte sous leur nom d'envoi. Le dossier s'appelle
+    `nom_dossier`, un nom fixe qu'un test peut changer (une génération d'un autre jour). Comme le
+    vrai, il réécrit la lettre d'un dossier qui existe, sans l'historiser."""
 
     def __init__(self) -> None:
         self.politique = Politique(True, DOMAINE, "autorisée (inventé)")
@@ -91,6 +97,7 @@ class Voisins:
         self.bilan = BILAN_SUFFISANT
         self.panne: Exception | None = None
         self.nom_dossier = NOM_DOSSIER
+        self.texte_lettre = "Lettre générée inventée."
         self.pieces = ["cv.fr.pdf"]
         self.appels: dict[str, list] = {
             "politique": [], "verifier_cadence": [], "recuperer": [], "evaluer": [], "generer": [],
@@ -124,7 +131,7 @@ class Voisins:
             raise self.panne
         cible = dossier.CHEMIN_DOSSIERS / self.nom_dossier
         cible.mkdir(parents=True, exist_ok=True)
-        (cible / "lettre-de-motivation.md").write_text("Lettre générée inventée.", encoding="utf-8")
+        (cible / "lettre-de-motivation.md").write_text(self.texte_lettre, encoding="utf-8")
         for piece in self.pieces:
             (cible / piece).write_bytes(b"%PDF-1.4 piece inventee")
         with zipfile.ZipFile(cible / f"{rendu.prefixe()}-candidature.zip", "w") as paquet:
@@ -483,8 +490,14 @@ def test_l_alerte_eliminatoire_du_texte_colle_se_dit(voisins):
     voisins.pieces = ["cv.fr.pdf", "cv-ancien.fr.pdf"]
     offre_id = _au_dessus_du_seuil()
     e = preparation.preparer(offre_id, texte=_texte(400, GRAINE_ASTREINTE))
-    # Le statut s'écrit avant le texte : l'éliminatoire n'écarte pas l'offre.
-    assert db.lire_offre(offre_id)["statut"] == "interessante"
+    # Le statut s'écrit avant le texte : l'éliminatoire n'écarte pas l'offre. Écrit après, il
+    # finirait aussi `interessante`, mais avec le motif d'écartement automatique que le texte
+    # aurait posé, et le texte avant lui au journal.
+    offre = db.lire_offre(offre_id)
+    assert offre["statut"] == "interessante"
+    assert offre["motif_ecartement"] is None
+    types = [t for t, _ in _journal(offre_id)]
+    assert types.index("statut:interessante") < types.index("texte_complet")
     alerte = _alerte(voisins)
     assert e.etape == "pret"
     assert e.avertissements[0] == alerte
@@ -592,9 +605,9 @@ def _paquet(repertoire):
     return repertoire / f"{rendu.prefixe()}-candidature.zip"
 
 
-def _dossier_sur_disque(fichiers, paquet=None, nom=NOM_DOSSIER):
+def _dossier_sur_disque(fichiers, paquet=None, nom=NOM_DOSSIER, **offre):
     """Une offre « Je postule » et son dossier : les `fichiers`, et un paquet d'envoi qui porte
-    les noms d'envoi `paquet` (aucun paquet si None)."""
+    les noms d'envoi `paquet` (aucun paquet si None). `offre` va à `_offre`."""
     repertoire = dossier.CHEMIN_DOSSIERS / nom
     repertoire.mkdir(parents=True)
     for f in fichiers:
@@ -603,7 +616,7 @@ def _dossier_sur_disque(fichiers, paquet=None, nom=NOM_DOSSIER):
         with zipfile.ZipFile(_paquet(repertoire), "w") as z:
             for n in paquet:
                 z.writestr(n, b"piece inventee")
-    offre_id = _offre("interessante")
+    offre_id = _offre("interessante", **offre)
     db.maj_champs(offre_id, dossier_chemin=str(repertoire))
     return offre_id, repertoire
 
@@ -689,3 +702,187 @@ def test_sans_dossier_sur_le_disque_le_dossier_pret_est_none():
     assert preparation.dossier_pret(db.lire_offre(offre_id)) is None
     db.maj_champs(offre_id, dossier_chemin=str(dossier.CHEMIN_DOSSIERS / "dossier-absent-invente"))
     assert preparation.dossier_pret(db.lire_offre(offre_id)) is None
+
+
+# --------------------------------------------------------------------------
+# Un dossier existant, et la régénération (décisions 6 à 8, invariant 4)
+# --------------------------------------------------------------------------
+
+LETTRE_ASSEMBLEE = "Lettre assemblée inventée"
+LETTRE_AFFINEE = "Lettre affinée inventée"
+LETTRE_REGENEREE = "Lettre régénérée inventée"
+ABSENT = "dossier-absent-invente"
+
+
+def _dossier_existant(lettre_courante=None, **offre):
+    """Une offre « Je postule » et son dossier `NOM_DOSSIER`, tel que `generer` l'a laissé :
+    `cv.fr.pdf` et son paquet d'envoi, et la lettre `lettre_courante` (aucune si None)."""
+    offre_id, repertoire = _dossier_sur_disque(
+        ["cv.fr.pdf"], paquet=[rendu.nom_pour_envoi("cv.fr.pdf")], **offre,
+    )
+    if lettre_courante is not None:
+        _ecrire_lettre(repertoire, lettre_courante)
+    return offre_id, repertoire
+
+
+def _ecrire_lettre(repertoire, texte: str) -> None:
+    (repertoire / lettre.NOM_LETTRE).write_text(texte, encoding="utf-8")
+
+
+def _lire_lettre(repertoire) -> str:
+    return (repertoire / lettre.NOM_LETTRE).read_text(encoding="utf-8")
+
+
+def _noms_de_l_historique(repertoire) -> list[str]:
+    return sorted(f.name for f in (repertoire / lettre.NOM_HISTORIQUE).iterdir())
+
+
+def _verifier_generee(e, offre_id, bilan=BILAN_SUFFISANT, nom=NOM_DOSSIER) -> None:
+    """L'étape `pret` d'un passage qui génère : ce que disent les faux, et le dossier `nom`."""
+    _verifier_etape(
+        e, etape="pret", url=db.lire_offre(offre_id)["url"], completude=bilan.as_dict(),
+        dossier=_dossier_attendu(nom=nom), genere=True, avertissements=AVERTISSEMENTS_GENERES,
+        kit_provisoire=True,
+    )
+
+
+def test_sans_regenerer_un_dossier_existant_est_rendu_sans_generer(voisins):
+    offre_id, repertoire = _dossier_existant()
+    lien = db.lire_offre(offre_id)["url"]
+    e = preparation.preparer(offre_id)
+    # Ni avertissements ni kit provisoire : ils ne valent qu'au passage qui génère.
+    _verifier_etape(e, etape="pret", url=lien, dossier=_dossier_attendu())
+    assert voisins.ordre == []
+    assert [t for t, _ in _journal(offre_id) if t.startswith("dossier_")] == []
+    # Le dossier n'est plus sur le disque : la préparation le génère.
+    db.maj_champs(offre_id, dossier_chemin=str(dossier.CHEMIN_DOSSIERS / ABSENT))
+    e = preparation.preparer(offre_id)
+    _verifier_generee(e, offre_id)
+    assert voisins.ordre == ["evaluer", "generer"]
+    assert db.lire_offre(offre_id)["dossier_chemin"] == str(repertoire)
+    assert _journal(offre_id)[-1] == ("dossier_genere", GABARIT)
+
+
+def test_un_dossier_existant_dit_l_alerte_puis_les_doublons(voisins):
+    """Sans génération, l'étape `pret` porte l'alerte du texte enregistré par ce passage, puis
+    ce que dit `dossier_pret`, les noms d'envoi en double (arbitrage R5)."""
+    nom = rendu.nom_pour_envoi("lettre-de-motivation.pdf")
+    offre_id, _ = _dossier_sur_disque(
+        ["lettre-de-motivation.pdf", "lettre-de-recommandation-inventee.pdf"], paquet=[nom],
+        score=reglages.lire_seuil() + 10,
+    )
+    e = preparation.preparer(offre_id, texte=_texte(400, GRAINE_ASTREINTE))
+    pret = preparation.dossier_pret(db.lire_offre(offre_id))
+    assert len(pret["avertissements"]) == 1
+    _verifier_etape(
+        e, etape="pret", url=db.lire_offre(offre_id)["url"], dossier=pret,
+        avertissements=[_alerte(voisins), *pret["avertissements"]],
+    )
+    assert voisins.ordre == []
+
+
+def test_regenerer_le_meme_jour_historise_la_lettre_remplacee(voisins):
+    offre_id, repertoire = _dossier_existant(lettre_courante=LETTRE_AFFINEE)
+    voisins.texte_lettre = LETTRE_REGENEREE
+    e = preparation.preparer(offre_id, regenerer=True)
+    _verifier_generee(e, offre_id)
+    versions = lettre.versions(repertoire)
+    assert [(v.numero, v.etiquette) for v in versions] == [(1, "avant-regeneration")]
+    assert lettre.texte_de_version(repertoire, versions[-1].numero) == LETTRE_AFFINEE
+    assert _lire_lettre(repertoire) == LETTRE_REGENEREE
+    assert db.lire_offre(offre_id)["dossier_chemin"] == str(repertoire)
+    assert _journal(offre_id)[-1] == ("dossier_regenere", GABARIT)
+    assert ("dossier_genere", GABARIT) not in _journal(offre_id)
+
+
+def test_regenerer_un_autre_jour_emporte_l_historique(voisins):
+    offre_id, ancien = _dossier_existant(lettre_courante=LETTRE_ASSEMBLEE)
+    lettre.historiser(ancien, "assemblee")
+    _ecrire_lettre(ancien, LETTRE_AFFINEE)
+    voisins.nom_dossier = NOM_AUTRE_JOUR
+    voisins.texte_lettre = LETTRE_REGENEREE
+    e = preparation.preparer(offre_id, regenerer=True)
+    nouveau = dossier.CHEMIN_DOSSIERS / NOM_AUTRE_JOUR
+    _verifier_generee(e, offre_id, nom=NOM_AUTRE_JOUR)
+    assert e.dossier["nom"] == NOM_AUTRE_JOUR
+    assert [(v.numero, v.etiquette) for v in lettre.versions(nouveau)] == [
+        (1, "assemblee"), (2, "avant-regeneration"),
+    ]
+    assert _noms_de_l_historique(nouveau) == _noms_de_l_historique(ancien)
+    assert lettre.texte_de_version(nouveau, 1) == LETTRE_ASSEMBLEE
+    assert lettre.texte_de_version(nouveau, 2) == LETTRE_AFFINEE
+    assert _lire_lettre(nouveau) == LETTRE_REGENEREE
+    # L'ancien dossier reste sur le disque, sa lettre avec.
+    assert _lire_lettre(ancien) == LETTRE_AFFINEE
+    assert db.lire_offre(offre_id)["dossier_chemin"] == str(nouveau)
+    assert _journal(offre_id)[-1] == ("dossier_regenere", GABARIT)
+
+
+def test_regenerer_un_autre_jour_sans_historique_dans_l_ancien(voisins):
+    offre_id, ancien = _dossier_existant()
+    voisins.nom_dossier = NOM_AUTRE_JOUR
+    e = preparation.preparer(offre_id, regenerer=True)
+    nouveau = dossier.CHEMIN_DOSSIERS / NOM_AUTRE_JOUR
+    _verifier_generee(e, offre_id, nom=NOM_AUTRE_JOUR)
+    assert db.lire_offre(offre_id)["dossier_chemin"] == str(nouveau)
+    assert not (ancien / lettre.NOM_HISTORIQUE).exists()
+    assert not (nouveau / lettre.NOM_HISTORIQUE).exists()
+    assert _journal(offre_id)[-1] == ("dossier_regenere", GABARIT)
+
+
+def test_un_historique_deja_present_n_est_pas_ecrase(voisins):
+    offre_id, ancien = _dossier_existant(lettre_courante=LETTRE_AFFINEE)
+    nouveau = dossier.CHEMIN_DOSSIERS / NOM_AUTRE_JOUR
+    (nouveau / lettre.NOM_HISTORIQUE).mkdir(parents=True)
+    (nouveau / lettre.NOM_HISTORIQUE / "001-20261114T0900-assemblee.md").write_text(
+        "Lettre inventée d'une autre offre", encoding="utf-8",
+    )
+    avant = {f.name: f.read_bytes() for f in (nouveau / lettre.NOM_HISTORIQUE).iterdir()}
+    voisins.nom_dossier = NOM_AUTRE_JOUR
+    e = preparation.preparer(offre_id, regenerer=True)
+    _verifier_generee(e, offre_id, nom=NOM_AUTRE_JOUR)
+    # Ni écrasé ni fusionné : les numéros des deux historiques se heurteraient.
+    assert {f.name: f.read_bytes() for f in (nouveau / lettre.NOM_HISTORIQUE).iterdir()} == avant
+    [version] = lettre.versions(ancien)
+    assert version.etiquette == "avant-regeneration"
+    assert lettre.texte_de_version(ancien, version.numero) == LETTRE_AFFINEE
+    assert db.lire_offre(offre_id)["dossier_chemin"] == str(nouveau)
+
+
+def test_regenerer_sans_dossier_genere_quand_meme(voisins):
+    offre_id = _offre("interessante")
+    genere = dossier.CHEMIN_DOSSIERS / NOM_DOSSIER
+    _verifier_generee(preparation.preparer(offre_id, regenerer=True), offre_id)
+    assert db.lire_offre(offre_id)["dossier_chemin"] == str(genere)
+    assert lettre.versions(genere) == []
+    # Un dossier qui n'est plus sur le disque : rien à historiser, rien à emporter.
+    db.maj_champs(offre_id, dossier_chemin=str(dossier.CHEMIN_DOSSIERS / ABSENT))
+    _verifier_generee(preparation.preparer(offre_id, regenerer=True), offre_id)
+    assert db.lire_offre(offre_id)["dossier_chemin"] == str(genere)
+    assert lettre.versions(genere) == []
+    assert not (dossier.CHEMIN_DOSSIERS / ABSENT).exists()
+
+
+def test_regenerer_ne_redemande_ni_texte_ni_completude(voisins):
+    """Le dossier a déjà été accepté une fois, peut-être par « Générer quand même » (décision 7)."""
+    voisins.bilan = BILAN_30
+    offre_id, _ = _dossier_existant(description=EXTRAIT, donnees_partielles=True)
+    e = preparation.preparer(offre_id, regenerer=True)
+    _verifier_generee(e, offre_id, bilan=BILAN_30)
+    assert voisins.ordre == ["evaluer", "generer"]
+    assert db.lire_offre(offre_id)["description"] == EXTRAIT
+
+
+def test_une_regeneration_en_echec_garde_l_ancien_dossier(voisins):
+    offre_id, ancien = _dossier_existant(lettre_courante=LETTRE_AFFINEE)
+    voisins.panne = RuntimeError("panne inventée")
+    voisins.nom_dossier = NOM_AUTRE_JOUR
+    e = preparation.preparer(offre_id, regenerer=True)
+    _verifier_etape(e, etape="echec", message="panne inventée", url=db.lire_offre(offre_id)["url"])
+    assert db.lire_offre(offre_id)["dossier_chemin"] == str(ancien)
+    assert _lire_lettre(ancien) == LETTRE_AFFINEE
+    [version] = lettre.versions(ancien)
+    assert version.etiquette == "avant-regeneration"
+    assert lettre.texte_de_version(ancien, version.numero) == LETTRE_AFFINEE
+    assert not (dossier.CHEMIN_DOSSIERS / NOM_AUTRE_JOUR).exists()
+    assert [t for t, _ in _journal(offre_id) if t.startswith("dossier_")] == []
