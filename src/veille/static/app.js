@@ -1207,7 +1207,8 @@ function afficherDossierPret(id, r) {
   } else if (lettre) {
     adressee = `<p class="resume">La lettre n'a pas de destinataire : elle le laisse en rouge dans le PDF, à compléter.</p>`;
   } else {
-    adressee = `<p class="resume">Aucun destinataire n'est enregistré : la lettre le laisse en rouge dans le PDF, à compléter.</p>`;
+    // Sans note, la lettre peut porter un destinataire d'avant : n'en rien affirmer.
+    adressee = `<p class="resume">Aucun destinataire n'est enregistré.</p>`;
   }
   // La référence part dans la lettre avec ou sans destinataire : elle se montre toujours.
   const reference = montre.reference_annonce

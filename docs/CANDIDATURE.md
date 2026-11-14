@@ -328,16 +328,17 @@ lettre de l'atout logistique, pas la lettre générique.
 
 Il porte, de haut en bas :
 
-- à qui la lettre est adressée, ou, sans destinataire, qu'elle le laisse en
-  rouge dans le PDF ; puis la référence de l'annonce que porte la lettre, même
-  sans destinataire, puisqu'elle part dans la lettre ;
+- à qui la lettre est adressée, ou, si sa note dit qu'elle n'en a pas, qu'elle
+  le laisse en rouge dans le PDF ; puis la référence de l'annonce que porte la
+  lettre, même sans destinataire, puisqu'elle part dans la lettre ;
 - les pièces d'envoi, une à une, chacune sous le nom qu'elle porte dans le
   zip : un formulaire en ligne, au téléphone, les demande souvent une par une,
   et doit recevoir `Camille-Exemple-CV-France.pdf`, jamais `cv.fr.pdf` ;
 - « Tout en un zip », le paquet d'envoi ;
 - « Voir l'annonce › » ;
 - « Je l'ai envoyée », « Ajouter un destinataire »
-  (« Modifier le destinataire » quand il y en a un) et « Affiner la lettre ».
+  (« Modifier le destinataire » quand il y en a un, ou quand la lettre et la
+  base diffèrent) et « Affiner la lettre ».
 
 Un paquet d'envoi absent ou illisible (un dossier ancien, un zip tronqué) ne
 donne aucune pièce. L'écran le dit, et « Régénérer le dossier » prend la place
@@ -356,7 +357,8 @@ jamais : ni pièce, ni zip, ni *Plus › Documents*.
 Un dossier sans note, généré avant le lot 2 de l'ADR-0003 ou laissé par une
 génération en échec, ne dit pas à qui sa lettre est adressée : l'écran affiche
 « Destinataire enregistré », celui de la base, sans affirmer que la lettre le
-porte. « Régénérer le dossier » n'y paraît pas pour autant : « Modifier le
+porte ; sans destinataire enregistré, il le dit, sans rien affirmer de la
+lettre. « Régénérer le dossier » n'y paraît pas pour autant : « Modifier le
 destinataire », puis « Enregistrer et régénérer », refait la lettre.
 
 Sur la fiche d'une offre « Je postule » qui a déjà son dossier,
@@ -394,8 +396,8 @@ reste sur le disque. Une régénération en échec ne perd rien non plus : la
 lettre remplacée est déjà dans l'historique, et l'offre garde son dossier.
 Mais le même jour, elle peut le laisser à moitié refait : la lettre, et son
 PDF, déjà neufs, le zip encore l'ancien, ou supprimé. L'écran d'échec le dit :
-réessaie avant d'envoyer. La note du destinataire part dès que la lettre se
-réécrit, et ne revient qu'à la fin d'une génération complète : « Dossier
+réessaie avant d'envoyer. La note du destinataire part dès le début de la
+génération, et ne revient qu'à la fin d'une génération complète : « Dossier
 prêt » n'affirme alors aucun destinataire.
 
 Les anciens écrans (*Plus › Toutes les offres*, *Plus › Relances*) gardent

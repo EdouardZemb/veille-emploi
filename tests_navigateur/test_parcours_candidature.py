@@ -1359,8 +1359,7 @@ def test_dossier_pret_sans_destinataire_le_dit_et_montre_la_reference(telephone,
     phrases = {
         "note": "La lettre n'a pas de destinataire : elle le laisse en rouge dans le PDF, à "
                 "compléter.",
-        "sans_note": "Aucun destinataire n'est enregistré : la lettre le laisse en rouge dans le "
-                     "PDF, à compléter.",
+        "sans_note": "Aucun destinataire n'est enregistré.",
     }
     _ouvrir(telephone, parcours["url"])
     fenetre = telephone.locator("#fenetre")
@@ -1372,6 +1371,9 @@ def test_dossier_pret_sans_destinataire_le_dit_et_montre_la_reference(telephone,
         expect(fenetre).to_contain_text(phrases[cas])
         autre = phrases["sans_note" if cas == "note" else "note"]
         expect(fenetre).not_to_contain_text(autre)
+        if cas == "sans_note":
+            # Sans note, la lettre peut porter un destinataire d'avant : rien n'en est affirmé.
+            expect(fenetre).not_to_contain_text("rouge dans le PDF")
         expect(fenetre).not_to_contain_text("Adressée à")
         expect(fenetre).not_to_contain_text("Destinataire enregistré")
         expect(fenetre).to_contain_text(f"Référence de l'annonce : {reference}")
