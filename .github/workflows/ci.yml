@@ -53,9 +53,9 @@ jobs:
           SUITE_COMPLETE: "1"
         run: python -m pytest -q -rs -p no:cacheprovider
 
-  # La mutation des états du parcours (ADR-0003) : un mutant qui survit fait échouer le job, et
-  # chaque survivant appelle un test de plus. mutmut ne tourne pas sous Windows : ce job est la
-  # seule vérification.
+  # La mutation des états et de la préparation (ADR-0003) : un mutant qui survit fait échouer le
+  # job, et chaque survivant appelle un test de plus. mutmut ne tourne pas sous Windows : ce job
+  # est la seule vérification.
   mutation:
     name: mutation
     runs-on: ubuntu-latest
@@ -69,7 +69,7 @@ jobs:
           python-version: "3.13"
       - name: Installer
         run: pip install -e ".[dev]" "mutmut==3.8.1"
-      - name: Mutation de src/veille/etats.py
+      - name: Mutation des états et de la préparation
         run: mutmut run
       # `mutmut results --all true` liste chaque mutant, une ligne `    <nom>: <statut>`. Le job
       # exige le positif : au moins un mutant tué, et aucune ligne d'un autre statut (survived,
@@ -105,7 +105,7 @@ jobs:
       # Chromium et ses bibliothèques : l'authentificateur WebAuthn virtuel passe par CDP.
       - name: Chromium
         run: python -m playwright install --with-deps chromium
-      - name: Parcours de connexion
+      - name: Parcours de connexion et de candidature
         run: python -m pytest -q -rs -p no:cacheprovider tests_navigateur
 
   # Les tests bats des scripts de déploiement, dans leur image (tests/deploiement/Dockerfile : age

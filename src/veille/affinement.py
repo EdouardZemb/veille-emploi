@@ -24,7 +24,8 @@ texte d'origine et REFUSE un resultat qui a introduit des elements nouveaux.
 IDENTIFIANTS : on suit la convention du SDK Agent (`VEILLE_SDK_AGENT`), qui
 n'utilise aucune cle d'API — il lit `~/.claude/.credentials.json` en lecture
 seule et laisse `ANTHROPIC_API_KEY` vide. Pas de cle a creer, pas de ligne de
-facturation nouvelle. Sans identifiants, le bouton ne s'affiche pas.
+facturation nouvelle. Sans identifiants, la console dit l'affinement
+indisponible, avec sa raison, au lieu d'un bouton qui echouerait.
 """
 
 from __future__ import annotations

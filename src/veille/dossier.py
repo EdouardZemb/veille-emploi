@@ -19,6 +19,7 @@ Choix du gabarit de lettre, par ordre de priorite :
 from __future__ import annotations
 
 import io
+import json
 import logging
 import re
 import shutil
@@ -30,12 +31,19 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from . import lettre
 from .config import CHEMIN_DOSSIERS, CHEMIN_GABARITS, CHEMIN_KIT, normaliser
 
 log = logging.getLogger(__name__)
 
 # Extensions considerees comme des pieces a joindre telles quelles.
 PIECES = (".pdf", ".docx", ".odt", ".png", ".jpg")
+
+# À qui la lettre est adressée, sous les clés de l'offre (la route `api_maj` les enregistre,
+# `_valeurs` les met dans la lettre, et la note du destinataire les garde).
+CHAMPS_DESTINATAIRE: tuple[str, ...] = (
+    "contact_nom", "contact_civilite", "adresse_entreprise", "reference_annonce",
+)
 
 # Etiquettes reconnues dans un nom de fichier, separees par des points avant
 # l'extension. Une piece n'est jointe que si TOUTES ses etiquettes conviennent
@@ -682,6 +690,32 @@ def chemin_du_dossier(offre: Mapping[str, Any]) -> Path | None:
     return CHEMIN_DOSSIERS / segments[-1]
 
 
+def ecrire_note_destinataire(repertoire: Path, offre: Mapping[str, Any]) -> None:
+    """Note, dans le dossier, le destinataire dont sa lettre vient d'être faite : les quatre
+    champs de l'offre, lus comme `_valeurs` les lit. « Dossier prêt » la compare à la base
+    (`preparation.dossier_pret`) : un destinataire enregistré ensuite, sans régénérer, s'y voit.
+    En `.json`, elle ne part jamais : ni pièce (`PIECES`), ni paquet, ni *Plus › Documents*
+    (`documents.EXTENSIONS`)."""
+    note = {cle: offre.get(cle) or "" for cle in CHAMPS_DESTINATAIRE}
+    (Path(repertoire) / lettre.NOM_DESTINATAIRE).write_text(
+        json.dumps(note, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def lire_note_destinataire(repertoire: Path) -> dict[str, str] | None:
+    """Le destinataire que porte la lettre du dossier, d'après sa note ; None sans note lisible
+    et complète (un dossier d'avant le lot 2 du parcours, une génération en échec) : rien ne
+    dit alors à qui la lettre est adressée."""
+    try:
+        note = json.loads(
+            (Path(repertoire) / lettre.NOM_DESTINATAIRE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(note, dict) or not all(
+            isinstance(note.get(cle), str) for cle in CHAMPS_DESTINATAIRE):
+        return None
+    return {cle: note[cle] for cle in CHAMPS_DESTINATAIRE}
+
+
 def generer(offre: dict[str, Any]) -> ResultatDossier:
     """Cree le dossier de candidature et rend son emplacement."""
     avertissements: list[str] = []
@@ -704,6 +738,12 @@ def generer(offre: dict[str, Any]) -> ResultatDossier:
             repertoire.chmod(0o700)
         except OSError:
             pass  # Windows
+    # La note du destinataire d'une generation precedente (le meme jour, le meme
+    # dossier) ne decrit plus la lettre des que celle-ci se reecrit : elle part
+    # d'abord, et ne revient qu'a la fin d'une generation complete. Une generation
+    # en echec laisse le dossier sans note, et « Dossier prêt » n'affirme alors
+    # aucun destinataire.
+    (cible / lettre.NOM_DESTINATAIRE).unlink(missing_ok=True)
 
     valeurs = _valeurs(offre)
     langue = detecter_langue(offre)
@@ -895,6 +935,11 @@ Dossier généré le {valeurs['date']}. Relis la lettre avant envoi.
             "Le paquet d'envoi est VIDE : aucune piece en PDF. Il manque au "
             "moins ton CV — exporte-le et depose-le dans le kit."
         )
+
+    # La generation est complete : la lettre, s'il y en a une, est faite de ces
+    # champs. Sans gabarit, aucune lettre n'a ete ecrite, et aucune note.
+    if gabarit_lettre:
+        ecrire_note_destinataire(cible, offre)
 
     return ResultatDossier(
         chemin=cible,
