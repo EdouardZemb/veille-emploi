@@ -10,10 +10,10 @@ Une offre parfaite mal documentee et une offre mediocre bien documentee doivent
 rester lisibles separement. Aucune moyenne des deux n'existe nulle part, et ce
 fichier le verrouille.
 
-Son vrai usage : le bouton « Generer le dossier ». Aujourd'hui il peut produire
-une lettre a partir d'un extrait de trois lignes, sans que rien ne l'avertisse.
-Le score doit prevenir AVANT, et surtout dire **ce qui manque** — « information
-insuffisante » sans dire laquelle ne sert a rien.
+Son vrai usage : « Préparer ma candidature », qui s'arrête sous le seuil. Sans
+lui, la génération produirait une lettre d'un extrait de trois lignes, sans que
+rien ne l'avertisse. Le score doit prevenir AVANT, et surtout dire **ce qui
+manque** — « information insuffisante » sans dire laquelle ne sert a rien.
 """
 
 from __future__ import annotations
@@ -143,6 +143,16 @@ def test_chaque_manque_propose_une_action_realisable():
     for m in completude.evaluer(o).manques:
         assert len(m.quoi_faire) > 15
         assert not m.quoi_faire.lower().startswith("information")
+
+
+def test_le_manque_de_description_dit_de_coller_le_texte_sans_nommer_de_bouton():
+    """Le geste se dit sans nom de bouton : « Lire l'annonce » n'est pas sur les écrans de la
+    préparation, où « Coller le texte de l'annonce » le porte, et un nom de bouton vieillit."""
+    o = _offre(description="Court.", donnees_partielles=True)
+    manque = next(m for m in completude.evaluer(o).manques
+                  if "description" in m.libelle.lower())
+    assert "colle" in manque.quoi_faire.lower()
+    assert "«" not in manque.quoi_faire, manque.quoi_faire
 
 
 def test_les_acquis_sont_nommes_aussi():
