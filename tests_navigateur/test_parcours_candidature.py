@@ -535,6 +535,9 @@ def _fiche(page, offre_id: int):
 def _fermer(page) -> None:
     page.locator("#fenetre").get_by_role("button", name="Fermer").click()
     expect(page.locator("#fenetre")).to_be_hidden()
+    # La fermeture retire l'entrée de la fenêtre par un retour asynchrone (`history.go(-1)`) :
+    # un `page.goto` lancé avant qu'il soit posé serait annulé (net::ERR_ABORTED).
+    page.wait_for_function("() => !(history.state && history.state.fenetre)")
 
 
 def _ouvrir_candidatures(page, url: str) -> None:
