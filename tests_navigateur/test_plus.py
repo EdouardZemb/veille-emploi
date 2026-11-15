@@ -959,7 +959,11 @@ ESSAYER = "Envoyer une notification d'essai"
 ESSAI_PARTI = {"envoyes": 1, "echecs": 0}
 ESSAI_PERDU = {"envoyes": 0, "echecs": 1}
 PANNE_RENVOI = "Panne inventée du renvoi"
+PANNE_RETRAIT = "Panne inventée du retrait"
 REFUS_PUSH = "Refus inventé du service push"
+# Un abonnement à la clé illisible : `options.applicationServerKey` à `null`, ou pas d'`options`.
+CLE_NULLE = "nulle"
+SANS_OPTIONS = "sans-options"
 # Une autre clé publique inventée, de 65 octets comme une clé P-256 non compressée : celle d'une
 # paire VAPID d'avant, quand le `vapid.json` a été refait.
 AUTRE_CLE = base64.urlsafe_b64encode(bytes([4, *range(1, 65)])).rstrip(b"=").decode()
@@ -973,9 +977,10 @@ ESSAI = "POST /api/push/test"
 # Le push du navigateur, simulé avant `app.js` : la permission, `requestPermission`, et
 # `getSubscription` et `subscribe` sur `PushManager.prototype`. Les abonnements sont inventés, et
 # suivent l'état comme dans Chrome : `getSubscription` rend celui que `subscribe` vient de rendre,
-# et `null` après son `unsubscribe`. Leur `options.applicationServerKey` est un `ArrayBuffer`,
-# jamais la chaîne base64url de la page. `journal` note, dans l'ordre, les demandes de permission,
-# les `subscribe`, les `unsubscribe` et chaque appel de `/api/push/…`, que `page.route` simule.
+# et `null` après son `unsubscribe` ; `subscribe` refuse (`InvalidStateError`) tant qu'un abonnement
+# d'une autre clé reste. Leur `options.applicationServerKey` est un `ArrayBuffer`, jamais la chaîne
+# base64url de la page. `journal` note, dans l'ordre, les demandes de permission, les `subscribe`,
+# les `unsubscribe` et chaque appel de `/api/push/…`, que `page.route` simule.
 FAUX_PUSH = """({permission, accordee, cle, subscribeRejete, sansPush}) => {
     const etat = window.__push = {permission, demandes: 0, journal: [], abonnements: [], cles: [],
                                   courant: null};
@@ -1009,7 +1014,7 @@ FAUX_PUSH = """({permission, accordee, cle, subscribeRejete, sansPush}) => {
         const abonnement = {
             endpoint,
             options: {userVisibleOnly: true,
-                      applicationServerKey: Uint8Array.from(cleRecue).buffer},
+                      applicationServerKey: cleRecue && Uint8Array.from(cleRecue).buffer},
             toJSON: () => json,
             unsubscribe: async () => {
                 noter('unsubscribe');
@@ -1019,13 +1024,21 @@ FAUX_PUSH = """({permission, accordee, cle, subscribeRejete, sansPush}) => {
         };
         return abonnement;
     };
-    if (cle) etat.courant = inventer(octets(cle));
+    if (cle === 'nulle') etat.courant = inventer(null);
+    else if (cle === 'sans-options') delete (etat.courant = inventer(null)).options;
+    else if (cle) etat.courant = inventer(octets(cle));
     PushManager.prototype.getSubscription = async function () { return etat.courant; };
     PushManager.prototype.subscribe = async function (options) {
         const recue = new Uint8Array(options.applicationServerKey);
         noter('subscribe');
         etat.cles.push({userVisibleOnly: options.userVisibleOnly, octets: Array.from(recue)});
         if (subscribeRejete) throw new DOMException(subscribeRejete, 'AbortError');
+        const actuelle = etat.courant && etat.courant.options
+            && etat.courant.options.applicationServerKey;
+        if (actuelle && Array.from(new Uint8Array(actuelle)).join() !== Array.from(recue).join()) {
+            const refus = 'A subscription with a different applicationServerKey already exists.';
+            throw new DOMException(refus, 'InvalidStateError');
+        }
         etat.courant = inventer(recue);
         return etat.courant;
     };
@@ -1044,6 +1057,17 @@ READY_RETENU = """(() => {
 
 REGISTER_REJETE = """ServiceWorkerContainer.prototype.register =
     () => Promise.reject(new TypeError('Enregistrement inventé impossible'));"""
+
+# Le premier `register` de la page (celui de l'ouverture) échoue, les suivants passent.
+REGISTER_REJETE_UNE_FOIS = """(() => {
+    const vrai = ServiceWorkerContainer.prototype.register;
+    let appels = 0;
+    ServiceWorkerContainer.prototype.register = function (...args) {
+        appels += 1;
+        return appels === 1 ? Promise.reject(new TypeError('Enregistrement inventé impossible'))
+                            : vrai.apply(this, args);
+    };
+})();"""
 
 
 @pytest.fixture(scope="module")
@@ -1068,29 +1092,42 @@ def _chemin(url: str) -> str:
 
 
 def simuler_push(page, permission: str, abonnement: str | None, *, accordee: str | None = None,
-                 essais: tuple = (ESSAI_PARTI,), renvoi: int = 200,
-                 subscribe_rejete: bool = False, sans_push: bool = False) -> list:
+                 essais: tuple = (ESSAI_PARTI,), renvoi: int = 200, retrait: int = 200,
+                 retenir: dict | None = None, subscribe_rejete: bool = False,
+                 sans_push: bool = False) -> list:
     """Simule le push du navigateur (`FAUX_PUSH`) et les trois routes du push, avant `app.js`.
 
-    `abonnement` est la clé, en base64url, de l'abonnement que l'appareil garde, ou None. Rend la
-    liste des demandes reçues par les routes, `(méthode, chemin, corps)`. L'essai rend `essais`
-    dans l'ordre, puis le dernier ; le `POST` de l'abonnement répond `renvoi`. Aucun abonnement
-    inventé n'entre dans la base commune à la session."""
+    `abonnement` est la clé, en base64url, de l'abonnement que l'appareil garde, `CLE_NULLE` ou
+    `SANS_OPTIONS` pour une clé illisible, ou None. Rend la liste des demandes reçues par les
+    routes, `(méthode, chemin, corps)`. L'essai rend `essais` dans l'ordre, puis le dernier ; le
+    `POST` de l'abonnement répond `renvoi`, son `DELETE` `retrait`. `retenir` associe une demande
+    (`RENVOI`, `ESSAI`) à une liste : sa réponse y attend, une fonction qui l'envoie. Aucun
+    abonnement inventé n'entre dans la base commune à la session."""
     requetes: list = []
     reponses = list(essais)
+
+    def repondre(route, statut: int, corps: dict) -> None:
+        def envoyer() -> None:
+            route.fulfill(status=statut, content_type="application/json", body=json.dumps(corps))
+        demande = f"{route.request.method} {urlsplit(route.request.url).path}"
+        if retenir and demande in retenir:
+            retenir[demande].append(envoyer)
+        else:
+            envoyer()
 
     def abonner(route) -> None:
         requete = route.request
         requetes.append((requete.method, _chemin(requete.url),
                          requete.post_data_json if requete.post_data else None))
-        statut = renvoi if requete.method == "POST" else 200
-        corps = {"ok": True} if statut == 200 else {"detail": PANNE_RENVOI}
-        route.fulfill(status=statut, content_type="application/json", body=json.dumps(corps))
+        if requete.method == "POST":
+            statut, panne = renvoi, PANNE_RENVOI
+        else:
+            statut, panne = retrait, PANNE_RETRAIT
+        repondre(route, statut, {"ok": True} if statut == 200 else {"detail": panne})
 
     def essayer(route) -> None:
         requetes.append((route.request.method, _chemin(route.request.url), None))
-        corps = reponses.pop(0) if len(reponses) > 1 else reponses[0]
-        route.fulfill(status=200, content_type="application/json", body=json.dumps(corps))
+        repondre(route, 200, reponses.pop(0) if len(reponses) > 1 else reponses[0])
 
     page.route(ABONNEMENT_PUSH, abonner)
     page.route(ESSAI_PUSH, essayer)
@@ -1317,10 +1354,13 @@ def test_le_reabonnement_attend_le_service_worker_actif(telephone, serveur, cles
     _ouvrir_reglages(telephone, serveur)
     _laisser_passer(telephone, 500)
     assert "subscribe" not in _journal(telephone)
-    expect(_etat_push(telephone)).to_have_text(INACTIVES)
+    # Le réabonnement en cours ne prétend rien : aucune phrase, le bouton éteint.
+    expect(_etat_push(telephone)).to_have_text("")
+    expect(_bouton_push(telephone)).to_be_disabled()
 
     telephone.evaluate("() => window.__libererReady()")
     expect(_etat_push(telephone)).to_have_text(ACTIVES)
+    expect(_bouton_push(telephone)).to_be_enabled()
     _laisser_passer(telephone)
     assert _journal(telephone) == ["subscribe", RENVOI]
 
@@ -1352,6 +1392,7 @@ def test_sans_push_reglages_dit_indisponible(telephone, serveur, cles_push):
     requetes = simuler_push(telephone, "granted", None, sans_push=True)
     _ouvrir_reglages(telephone, serveur)
     expect(_etat_push(telephone)).to_have_text(f"{INDISPONIBLE} {SANS_PUSH_WEB}")
+    expect(_bouton_push(telephone)).to_be_disabled()
     _laisser_passer(telephone)
     assert _journal(telephone) == []
     assert requetes == []
@@ -1389,6 +1430,121 @@ def test_activer_les_notifications_abonne_puis_envoie_un_essai(telephone, serveu
     (nouveau,) = _abonnements(telephone)
     assert requetes == [("POST", "/api/push/abonnement", nouveau),
                         ("POST", "/api/push/test", None)]
+
+
+def _revenir_sur_reglages(page) -> None:
+    """Quitte Réglages pour « Plus », puis y revient : `chargerReglages` repasse."""
+    with page.expect_response(REGLAGES):
+        page.locator("#vue-reglages .retour-plus").click()
+        page.locator('.lien-plus[data-vue="reglages"]').click()
+
+
+def test_pendant_le_renvoi_de_l_ouverture_le_bouton_est_eteint(telephone, serveur, cles_push):
+    """Tant que le renvoi de l'ouverture n'a pas répondu, Réglages ne dit pas « ne reçoit pas »,
+    et « Activer » ne lance pas un second geste."""
+    attente: list = []
+    simuler_push(telephone, "granted", cles_push.publique, retenir={RENVOI: attente})
+    with telephone.expect_request(lambda r: r.method == "POST" and ABONNEMENT_PUSH.search(r.url)):
+        _ouvrir_reglages(telephone, serveur)
+    expect(_bouton_push(telephone)).to_be_disabled()
+    expect(_etat_push(telephone)).to_have_text("")
+    _revenir_sur_reglages(telephone)
+    expect(_bouton_push(telephone)).to_be_disabled()
+    expect(_etat_push(telephone)).to_have_text("")
+
+    attente.pop()()
+    expect(_etat_push(telephone)).to_have_text(ACTIVES)
+    expect(_bouton_push(telephone)).to_be_enabled()
+    assert _journal(telephone) == [RENVOI]
+
+
+def test_un_second_toucher_pendant_un_geste_ne_lance_rien(telephone, serveur, cles_push):
+    """Réglages rechargé pendant « Activer les notifications » ne rallume pas le bouton : un
+    second toucher ne lance pas un geste concurrent, qui pourrait se désabonner pendant que le
+    premier dit « reçoit »."""
+    attente: list = []
+    simuler_push(telephone, "default", None, accordee="granted", retenir={ESSAI: attente})
+    _ouvrir_reglages(telephone, serveur)
+    with telephone.expect_request(lambda r: ESSAI_PUSH.search(r.url)):
+        _bouton_push(telephone).click()
+    _revenir_sur_reglages(telephone)
+    expect(_bouton_push(telephone)).to_be_disabled()
+    _bouton_push(telephone).click(force=True)
+    _laisser_passer(telephone)
+
+    attente.pop()()
+    expect(_bouton_push(telephone)).to_be_enabled()
+    expect(_etat_push(telephone)).to_have_text(ACTIVES)
+    _laisser_passer(telephone)
+    assert attente == []
+    assert _journal(telephone) == ["requestPermission", "subscribe", RENVOI, ESSAI]
+
+
+def test_un_rechargement_de_reglages_pendant_un_geste_ne_rallume_pas_le_bouton(telephone, serveur,
+                                                                                cles_push):
+    """`rafraichir()`, Réglages ouvert, repasse par `chargerReglages` pendant l'essai : le bouton
+    reste éteint jusqu'à la fin du geste."""
+    attente: list = []
+    simuler_push(telephone, "granted", cles_push.publique, retenir={ESSAI: attente})
+    _ouvrir_reglages(telephone, serveur)
+    expect(_etat_push(telephone)).to_have_text(ACTIVES)
+    with telephone.expect_request(lambda r: ESSAI_PUSH.search(r.url)):
+        _bouton_push(telephone).click()
+    with telephone.expect_response(REGLAGES):
+        telephone.evaluate("() => rafraichir()")
+    expect(_bouton_push(telephone)).to_be_disabled()
+
+    attente.pop()()
+    expect(_bouton_push(telephone)).to_be_enabled()
+    expect(_etat_push(telephone)).to_have_text(ACTIVES)
+
+
+def test_un_retrait_en_echec_ne_dit_pas_d_erreur(telephone, serveur, cles_push, console_attendue):
+    """Le `DELETE` de l'ancien abonnement refusé, l'appareil reste abonné avec la clé de la page :
+    la ligne morte est tolérée (décision 12, seconde limite)."""
+    console_attendue.append("500")
+    simuler_push(telephone, "granted", AUTRE_CLE, retrait=500)
+    _ouvrir_reglages(telephone, serveur)
+    expect(_etat_push(telephone)).to_have_text(ACTIVES)
+    _laisser_passer(telephone)
+    ancien, _ = _abonnements(telephone)
+    retrait = f"/api/push/abonnement?endpoint={quote(ancien['endpoint'], safe='')}"
+    assert _journal(telephone) == ["unsubscribe", "subscribe", RENVOI, f"DELETE {retrait}"]
+    expect(telephone.locator("#messages")).to_be_empty()
+
+
+def test_activer_refait_un_abonnement_d_une_autre_cle(telephone, serveur, cles_push):
+    """L'ouverture a échoué avant de refaire l'abonnement d'une autre clé (`register` refusé) :
+    « Activer les notifications » le refait, `unsubscribe` d'abord, sans quoi Chrome refuse le
+    `subscribe` (`InvalidStateError`)."""
+    telephone.add_init_script(REGISTER_REJETE_UNE_FOIS)
+    requetes = simuler_push(telephone, "granted", AUTRE_CLE)
+    _ouvrir_reglages(telephone, serveur)
+    expect(_etat_push(telephone)).to_have_text(_en_erreur(SANS_SERVICE_WORKER))
+    assert _journal(telephone) == []
+
+    _toucher_le_bouton(telephone)
+    expect(_etat_push(telephone)).to_have_text(ACTIVES)
+    ancien, nouveau = _abonnements(telephone)
+    retrait = f"/api/push/abonnement?endpoint={quote(ancien['endpoint'], safe='')}"
+    assert _journal(telephone) == ["requestPermission", "unsubscribe", "subscribe", RENVOI,
+                                   f"DELETE {retrait}", ESSAI]
+    assert [r["octets"] for r in _subscribes(telephone)] == [_octets(cles_push.publique)]
+    assert ("POST", "/api/push/abonnement", nouveau) in requetes
+
+
+@pytest.mark.parametrize("illisible", [CLE_NULLE, SANS_OPTIONS])
+def test_un_abonnement_a_la_cle_illisible_est_renvoye_tel_quel(telephone, serveur, cles_push,
+                                                               illisible):
+    """Sans clé lisible, l'abonnement se renvoie tel quel, sans se refaire à chaque ouverture :
+    l'essai détectera un abonnement rejeté."""
+    requetes = simuler_push(telephone, "granted", illisible)
+    _ouvrir_reglages(telephone, serveur)
+    expect(_etat_push(telephone)).to_have_text(ACTIVES)
+    _laisser_passer(telephone)
+    assert _journal(telephone) == [RENVOI]
+    (garde,) = _abonnements(telephone)
+    assert requetes == [("POST", "/api/push/abonnement", garde)]
 
 
 def test_reglages_se_touche_du_doigt_et_tient_dans_l_ecran(telephone, serveur, cles_push):

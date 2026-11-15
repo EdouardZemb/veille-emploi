@@ -2413,9 +2413,13 @@ const CAUSES_PUSH = {
   essai: "la notification d'essai n'est pas partie, même avec un nouvel abonnement",
 };
 
-// `cle` : l'un des cinq cas d'`ETATS_PUSH`. `detail` : la raison d'un état indisponible, la cause
-// d'une erreur, ou la phrase de la réparation d'un état actif.
-let etatPush = { cle: 'inactives', detail: '' };
+// `cle` : l'un des cinq cas d'`ETATS_PUSH`, ou '' tant que l'ouverture ne l'a pas lu (le renvoi
+// de l'abonnement en cours) : aucune phrase, plutôt qu'une phrase fausse. `detail` : la raison
+// d'un état indisponible, la cause d'une erreur, ou la phrase de la réparation d'un état actif.
+let etatPush = { cle: '', detail: '' };
+// Un seul geste du push à la fois (le renvoi de l'ouverture, ou un toucher du bouton) : le bouton
+// reste éteint jusqu'à sa fin, même quand Réglages se recharge entre-temps.
+let gestePush = false;
 
 function base64EnOctets(base64) {
   const bourrage = '='.repeat((4 - base64.length % 4) % 4);
@@ -2434,7 +2438,8 @@ function causeDe(erreur) {
 }
 
 // Le cas d'`etatPush`, dans Réglages : sa phrase, et le bouton qui va avec. Le bouton essaie
-// quand cet appareil reçoit, et active sinon ; il s'éteint quand le push n'est pas disponible.
+// quand cet appareil reçoit, et active sinon ; il s'éteint pendant un geste, et quand le push
+// n'est pas disponible.
 function afficherEtatPush() {
   const { cle, detail } = etatPush;
   const phrase = cle === 'erreur'
@@ -2443,7 +2448,7 @@ function afficherEtatPush() {
   $('#etat-push').innerHTML = avecCode(phrase);
   const bouton = $('#btn-push');
   bouton.textContent = cle === 'actives' ? "Envoyer une notification d'essai" : 'Activer les notifications';
-  bouton.disabled = cle === 'indisponible';
+  bouton.disabled = gestePush || cle === 'indisponible';
 }
 
 // Ce qui manque au push sur cet appareil, ou '' : le contexte sûr d'abord, puisque hors HTTPS
@@ -2482,17 +2487,41 @@ async function abonner(enregistrement) {
 }
 
 // Les clés se comparent sur leurs octets : `options.applicationServerKey` est un ArrayBuffer, la
-// clé de la page du base64url. Comparées en chaînes, elles différeraient toujours.
-function faitAvecLaCleDeLaPage(abonnement) {
-  const sienne = new Uint8Array(abonnement.options.applicationServerKey);
+// clé de la page du base64url. Comparées en chaînes, elles différeraient toujours. Une clé
+// illisible (sans `options`, ou `null`) ne dit rien : l'abonnement se renvoie tel quel, et l'essai
+// détectera un abonnement rejeté.
+function porteUneAutreCle(abonnement) {
+  const cle = abonnement.options && abonnement.options.applicationServerKey;
+  if (!cle) return false;
+  const sienne = new Uint8Array(cle);
   const attendue = base64EnOctets(CLE_VAPID);
-  return sienne.length === attendue.length && sienne.every((octet, i) => octet === attendue[i]);
+  return sienne.length !== attendue.length || sienne.some((octet, i) => octet !== attendue[i]);
 }
 
-// Lancée une fois, à l'ouverture, jamais au retour au premier plan. Permission accordée, elle
-// renvoie l'abonnement de cet appareil, ou se réabonne s'il n'y en a plus, ou s'il a été fait avec
-// une autre clé VAPID que celle de la page : l'ancien est alors retiré du serveur, qu'un push en
-// 403 ne retirerait jamais (réponse 22). Rend le cas atteint.
+// Met l'abonnement de cet appareil au serveur : le crée s'il manque ; le refait s'il a été fait
+// avec une autre clé VAPID que celle de la page (Chrome refuse un `subscribe` tant qu'il reste),
+// puis retire l'ancien du serveur, qu'un push en 403 ne retirerait jamais (réponse 22) ; sinon,
+// le renvoie tel quel. Un retrait refusé ne dit rien : la ligne morte qui reste est tolérée
+// (décision 12, seconde limite).
+async function mettreAJourAbonnement(enregistrement) {
+  const abonnement = await enregistrement.pushManager.getSubscription();
+  if (!abonnement) {
+    await abonner(enregistrement);
+  } else if (porteUneAutreCle(abonnement)) {
+    await abonnement.unsubscribe();
+    await abonner(enregistrement);
+    try {
+      await api(`/api/push/abonnement?endpoint=${encodeURIComponent(abonnement.endpoint)}`,
+                { method: 'DELETE' });
+    } catch (e) { /* tolérée : voir plus haut */ }
+  } else {
+    await envoyerAbonnement(abonnement);
+  }
+}
+
+// Lancée une fois, à l'ouverture, jamais au retour au premier plan. Permission accordée, elle met
+// l'abonnement de cet appareil au serveur (`mettreAJourAbonnement`) ; le bouton reste éteint, et
+// Réglages ne dit rien, tant qu'elle n'a pas fini. Rend le cas atteint.
 async function synchroniserPush() {
   const raison = raisonPushIndisponible();
   if (raison) {
@@ -2502,23 +2531,17 @@ async function synchroniserPush() {
   } else if (Notification.permission !== 'granted') {
     etatPush = { cle: 'inactives', detail: '' };
   } else {
+    gestePush = true;
+    afficherEtatPush();
     try {
       const enregistrement = await enregistrerServiceWorker();
       if (!enregistrement) throw new Error(CAUSES_PUSH.serviceWorker);
-      const abonnement = await enregistrement.pushManager.getSubscription();
-      if (!abonnement) {
-        await abonner(enregistrement);
-      } else if (faitAvecLaCleDeLaPage(abonnement)) {
-        await envoyerAbonnement(abonnement);
-      } else {
-        await abonnement.unsubscribe();
-        await abonner(enregistrement);
-        await api(`/api/push/abonnement?endpoint=${encodeURIComponent(abonnement.endpoint)}`,
-                  { method: 'DELETE' });
-      }
+      await mettreAJourAbonnement(enregistrement);
       etatPush = { cle: 'actives', detail: '' };
     } catch (e) {
       etatPush = { cle: 'erreur', detail: causeDe(e) };
+    } finally {
+      gestePush = false;
     }
   }
   afficherEtatPush();
@@ -2552,8 +2575,9 @@ async function envoyerEssai() {
   afficherEtatPush();
 }
 
-// « Activer les notifications » : la permission, l'abonnement, son envoi au serveur, puis l'essai,
-// par `envoyerEssai`. Ses refus se disent dans Réglages, par les phrases d'`ETATS_PUSH`.
+// « Activer les notifications » : la permission, l'abonnement mis au serveur comme à l'ouverture
+// (`mettreAJourAbonnement`, qui refait celui d'une autre clé), puis l'essai, par `envoyerEssai`.
+// Ses refus se disent dans Réglages, par les phrases d'`ETATS_PUSH`.
 async function activerPush() {
   const raison = raisonPushIndisponible();
   if (raison) {
@@ -2570,7 +2594,7 @@ async function activerPush() {
     }
     const enregistrement = await enregistrerServiceWorker();
     if (!enregistrement) throw new Error(CAUSES_PUSH.serviceWorker);
-    await abonner(enregistrement);
+    await mettreAJourAbonnement(enregistrement);
   } catch (e) {
     etatPush = { cle: 'erreur', detail: causeDe(e) };
     afficherEtatPush();
@@ -2579,10 +2603,17 @@ async function activerPush() {
   await envoyerEssai();
 }
 
-// Éteint pendant le geste, le bouton se rallume avec le nouvel état (`afficherEtatPush`).
-$('#btn-push').onclick = () => {
-  $('#btn-push').disabled = true;
-  return etatPush.cle === 'actives' ? envoyerEssai() : activerPush();
+// Le drapeau éteint le bouton pendant le geste ; il se rallume avec le nouvel état. La demande de
+// permission d'`activerPush` part encore dans le geste : rien n'est attendu avant elle.
+$('#btn-push').onclick = async () => {
+  gestePush = true;
+  afficherEtatPush();
+  try {
+    await (etatPush.cle === 'actives' ? envoyerEssai() : activerPush());
+  } finally {
+    gestePush = false;
+    afficherEtatPush();
+  }
 };
 
 synchroniserPush();

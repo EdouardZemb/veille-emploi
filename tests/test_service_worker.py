@@ -71,6 +71,7 @@ const faux = {
 };
 const fauxFetch = async (adresse, options = {}) => {
   appels.push({ adresse, methode: options.method || 'GET', credentials: options.credentials || '',
+                entetes: options.headers || null,
                 corps: options.body === undefined ? null : JSON.parse(options.body) });
   return { ok: true, status: 200, json: async () => ({ ok: true }) };
 };
@@ -117,13 +118,14 @@ def _json(endpoint: str) -> dict:
 
 
 def _renvoi(endpoint: str) -> dict:
+    """Le `POST` du nouvel abonnement : sans `Content-Type: application/json`, FastAPI rend 422."""
     return {"adresse": "/api/push/abonnement", "methode": "POST", "credentials": "same-origin",
-            "corps": _json(endpoint)}
+            "entetes": {"Content-Type": "application/json"}, "corps": _json(endpoint)}
 
 
 def _retrait(endpoint: str) -> dict:
     return {"adresse": f"/api/push/abonnement?endpoint={quote(endpoint, safe='')}",
-            "methode": "DELETE", "credentials": "same-origin", "corps": None}
+            "methode": "DELETE", "credentials": "same-origin", "entetes": None, "corps": None}
 
 
 def test_un_nouvel_abonnement_est_renvoye_puis_l_ancien_retire():
