@@ -2110,10 +2110,11 @@ const ONGLET_DE_VUE = {
 
 // La vue `nom`, rechargée, ouverte par le haut. Quand elle change, elle entre dans l'historique,
 // au-dessus de celle d'avant ; `historique` faux, elle n'y entre pas : revenue par le retour, ou
-// montrée par une page rechargée.
+// montrée par une page rechargée. Un nom inconnu, celui d'une entrée laissée par une version qui
+// aurait renommé sa vue, montre « À faire », plutôt qu'une console vide.
 function afficherVue(nom, { historique = true } = {}) {
+  if (!$(`#vue-${nom}`)) nom = 'a-faire';
   const vue = $(`#vue-${nom}`);
-  if (!vue) return;
   if (historique && nom !== vueCourante) {
     const ici = history.state || {};
     history.pushState({ vue: nom, precedente: vueCourante, profondeur: (ici.profondeur || 0) + 1 }, '');
@@ -2143,6 +2144,24 @@ function afficherVue(nom, { historique = true } = {}) {
 let retourDeFermeture = false;
 // « Chercher une offre » rejointe par le retour : le curseur va dans la recherche à son arrivée.
 let curseurApresRetour = false;
+// Un seul retour à la fois. Vrai entre un retour que lance la console (celui d'`allerA`, de la
+// fermeture de la fenêtre, ou de l'entrée morte d'une page rechargée) et son `popstate` :
+// `allerA` attend, sans rien faire. Un second toucher d'ici là lancerait un second retour, que
+// Chromium compte depuis l'entrée où mène le premier, et la console dépasserait la vue d'avant ;
+// un onglet touché pousserait sa vue au-dessus d'une entrée que le retour reprend.
+let retourEnCours = false;
+// Le filet du drapeau : un retour sans entrée à ce pas (la première oubliée, Chrome n'en gardant
+// qu'une cinquantaine) ne donne aucun `popstate`. Un retour dans la page arrive en quelques
+// millisecondes ; passé une seconde, il n'arrivera plus, et les onglets répondent de nouveau.
+let filetDuRetour;
+const DELAI_DU_FILET_MS = 1000;
+
+function reculer(pas) {
+  retourEnCours = true;
+  clearTimeout(filetDuRetour);
+  filetDuRetour = setTimeout(() => { retourEnCours = false; }, DELAI_DU_FILET_MS);
+  history.go(-pas);
+}
 
 // Seule à ouvrir la fenêtre. Fermée, elle entre dans l'historique, puis s'ouvre ; déjà ouverte,
 // elle n'y entre pas une seconde fois, et l'appelant ne fait qu'en remplacer le contenu.
@@ -2160,7 +2179,7 @@ function ouvrirFenetre() {
 $('#fenetre').addEventListener('close', () => {
   if (!history.state?.fenetre) return;
   retourDeFermeture = true;
-  history.back();
+  reculer(1);
 });
 
 // Le retour, et les vues qu'`allerA` rejoint par lui. Celui que lance la fermeture ne touche à
@@ -2170,6 +2189,8 @@ $('#fenetre').addEventListener('close', () => {
 window.addEventListener('popstate', ev => {
   const fenetre = $('#fenetre');
   const entree = ev.state || {};
+  retourEnCours = false;
+  clearTimeout(filetDuRetour);
   if (retourDeFermeture) {
     retourDeFermeture = false;
     if (fenetre.open && !entree.fenetre) history.pushState({ ...ev.state, fenetre: true }, '');
@@ -2185,14 +2206,15 @@ window.addEventListener('popstate', ev => {
 // « À faire » revient à la première entrée : le retour depuis lui quitte toujours l'application.
 // La vue ouverte juste avant se rejoint par le retour, sans entrée de plus. Une autre entre dans
 // l'historique. `chercher` : « Chercher une offre », le curseur dans la recherche (décision 5),
-// posé une fois la vue montrée.
+// posé une fois la vue montrée. Pendant un retour en cours, rien.
 function allerA(nom, { chercher = false } = {}) {
+  if (retourEnCours) return;
   const ici = history.state || {};
   if (nom === 'a-faire' && ici.profondeur > 0) {
-    history.go(-ici.profondeur);
+    reculer(ici.profondeur);
   } else if (nom !== vueCourante && ici.precedente === nom) {
     curseurApresRetour = chercher;
-    history.back();
+    reculer(1);
   } else {
     afficherVue(nom);
     if (chercher) $('#f-recherche').focus();
@@ -2471,10 +2493,17 @@ synchroniserPush();
 // annonce. Un ancien lien d'entrée ouvre « Toutes les offres », posée au-dessus d'« À faire »
 // (décision 3 du plan du lot 3) : `?filtre=<statut>`, que le serveur traduit en état
 // (`data-etat-demande`, le JS ne traduit aucun statut), ou `?atout=`.
+//
+// Le défilement est à la console : revenue par le retour, une vue s'ouvre en haut (décision 15).
+// Chromium restaurerait celui de son entrée à la première image après le `popstate`, par-dessus
+// le `scrollTo(0, 0)` d'`afficherVue`. Posé ici, avant toute entrée, le mode vaut pour toutes
+// celles que la console pousse ensuite. La vue sous une fenêtre fermée ne bouge pas pour autant :
+// la fenêtre ne fait pas défiler la page, et le `popstate` ne remontre pas la même vue.
+history.scrollRestoration = 'manual';
 const entreeChargee = history.state;
 if (entreeChargee && entreeChargee.vue) {
   afficherVue(entreeChargee.vue, { historique: false });
-  if (entreeChargee.fenetre) history.back();
+  if (entreeChargee.fenetre) reculer(1);
 } else {
   const etatDemande = document.body.dataset.etatDemande || '';
   const atoutDemande = new URLSearchParams(location.search).get('atout') || '';

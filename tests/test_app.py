@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from veille import auth, db, dossier
+from veille import auth, db, dossier, notifications
 from veille.app import app
 from veille.models import Offre
 from veille.scoring import scorer
@@ -281,6 +281,20 @@ def test_le_manifeste_et_le_service_worker_sont_servis(client):
     sw = client.get("/sw.js")
     assert sw.status_code == 200
     assert "showNotification" in sw.text
+
+
+def test_la_notification_d_essai_ouvre_la_file_comme_la_vraie(connecte, monkeypatch):
+    """L'essai ouvre `/?filtre=nouveau`, l'adresse des nouvelles offres
+    (`prevenir_nouvelles_offres`) : touchée la console ouverte, elle crée une entrée neuve, comme
+    la vraie. `/`, l'adresse où la console se ramène toujours, n'en serait qu'un rechargement, qui
+    garde la vue (décision 15 du plan du lot 3)."""
+    adresses: list[str] = []
+    monkeypatch.setattr(notifications, "envoyer_push",
+                        lambda titre, corps, url="/": adresses.append(url) or (1, 0))
+    r = connecte.post("/api/push/test")
+    assert r.status_code == 200
+    assert r.json() == {"envoyes": 1, "echecs": 0}
+    assert adresses == ["/?filtre=nouveau"]
 
 
 def test_entonnoir(connecte):

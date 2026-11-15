@@ -624,7 +624,7 @@ def cmd_tester_notification(args: argparse.Namespace) -> int:
         print("     tailnet, puis appuyer sur 'Notifications'. Voir docs/DEMARRAGE.md.")
     else:
         ok, ko = notifications.envoyer_push(
-            "Veille emploi", "Essai du canal push.", url="/"
+            "Veille emploi", "Essai du canal push.", url="/?filtre=nouveau"
         )
         print(f"  envoyes : {ok} | echecs : {ko}")
 

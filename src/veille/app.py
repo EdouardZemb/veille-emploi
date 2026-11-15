@@ -1323,7 +1323,7 @@ def api_desabonnement(endpoint: str):
 @app.post("/api/push/test", dependencies=[Depends(auth.exiger_session)])
 def api_push_test():
     ok, ko = notifications.envoyer_push(
-        "Veille emploi", "Notification de test - le push fonctionne.", url="/"
+        "Veille emploi", "Notification de test - le push fonctionne.", url="/?filtre=nouveau"
     )
     return {"envoyes": ok, "echecs": ko}
 

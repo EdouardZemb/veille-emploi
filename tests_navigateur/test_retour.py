@@ -38,6 +38,12 @@ TEXTE_RELANCE = "Texte inventé du mot de relance, à relire avant de l'envoyer.
 # Une entrée qui porte encore la fenêtre : la fermeture la retire par un retour, qui prend un
 # instant. Cinq secondes au plus pour le voir arriver : un délai de garde, pas une attente fixe.
 GARDE_MS = 5000
+# Ce qui ne doit pas arriver ne s'attend pas : on relit après ce délai. Chromium restaure le
+# défilement d'une entrée à la première image après son `popstate` (4 ms, sondé le 15/11/2026),
+# et un second retour lancé par erreur arrive dans le même temps.
+RELIRE_APRES_MS = 300
+# Assez de candidatures pour que « Candidatures » défile, au téléphone.
+A_DEFILER = 30
 
 # Le `popstate` du retour que lance la fermeture de la fenêtre, guetté avant le geste.
 GUETTER_LE_RETOUR = """() => { window.retourVu = new Promise(r =>
@@ -69,6 +75,30 @@ def _rouvrir(attendre_close: bool) -> str:
 
 
 ROUVRIR = {"A": _rouvrir(attendre_close=False), "B": _rouvrir(attendre_close=True)}
+
+# Un bouton touché deux fois dans la même tâche, avant le `popstate` du premier retour : rend le
+# nombre de `popstate`, compté jusqu'à `RELIRE_APRES_MS` après le premier.
+DEUX_TOUCHERS = f"""async selecteur => {{
+    let retours = 0;
+    const premier = new Promise(r => addEventListener('popstate', () => {{ retours += 1; r(); }}));
+    const bouton = document.querySelector(selecteur);
+    bouton.click();
+    bouton.click();
+    await Promise.race([premier, new Promise(r => setTimeout(r, {GARDE_MS}))]);
+    await new Promise(r => setTimeout(r, {RELIRE_APRES_MS}));
+    return retours;
+}}"""
+
+# « Fermer », puis un onglet touché après l'événement `close`, qui lance le retour, et avant le
+# `popstate` de ce retour : rend vrai si ce `popstate` est arrivé.
+ONGLET_PENDANT_LA_FERMETURE = f"""async onglet => {{
+    const f = document.querySelector('#fenetre');
+    const retour = new Promise(r => addEventListener('popstate', () => r(true), {{ once: true }}));
+    f.querySelector('form button').click();
+    await new Promise(r => f.addEventListener('close', r, {{ once: true }}));
+    document.querySelector(`.onglet[data-vue="${{onglet}}"]`).click();
+    return Promise.race([retour, new Promise(r => setTimeout(() => r(false), {GARDE_MS}))]);
+}}"""
 
 # Chaque appel de `fetch`, noté au moment où il part : un rechargement de la vue appelle l'API
 # dans la tâche même du `popstate` qui ferme la fenêtre. La fenêtre vue fermée, la liste est donc
@@ -106,6 +136,13 @@ def retour(serveur):
                                 "retour/sans-dossier", "interessante")
     return {"une": une, "deux": deux, "postuler": postuler, "envoyee": envoyee,
             "sans_dossier": sans_dossier}
+
+
+@pytest.fixture(scope="module")
+def a_defiler(serveur):
+    """Assez de candidatures envoyées pour que « Candidatures » défile au téléphone."""
+    return _inventer([f"Candidature inventée du retour, à défiler {n}"
+                      for n in range(1, A_DEFILER + 1)], "retour/defiler", "candidature_envoyee")
 
 
 @pytest.fixture
@@ -183,6 +220,26 @@ def _fermer_puis_attendre_le_retour(page, geste) -> None:
 
 def _fermer(page) -> None:
     _fenetre(page).get_by_role("button", name="Fermer", exact=True).click()
+
+
+def _defilement(page) -> int:
+    return page.evaluate("() => scrollY")
+
+
+def _defilement_relu(page) -> int:
+    """Le défilement, relu `RELIRE_APRES_MS` plus tard : Chromium l'aurait restauré d'ici là."""
+    return page.evaluate("ms => new Promise(r => setTimeout(() => r(scrollY), ms))", RELIRE_APRES_MS)
+
+
+def _ligne_a_defiler(page, a_defiler: list[int]):
+    """La dernière de ces candidatures dans « Candidatures », et son id : `A_DEFILER` lignes au
+    moins sous le haut de la vue. La liste s'écrit d'un coup : l'une d'elles là, toutes y sont."""
+    envoyees = '#vue-candidatures [data-groupe="envoyee"] button.offre'
+    expect(page.locator(f'{envoyees}[data-id="{a_defiler[0]}"]')).to_have_count(1)
+    ids = page.locator(envoyees).evaluate_all(
+        "bs => bs.map(b => Number(b.dataset.id))")
+    derniere = [offre_id for offre_id in ids if offre_id in set(a_defiler)][-1]
+    return page.locator(f'#vue-candidatures button.offre[data-id="{derniere}"]'), derniere
 
 
 def _servir_relance(page, offre_id: int) -> None:
@@ -327,6 +384,103 @@ def test_chercher_une_offre_revenue_par_le_retour_garde_le_curseur(telephone, se
 
 
 # ---------------------------------------------------------------------------
+# Le défilement : la vue revenue s'ouvre en haut, celle sous une fenêtre ne bouge pas
+# ---------------------------------------------------------------------------
+
+
+def test_une_vue_revenue_par_le_retour_s_ouvre_en_haut(telephone, serveur, a_defiler):
+    """Décision 15 : revenue par le retour, une vue se recharge et s'ouvre en haut, comme par son
+    onglet. Chromium restaurerait le défilement de son entrée à la première image après le
+    `popstate`, par-dessus le `scrollTo(0, 0)` d'`afficherVue`."""
+    _ouvrir(telephone, serveur)
+    telephone.locator('.onglet[data-vue="candidatures"]').click()
+    expect(_ligne_a_defiler(telephone, a_defiler)[0]).to_be_visible()
+    telephone.evaluate("() => window.scrollTo(0, document.documentElement.scrollHeight)")
+    assert _defilement(telephone) > 500
+    telephone.locator('.onglet[data-vue="plus"]').click()
+    _sur(telephone, "plus")
+    # Les listes d'avant, marquées : la vue rechargée les remplace.
+    telephone.evaluate("""() => document.querySelectorAll('#contenu-candidatures .liste')
+                                 .forEach(l => { l.dataset.ancienne = '1'; })""")
+
+    telephone.go_back()
+    _sur(telephone, "candidatures")
+    expect(telephone.locator("#contenu-candidatures .liste").first).to_be_visible()
+    expect(telephone.locator("#contenu-candidatures [data-ancienne]")).to_have_count(0)
+    assert _defilement(telephone) == 0
+    assert _defilement_relu(telephone) == 0
+
+
+def test_la_vue_sous_une_fenetre_fermee_par_le_retour_garde_son_defilement(telephone, serveur,
+                                                                          a_defiler):
+    """La fiche ouverte au bas de « Candidatures » : le retour la ferme, et la vue reste où elle
+    était, sans se recharger ni remonter."""
+    _ouvrir(telephone, serveur)
+    telephone.locator('.onglet[data-vue="candidatures"]').click()
+    ligne, offre_id = _ligne_a_defiler(telephone, a_defiler)
+    ligne.click()
+    expect(_fiche(telephone, offre_id)).to_be_visible()
+    avant = _defilement(telephone)
+    assert avant > 500
+
+    telephone.go_back()
+    _sur(telephone, "candidatures")
+    assert _defilement(telephone) == avant
+    assert _defilement_relu(telephone) == avant
+
+
+# ---------------------------------------------------------------------------
+# Un seul retour à la fois
+# ---------------------------------------------------------------------------
+
+
+def test_deux_touchers_sur_plus_ne_reculent_que_d_une_vue(telephone, serveur):
+    """« ‹ Plus » rejoint la vue d'avant par un retour, qui arrive un instant plus tard. Touché deux
+    fois d'ici là, il en lancerait deux, et dépasserait « Plus » : Chromium compte le second depuis
+    l'entrée où mène le premier."""
+    _depuis_sante(telephone, serveur)
+    telephone.locator('.onglet[data-vue="plus"]').click()
+    telephone.locator('.lien-plus[data-vue="bilan"]').click()
+    expect(_vue(telephone, "bilan")).to_be_visible()
+
+    assert telephone.evaluate(DEUX_TOUCHERS, "#vue-bilan .retour-plus") == 1
+    _sur(telephone, "plus")
+    telephone.go_back()
+    _sur(telephone, "a-faire")
+    telephone.go_back()
+    _a_quitte_la_console(telephone, serveur)
+
+
+def test_un_onglet_touche_pendant_le_retour_de_la_fermeture_attend(telephone, serveur, retour):
+    """« Fermer » lance un retour, qui retire l'entrée de la fenêtre. Un onglet touché avant qu'il
+    n'arrive pousserait sa vue au-dessus de cette entrée, que le retour reprendrait : la console
+    montrerait une vue sous l'entrée d'une autre. Le toucher attend : il ne fait rien."""
+    _depuis_sante(telephone, serveur)
+    _ouvrir_fiche_depuis_a_faire(telephone, retour["une"])
+
+    assert telephone.evaluate(ONGLET_PENDANT_LA_FERMETURE, "candidatures")
+    _sur(telephone, "a-faire")
+    telephone.go_back()
+    _a_quitte_la_console(telephone, serveur)
+
+
+def test_un_retour_qui_ne_mene_nulle_part_ne_fige_pas_les_onglets(telephone, serveur):
+    """Un retour sans entrée à ce pas ne donne aucun `popstate` : la première entrée oubliée
+    (Chrome ne garde qu'une cinquantaine d'entrées), l'onglet « À faire » ne mène nulle part. Le
+    retour en cours n'attend pas sans fin : les onglets répondent de nouveau."""
+    _ouvrir(telephone, serveur)
+    telephone.locator('.onglet[data-vue="candidatures"]').click()
+    _sur(telephone, "candidatures")
+    # Une profondeur plus grande que l'historique : la première entrée n'y est plus.
+    telephone.evaluate("() => history.replaceState({ ...history.state, profondeur: 99 }, '')")
+    telephone.locator('.onglet[data-vue="a-faire"]').click()
+    telephone.wait_for_function("() => !retourEnCours", timeout=GARDE_MS)
+
+    telephone.locator('.onglet[data-vue="plus"]').click()
+    _sur(telephone, "plus")
+
+
+# ---------------------------------------------------------------------------
 # La fenêtre fermée sans traverser l'historique retire son entrée (point d'attention 1)
 # ---------------------------------------------------------------------------
 
@@ -417,6 +571,19 @@ def test_un_rechargement_fenetre_ouverte_ne_laisse_pas_d_entree_morte(telephone,
     _sur(telephone, "a-faire")
     telephone.go_back()
     _a_quitte_la_console(telephone, serveur)
+
+
+def test_une_vue_inconnue_au_rechargement_montre_a_faire(telephone, serveur):
+    """Une entrée laissée par une version d'avant, dont la vue aurait changé de nom : le
+    rechargement montre « À faire », chargée, plutôt qu'une console vide."""
+    _ouvrir(telephone, serveur)
+    telephone.evaluate("""() => history.replaceState(
+        { vue: 'vue-inconnue', precedente: null, profondeur: 0 }, '', '/')""")
+
+    telephone.reload()
+    _sur(telephone, "a-faire")
+    expect(telephone.locator("#contenu-a-faire")).not_to_be_empty()
+    expect(telephone.locator(".onglet.actif")).to_have_attribute("data-vue", "a-faire")
 
 
 def test_la_vue_sous_une_fenetre_fermee_ne_se_recharge_pas(telephone, serveur, retour):
