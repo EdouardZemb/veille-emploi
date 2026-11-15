@@ -8,7 +8,7 @@ tes **documents** et ajuster tes **réglages**. Elle a trois onglets.
 |--------|-----------------|
 | **À faire** | ce qui attend un geste, puis les offres à décider |
 | **Candidatures** | trois groupes : *Je postule* (« dossier prêt » ou « à préparer »), *Envoyée* (avec la date de relance) et *Entretien* |
-| **Plus** | les anciens écrans, tels quels en attendant leur refonte (le lot 3 de l'ADR-0003) : *Toutes les offres*, *Relances*, *Archive*, *À classer*, *Pilotage*, *Documents* et *Réglages* (appareils connectés, seuil de notification, fréquence de collecte, état des sources) |
+| **Plus** | six lignes : *Chercher une offre*, *Toutes les offres*, *Mes critères*, *Bilan*, *Documents* et *Réglages* (notifications, appareils connectés, seuil de notification, fréquence de collecte, état des sources) |
 
 « À faire » montre d'abord « À finir » : une relance due, un dossier prêt à
 envoyer, un dossier à préparer. Puis « À voir » : au plus 50 offres au-dessus
@@ -17,6 +17,23 @@ du seuil, avec des liens vers les autres et vers celles sous le seuil. Puis
 « Je postule », « Plus tard » et « Non » (un motif, les fréquents en un
 toucher, ou « N'est plus en ligne »). Toucher une notification ouvre
 « À faire ».
+
+Dans « Plus », *Toutes les offres* montre une ligne par offre (l'intitulé,
+l'employeur, le score, l'état), qui ouvre sa fiche, sous trois filtres
+toujours visibles : la recherche, l'état et la famille. Sans état choisi, elle
+montre les offres « En cours » (À voir, Je postule, Envoyée, Entretien), et une
+recherche porte sur toutes les offres, closes et mises de côté comprises.
+« Chercher une offre » l'ouvre, le curseur dans la recherche. *Mes critères*
+porte les offres à classer, « Recalculer tous les scores » et le rappel que
+les critères se changent dans la configuration de l'instance ; la pastille de
+« Plus » compte les offres à classer. Le *Bilan* porte l'entonnoir, les
+tableaux par canal, par famille et par source, les motifs d'écartement, puis
+trois listes repliées : les archivées, les closes et les mises de côté. Une
+pastille sur sa ligne compte les archivées nouvelles, et s'éteint quand on
+déplie leur liste. *Réglages* porte les notifications en tête et « Quitter »
+au pied. Le retour d'Android ferme la fenêtre ouverte ; sans fenêtre, il
+revient à la vue d'avant, qui s'ouvre en haut ; depuis « À faire », il quitte
+l'application.
 
 ### Les cinq états d'une offre
 
@@ -35,8 +52,10 @@ pas (`src/veille/etats.py`, [ADR-0003](decisions/0003-le-parcours-jusqu-a-la-can
 hors de la file. La fiche d'une offre n'a qu'une ligne d'actions, celle de son
 état. Sur une offre « À voir » ou mise de côté, « Je postule » passe l'offre à
 l'état « Je postule » et lance aussitôt la préparation de la candidature. Sur
-la fiche « Je postule » sans dossier, « Préparer ma candidature » la reprend ;
-avec son dossier, la fiche propose « Je l'ai envoyée » et « Dossier prêt › ».
+la fiche « Je postule » sans dossier, « Préparer ma candidature » la reprend,
+et « Je l'ai envoyée » dit une candidature faite sans dossier (un formulaire
+en ligne) ; avec son dossier, la fiche propose « Je l'ai envoyée » et
+« Dossier prêt › ».
 Les étapes de la préparation et l'écran « Dossier prêt » sont dans
 [CANDIDATURE.md](CANDIDATURE.md). Trois volets restent repliés :
 « Pourquoi ce score », « Notes » et « Autres actions ». Ce dernier mène au
@@ -114,8 +133,9 @@ de test qu'elle pratique (pytest, Postman, Appium… `+5` chacun, plafonné), sa
 stack et le domaine de la logistique, qui ne vaut pas pareil en France et en
 Suisse (`poids_par_pays`, [CRITERES.md](CRITERES.md)).
 
-Un atout peut être **mis en avant** (`mis_en_avant`, un seul au plus) : son
-bouton, dans la barre de la console, isole d'un clic les offres qui le portent.
+Un atout peut être **mis en avant** (`mis_en_avant`, un seul au plus) : sa
+bascule, en tête de *Plus › Toutes les offres*, isole d'un toucher les offres
+qui le portent.
 
 Quand une alerte mail ne contient qu'un extrait, l'offre est marquée **données
 partielles** : le score ne porte alors que sur l'intitulé et le lieu, et
@@ -128,10 +148,20 @@ l'écran d'accueil ([DEMARRAGE.md](DEMARRAGE.md), § 5), notification dès qu'un
 offre dépasse le seuil de notification, réglé dans Réglages. Son prérequis est
 le HTTPS — c'est la première brique à valider, tout le volet mobile en dépend.
 
+Le bloc « Notifications » de *Plus › Réglages* dit si cet appareil les reçoit.
+« Activer les notifications » l'abonne, puis envoie une notification d'essai ;
+quand il les reçoit, le bouton devient « Envoyer une notification d'essai ».
+Un essai qui ne part pas refait l'abonnement de l'appareil, puis se relance,
+une fois. À chaque ouverture, la console renvoie l'abonnement au serveur, ou
+le refait s'il est perdu ou fait avec une autre clé VAPID, sans jamais
+demander la permission.
+
 Le **mail** est le repli, et ne part que si aucun push n'a pu être remis. Il
 sort par `smtp.gmail.com:587` avec le même mot de passe d'application que
 l'IMAP — *pas* par un serveur de messagerie local, qui souvent n'achemine rien
-vers l'extérieur.
+vers l'extérieur. Quand plus aucun appareil n'est abonné, le mail le dit, avec
+le geste qui répare, et la ligne `notification` de `veille etat` dit
+`repli mail (aucun appareil abonné)`.
 
 Si les deux canaux échouent, `veille etat` l'affiche sur la ligne
 `notification`.
