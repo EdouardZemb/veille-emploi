@@ -444,6 +444,8 @@ def console(request: Request):
         return RedirectResponse("/connexion", status_code=303)
     criteres = charger_criteres()
     cles = notifications.charger_vapid()
+    # Un ancien lien d'entree (?filtre=<statut>) se traduit ici : le JS ne connait aucun etat.
+    etat_demande = etats.etat_du_lien(request.query_params.get("filtre"))
     return gabarits.TemplateResponse(
         request,
         "index.html",
@@ -458,6 +460,7 @@ def console(request: Request):
             "cle_vapid": cles.publique if cles else "",
             "atout_mis_en_avant": _atout_mis_en_avant(criteres),
             "sert_l_exemple": _sert_l_exemple_par_oubli(),
+            "etat_demande": etat_demande,
         },
     )
 
@@ -480,21 +483,32 @@ def api_offres(
     tri: str | None = None,
     a_documenter: bool = False,
     limite: int = 200,
+    etat: str | None = None,
 ):
     from . import completude as _completude
 
-    offres = db.lister_offres(
-            verification=verification,
-            tri=tri,
-            statut=statut,
-            zone=zone,
-            famille=famille,
-            atout=atout,
-            source=source,
-            recherche=recherche,
-            inclure_ecartees=inclure_ecartees,
-            limite=limite,
+    # Un etat vide vaut aucun etat. Sans etat, la liste montre les offres en cours,
+    # sauf si un statut ou inclure_ecartees est donne : ils gardent leur sens.
+    etat = etat or None
+    statuts = None
+    if etat is not None or not (statut or inclure_ecartees):
+        try:
+            statuts = etats.statuts_du_filtre(etat)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+    filtres = dict(
+        statut=statut,
+        statuts=statuts,
+        zone=zone,
+        famille=famille,
+        atout=atout,
+        source=source,
+        recherche=recherche,
+        inclure_ecartees=inclure_ecartees,
+        verification=verification,
     )
+    offres = db.lister_offres(tri=tri, limite=limite, **filtres)
+    total = db.compter_offres(**filtres)
     # La complétude voyage AVEC l'offre, mais dans sa propre clé : les deux axes
     # ne se rencontrent jamais dans un meme nombre.
     for o in offres:
@@ -516,7 +530,7 @@ def api_offres(
     compte = sum(1 for o in offres if a_travailler(o))
     if a_documenter:
         offres = [o for o in offres if a_travailler(o)]
-    return {"offres": offres, "a_documenter": compte}
+    return {"offres": offres, "a_documenter": compte, "total": total}
 
 
 @app.get("/api/affinement", dependencies=[Depends(auth.exiger_session)])

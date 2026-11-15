@@ -27,6 +27,11 @@ _ETAT_DU_STATUT: dict[str, str] = {
     "differee": MISE_DE_COTE,
 }
 
+# Les filtres de « Toutes les offres » : les cinq états, puis la mise de côté.
+ETATS_FILTRABLES: tuple[str, ...] = ETATS + (MISE_DE_COTE,)
+# Sans filtre, la liste montre les offres en cours.
+EN_COURS: tuple[str, ...] = ("a_voir", "je_postule", "envoyee", "entretien")
+
 _STATUTS_RELANCABLES = ("candidature_envoyee", "relance_envoyee")
 _ORDRE_RAISON = {"relance_due": 0, "a_envoyer": 1, "a_preparer": 2}
 
@@ -37,6 +42,24 @@ def etat_de(offre: Mapping[str, Any]) -> str:
         return _ETAT_DU_STATUT[statut]
     except (KeyError, TypeError):
         raise ValueError(f"statut sans état : {statut!r}") from None
+
+
+def statuts_du_filtre(etat: str | None) -> tuple[str, ...]:
+    """Les statuts d'un filtre d'état, dans l'ordre de `_ETAT_DU_STATUT` ; sans état, ceux des offres en cours."""
+    if etat is None:
+        voulus: tuple[str, ...] = EN_COURS
+    elif etat in ETATS_FILTRABLES:
+        voulus = (etat,)
+    else:
+        raise ValueError(f"état inconnu : {etat!r}")
+    return tuple(s for s, e in _ETAT_DU_STATUT.items() if e in voulus)
+
+
+def etat_du_lien(filtre: str | None) -> str | None:
+    """L'état qu'un ancien lien d'entrée (`?filtre=<statut>`) demande ; `nouveau`, absent ou inconnu : aucun."""
+    if filtre == "nouveau":
+        return None
+    return _ETAT_DU_STATUT.get(filtre)
 
 
 def raison_a_finir(offre: Mapping[str, Any], aujourd_hui: date) -> str | None:

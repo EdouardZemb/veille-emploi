@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="/static/style.css?v={{ v_css }}">
 </head>
 <body data-seuil="{{ seuil_interessant }}" data-vapid="{{ cle_vapid }}"
+      data-etat-demande="{{ etat_demande or '' }}"
       data-atout='{{ atout_mis_en_avant|tojson }}'>
 
 <!-- La barre et les onglets collent ensemble en haut de l'écran : les onglets

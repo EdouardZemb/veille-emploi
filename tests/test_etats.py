@@ -225,3 +225,53 @@ def test_une_offre_archivee_n_arrete_pas_la_composition():
     file = etats.composer_a_faire(offres, 45, AUJ)
     assert _ids(file["a_voir"]) == [2]
     assert _ids(file["a_finir"]) == [3]
+
+
+_STATUTS_DES_FILTRES = [
+    ("a_voir", ("nouveau", "a_traiter")),
+    ("je_postule", ("interessante",)),
+    ("envoyee", ("candidature_envoyee", "relance_envoyee", "reponse_recue")),
+    ("entretien", ("entretien",)),
+    ("close", ("ecartee", "refus", "accepte")),
+    ("mise_de_cote", ("differee",)),
+]
+
+
+@pytest.mark.parametrize("etat, statuts", _STATUTS_DES_FILTRES)
+def test_les_statuts_de_chaque_etat(etat, statuts):
+    assert etats.statuts_du_filtre(etat) == statuts
+
+
+def test_sans_etat_le_filtre_rend_les_offres_en_cours():
+    assert etats.statuts_du_filtre(None) == (
+        "nouveau", "a_traiter", "interessante", "candidature_envoyee",
+        "relance_envoyee", "reponse_recue", "entretien",
+    )
+
+
+@pytest.mark.parametrize("inconnu", ["ecartee", "Close", "", "plus_tard"])
+def test_un_etat_inconnu_leve(inconnu):
+    with pytest.raises(ValueError, match="état inconnu"):
+        etats.statuts_du_filtre(inconnu)
+
+
+def test_les_filtres_font_le_tour_des_statuts():
+    mis_bout_a_bout = [s for etat in etats.ETATS_FILTRABLES for s in etats.statuts_du_filtre(etat)]
+    assert sorted(mis_bout_a_bout) == sorted(STATUTS)
+    assert len(mis_bout_a_bout) == len(STATUTS) == 11
+
+
+@pytest.mark.parametrize("filtre, etat", [
+    ("a_traiter", "a_voir"), ("interessante", "je_postule"),
+    ("candidature_envoyee", "envoyee"), ("relance_envoyee", "envoyee"),
+    ("reponse_recue", "envoyee"), ("entretien", "entretien"),
+    ("ecartee", "close"), ("refus", "close"), ("accepte", "close"),
+    ("differee", "mise_de_cote"),
+])
+def test_un_lien_d_entree_se_traduit_en_etat(filtre, etat):
+    assert etats.etat_du_lien(filtre) == etat
+
+
+@pytest.mark.parametrize("filtre", [None, "", "nouveau", "inconnu", "close"])
+def test_un_lien_vers_la_file_ne_demande_aucun_etat(filtre):
+    assert etats.etat_du_lien(filtre) is None
