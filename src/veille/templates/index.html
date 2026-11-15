@@ -13,16 +13,11 @@
       data-atout='{{ atout_mis_en_avant|tojson }}'>
 
 <!-- La barre et les onglets collent ensemble en haut de l'écran : les onglets
-     suivent la hauteur réelle de la barre, sans décalage écrit à la main. -->
+     suivent la hauteur réelle de la barre, sans décalage écrit à la main. La barre ne
+     garde que le titre : « Notifications » et « Quitter » sont dans Réglages (E11). -->
 <div class="entete">
 <header class="barre">
   <h1>Veille emploi</h1>
-  <div class="barre-actions">
-    <button id="btn-push" class="discret" title="Activer les notifications sur cet appareil">Notifications</button>
-    <form action="/deconnexion" method="post" class="enligne">
-      <button class="discret" type="submit">Quitter</button>
-    </form>
-  </div>
 </header>
 
 <nav class="onglets">
@@ -130,9 +125,26 @@
 </section>
 
 <!-- ------------------------------------------------------------------ -->
+<!-- Réglages (décision 11 du plan du lot 3) : « Notifications » en tête, ce que reçoit cet
+     appareil et le bouton, puis ce que `chargerReglages` réécrit, puis « Quitter » au pied.
+     Les deux blocs sont écrits ici : « Quitter » marche même si `/api/reglages` échoue. Le
+     libellé du bouton et la phrase de `#etat-push` suivent l'état du push de cet appareil
+     (`afficherEtatPush`, app.js). -->
 <section id="vue-reglages" class="vue cachee">
   <button class="retour-plus" data-vue="plus">‹ Plus</button>
+  <div id="bloc-notifications" class="bloc">
+    <h2>Notifications</h2>
+    <p id="etat-push" class="resume"></p>
+    <div class="actions">
+      <button id="btn-push">Activer les notifications</button>
+    </div>
+  </div>
   <div id="contenu-reglages"></div>
+  <div id="bloc-quitter" class="bloc">
+    <form action="/deconnexion" method="post">
+      <button class="discret" type="submit">Quitter</button>
+    </form>
+  </div>
 </section>
 
 <!-- Fenetre de detail ------------------------------------------------- -->

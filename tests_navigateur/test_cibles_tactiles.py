@@ -86,8 +86,14 @@ def test_les_lignes_des_offres_se_touchent_du_doigt(telephone):
     assert min(hauteurs) >= DOIGT
 
 
-def test_les_boutons_de_la_barre_se_touchent_du_doigt(telephone):
-    for selecteur in ("#btn-push", "form[action='/deconnexion'] button"):
+def test_les_boutons_de_reglages_se_touchent_du_doigt(telephone):
+    """« Notifications » et « Quitter » sont dans Réglages (décision 11 du plan du lot 3). La
+    fixture ouvre Toutes les offres, où Réglages, caché, mesurerait 0 px : on l'ouvre d'abord."""
+    telephone.click('.onglet[data-vue="plus"]')
+    telephone.click('.lien-plus[data-vue="reglages"]')
+    telephone.wait_for_selector("#vue-reglages", state="visible")
+    for selecteur in ("#vue-reglages #btn-push",
+                      "#vue-reglages form[action='/deconnexion'] button"):
         assert _boite(telephone, selecteur)["height"] >= DOIGT, selecteur
 
 

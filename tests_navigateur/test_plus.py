@@ -1,5 +1,6 @@
-"""« Plus », Toutes les offres et ses trois filtres, Mes critères, le Bilan et les pastilles, au
-téléphone (ADR-0003, § 6 ; décisions 2 à 10 et 20 du plan du lot 3).
+"""« Plus », Toutes les offres et ses trois filtres, Mes critères, le Bilan, les pastilles, puis
+Réglages, l'en-tête et le push côté client, au téléphone (ADR-0003, § 6 ; décisions 2 à 12 et 20
+du plan du lot 3).
 
 Même forme que `test_parcours_candidature.py` : Chromium à la taille d'un téléphone, une session
 ouverte par `auth.ouvrir_session`, aucune erreur dans la console hors de `console_attendue`. Les
@@ -11,9 +12,10 @@ restreinte aux offres du test, ou ses nombres remplacés.
 
 from __future__ import annotations
 
+import base64
 import json
 import re
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, quote, urlsplit
 
 import pytest
 from playwright.sync_api import expect
@@ -932,3 +934,476 @@ def test_le_bilan_tient_dans_l_ecran_sous_une_police_large(telephone, serveur, p
         _deplier(telephone, nom)
     expect(_ligne(telephone, "closes", plus["longue"])).to_contain_text(LONG)
     _tient_dans_l_ecran(telephone)
+
+
+# ---------------------------------------------------------------------------
+# Réglages, l'en-tête et le push côté client (E11 ; décisions 11 et 12)
+# ---------------------------------------------------------------------------
+
+# Les cinq cas de Réglages (`ETATS_PUSH`), mot pour mot, la raison d'un navigateur sans push et
+# la phrase de la réparation.
+INDISPONIBLE = "Les notifications ne sont pas disponibles sur cet appareil."
+SANS_PUSH_WEB = "Ce navigateur ne gère pas le push web."
+BLOQUEES = ("Les notifications sont bloquées pour la console sur cet appareil. Autorise-les dans "
+            "les réglages d'Android (Applications › Veille emploi › Notifications) ou dans ceux du "
+            "site, dans Chrome, puis touche « Activer les notifications ».")
+INACTIVES = "Cet appareil ne reçoit pas les notifications."
+ACTIVES = "Cet appareil reçoit les notifications."
+REPARATION = ("Le premier essai n'était pas parti : l'abonnement de cet appareil vient d'être "
+              "refait, et la notification d'essai est partie.")
+TOUJOURS_PAS = "la notification d'essai n'est pas partie, même avec un nouvel abonnement"
+SANS_SERVICE_WORKER = "le service worker de la console ne s'est pas enregistré"
+ACTIVER = "Activer les notifications"
+ESSAYER = "Envoyer une notification d'essai"
+# Les réponses de `api_push_test`, à ses clés.
+ESSAI_PARTI = {"envoyes": 1, "echecs": 0}
+ESSAI_PERDU = {"envoyes": 0, "echecs": 1}
+PANNE_RENVOI = "Panne inventée du renvoi"
+REFUS_PUSH = "Refus inventé du service push"
+# Une autre clé publique inventée, de 65 octets comme une clé P-256 non compressée : celle d'une
+# paire VAPID d'avant, quand le `vapid.json` a été refait.
+AUTRE_CLE = base64.urlsafe_b64encode(bytes([4, *range(1, 65)])).rstrip(b"=").decode()
+
+ABONNEMENT_PUSH = re.compile(r"/api/push/abonnement(\?.*)?$")
+ESSAI_PUSH = re.compile(r"/api/push/test$")
+REGLAGES = re.compile(r"/api/reglages$")
+RENVOI = "POST /api/push/abonnement"
+ESSAI = "POST /api/push/test"
+
+# Le push du navigateur, simulé avant `app.js` : la permission, `requestPermission`, et
+# `getSubscription` et `subscribe` sur `PushManager.prototype`. Les abonnements sont inventés, et
+# suivent l'état comme dans Chrome : `getSubscription` rend celui que `subscribe` vient de rendre,
+# et `null` après son `unsubscribe`. Leur `options.applicationServerKey` est un `ArrayBuffer`,
+# jamais la chaîne base64url de la page. `journal` note, dans l'ordre, les demandes de permission,
+# les `subscribe`, les `unsubscribe` et chaque appel de `/api/push/…`, que `page.route` simule.
+FAUX_PUSH = """({permission, accordee, cle, subscribeRejete, sansPush}) => {
+    const etat = window.__push = {permission, demandes: 0, journal: [], abonnements: [], cles: [],
+                                  courant: null};
+    const noter = evenement => etat.journal.push(evenement);
+    Object.defineProperty(Notification, 'permission', {configurable: true, get: () => etat.permission});
+    Notification.requestPermission = async () => {
+        etat.demandes += 1;
+        noter('requestPermission');
+        etat.permission = accordee;
+        return accordee;
+    };
+    const fetchVrai = window.fetch;
+    window.fetch = function (entree, options) {
+        const adresse = new URL(typeof entree === 'string' ? entree : entree.url, location.href);
+        if (adresse.pathname.startsWith('/api/push/')) {
+            const methode = ((options && options.method) || 'GET').toUpperCase();
+            noter(`${methode} ${adresse.pathname}${adresse.search}`);
+        }
+        return fetchVrai.apply(this, arguments);
+    };
+    if (sansPush) { delete window.PushManager; return; }
+    const octets = b64 => Uint8Array.from(
+        atob(b64.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - b64.length % 4) % 4)),
+        c => c.charCodeAt(0));
+    const inventer = cleRecue => {
+        const n = etat.abonnements.length + 1;
+        const endpoint = `https://push.exemple.invalid/abonnement-${n}`;
+        const json = {endpoint, expirationTime: null,
+                      keys: {p256dh: `p256dh-invente-${n}`, auth: `auth-invente-${n}`}};
+        etat.abonnements.push(json);
+        const abonnement = {
+            endpoint,
+            options: {userVisibleOnly: true,
+                      applicationServerKey: Uint8Array.from(cleRecue).buffer},
+            toJSON: () => json,
+            unsubscribe: async () => {
+                noter('unsubscribe');
+                if (etat.courant === abonnement) etat.courant = null;
+                return true;
+            },
+        };
+        return abonnement;
+    };
+    if (cle) etat.courant = inventer(octets(cle));
+    PushManager.prototype.getSubscription = async function () { return etat.courant; };
+    PushManager.prototype.subscribe = async function (options) {
+        const recue = new Uint8Array(options.applicationServerKey);
+        noter('subscribe');
+        etat.cles.push({userVisibleOnly: options.userVisibleOnly, octets: Array.from(recue)});
+        if (subscribeRejete) throw new DOMException(subscribeRejete, 'AbortError');
+        etat.courant = inventer(recue);
+        return etat.courant;
+    };
+}"""
+
+# `navigator.serviceWorker.ready` retenu jusqu'à `window.__libererReady()`, qui le libère avec le
+# vrai : l'enregistrement de `/sw.js`, une fois son service worker actif.
+READY_RETENU = """(() => {
+    const lire = Object.getOwnPropertyDescriptor(ServiceWorkerContainer.prototype, 'ready').get;
+    let liberer;
+    const retenue = new Promise(r => { liberer = r; });
+    window.__libererReady = () => liberer(lire.call(navigator.serviceWorker));
+    Object.defineProperty(ServiceWorkerContainer.prototype, 'ready',
+                          {configurable: true, get() { return retenue; }});
+})();"""
+
+REGISTER_REJETE = """ServiceWorkerContainer.prototype.register =
+    () => Promise.reject(new TypeError('Enregistrement inventé impossible'));"""
+
+
+@pytest.fixture(scope="module")
+def cles_push(serveur):
+    """La paire VAPID de la console, que la page lit à chaque rendu (`data-vapid`). Créée si elle
+    manque, le fichier reste pour la session : les tests suivants voient une console qui a sa clé,
+    et leur Chromium, sans permission accordée, n'y abonne rien."""
+    from veille import notifications
+
+    if not notifications.CHEMIN_VAPID.exists():
+        notifications.generer_vapid("mailto:camille@exemple.invalid")
+    return notifications.charger_vapid()
+
+
+def _octets(cle: str) -> list[int]:
+    return list(base64.urlsafe_b64decode(cle + "=" * (-len(cle) % 4)))
+
+
+def _chemin(url: str) -> str:
+    morceaux = urlsplit(url)
+    return morceaux.path + (f"?{morceaux.query}" if morceaux.query else "")
+
+
+def simuler_push(page, permission: str, abonnement: str | None, *, accordee: str | None = None,
+                 essais: tuple = (ESSAI_PARTI,), renvoi: int = 200,
+                 subscribe_rejete: bool = False, sans_push: bool = False) -> list:
+    """Simule le push du navigateur (`FAUX_PUSH`) et les trois routes du push, avant `app.js`.
+
+    `abonnement` est la clé, en base64url, de l'abonnement que l'appareil garde, ou None. Rend la
+    liste des demandes reçues par les routes, `(méthode, chemin, corps)`. L'essai rend `essais`
+    dans l'ordre, puis le dernier ; le `POST` de l'abonnement répond `renvoi`. Aucun abonnement
+    inventé n'entre dans la base commune à la session."""
+    requetes: list = []
+    reponses = list(essais)
+
+    def abonner(route) -> None:
+        requete = route.request
+        requetes.append((requete.method, _chemin(requete.url),
+                         requete.post_data_json if requete.post_data else None))
+        statut = renvoi if requete.method == "POST" else 200
+        corps = {"ok": True} if statut == 200 else {"detail": PANNE_RENVOI}
+        route.fulfill(status=statut, content_type="application/json", body=json.dumps(corps))
+
+    def essayer(route) -> None:
+        requetes.append((route.request.method, _chemin(route.request.url), None))
+        corps = reponses.pop(0) if len(reponses) > 1 else reponses[0]
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(corps))
+
+    page.route(ABONNEMENT_PUSH, abonner)
+    page.route(ESSAI_PUSH, essayer)
+    parametres = {"permission": permission, "accordee": accordee or permission, "cle": abonnement,
+                  "subscribeRejete": REFUS_PUSH if subscribe_rejete else "",
+                  "sansPush": sans_push}
+    page.add_init_script(f"({FAUX_PUSH})({json.dumps(parametres)});")
+    return requetes
+
+
+def _journal(page) -> list[str]:
+    return page.evaluate("() => window.__push.journal")
+
+
+def _abonnements(page) -> list[dict]:
+    """Les abonnements inventés, dans l'ordre : leur `toJSON()`."""
+    return page.evaluate("() => window.__push.abonnements")
+
+
+def _subscribes(page) -> list[dict]:
+    """Ce que chaque `subscribe` a reçu : `userVisibleOnly` et les octets de la clé."""
+    return page.evaluate("() => window.__push.cles")
+
+
+def _ouvrir_reglages(page, url: str) -> None:
+    _ouvrir_plus(page, url)
+    page.locator('.lien-plus[data-vue="reglages"]').click()
+    expect(page.locator("#vue-reglages")).to_be_visible()
+
+
+def _etat_push(page):
+    return page.locator("#etat-push")
+
+
+def _bouton_push(page):
+    return page.locator("#btn-push")
+
+
+def _quitter(page):
+    return page.locator("#vue-reglages form[action='/deconnexion'] button")
+
+
+def _en_erreur(cause: str) -> str:
+    return (f"Cet appareil n'a pas pu s'abonner aux notifications : {cause}. "
+            "Touche « Activer les notifications » pour réessayer.")
+
+
+def _toucher_le_bouton(page) -> None:
+    """Touche le bouton du push, puis attend la fin du geste : le bouton, éteint pendant, se
+    rallume."""
+    _bouton_push(page).click()
+    expect(_bouton_push(page)).to_be_enabled()
+    _laisser_passer(page)
+
+
+def test_l_en_tete_ne_garde_que_le_titre(telephone, serveur):
+    _ouvrir(telephone, serveur)
+    barre = telephone.locator(".barre")
+    expect(barre).to_have_text("Veille emploi")
+    expect(barre.locator("button")).to_have_count(0)
+    expect(barre.locator("form")).to_have_count(0)
+
+
+def test_reglages_porte_notifications_en_tete_et_quitter_au_pied(telephone, serveur):
+    _ouvrir_reglages(telephone, serveur)
+    expect(telephone.locator("#contenu-reglages .bloc").first).to_be_visible()
+    enfants = telephone.locator("#vue-reglages > *").evaluate_all(
+        "es => es.map(e => e.id || e.className)")
+    assert enfants == ["retour-plus", "bloc-notifications", "contenu-reglages", "bloc-quitter"]
+    bloc = telephone.locator("#bloc-notifications")
+    expect(bloc.locator("h2")).to_have_text("Notifications")
+    expect(bloc.locator("#etat-push")).to_be_visible()
+    expect(bloc.locator("#btn-push")).to_be_visible()
+    formulaire = telephone.locator("#bloc-quitter form")
+    expect(formulaire).to_have_attribute("action", "/deconnexion")
+    expect(formulaire).to_have_attribute("method", "post")
+    expect(_quitter(telephone)).to_have_text("Quitter")
+    expect(_quitter(telephone)).to_be_visible()
+
+
+def test_quitter_ferme_la_session(telephone, serveur):
+    _ouvrir_reglages(telephone, serveur)
+    _quitter(telephone).click()
+    telephone.wait_for_url(f"{serveur}/connexion")
+    telephone.goto(f"{serveur}/")
+    expect(telephone).to_have_url(f"{serveur}/connexion")
+
+
+def test_quitter_marche_meme_si_les_reglages_echouent(telephone, serveur, console_attendue):
+    """« Quitter » est écrit dans la page, hors de ce que `chargerReglages` réécrit
+    (décision 11)."""
+    console_attendue.append("500")
+    _servir(telephone, REGLAGES, {"detail": "Panne inventée des réglages"}, status=500)
+    with telephone.expect_response(REGLAGES):
+        _ouvrir_reglages(telephone, serveur)
+    expect(telephone.locator("#contenu-reglages .bloc")).to_have_count(0)
+    expect(_quitter(telephone)).to_be_visible()
+    _quitter(telephone).click()
+    telephone.wait_for_url(f"{serveur}/connexion")
+
+
+def test_a_l_ouverture_l_abonnement_existant_est_renvoye(telephone, serveur, cles_push):
+    """Point d'attention 2 : l'abonnement que l'appareil garde, fait avec la clé de la page, est
+    renvoyé tel quel, sans se refaire : les clés se comparent sur leurs octets."""
+    requetes = simuler_push(telephone, "granted", cles_push.publique)
+    _ouvrir_reglages(telephone, serveur)
+    expect(_etat_push(telephone)).to_have_text(ACTIVES)
+    expect(_bouton_push(telephone)).to_have_text(ESSAYER)
+    _laisser_passer(telephone)
+    assert _journal(telephone) == [RENVOI]
+    (garde,) = _abonnements(telephone)
+    assert requetes == [("POST", "/api/push/abonnement", garde)]
+    assert telephone.evaluate("() => window.__push.demandes") == 0
+
+
+def test_sans_abonnement_l_ouverture_se_reabonne(telephone, serveur, cles_push):
+    """Point d'attention 2 : la permission gardée, l'abonnement perdu (`getSubscription` rend
+    `null`) ; l'ouverture se réabonne, avec la clé de la page."""
+    requetes = simuler_push(telephone, "granted", None)
+    _ouvrir_reglages(telephone, serveur)
+    expect(_etat_push(telephone)).to_have_text(ACTIVES)
+    _laisser_passer(telephone)
+    assert _journal(telephone) == ["subscribe", RENVOI]
+    (recu,) = _subscribes(telephone)
+    assert recu["userVisibleOnly"] is True
+    assert len(recu["octets"]) == 65
+    assert recu["octets"] == _octets(cles_push.publique)
+    (nouveau,) = _abonnements(telephone)
+    assert requetes == [("POST", "/api/push/abonnement", nouveau)]
+
+
+def test_un_abonnement_d_une_autre_cle_se_refait(telephone, serveur, cles_push):
+    """Réponse 22 : un abonnement fait avec une autre clé VAPID se refait avec celle de la page,
+    puis l'ancien est retiré de la base, qu'un push en 403 ne retirerait jamais."""
+    requetes = simuler_push(telephone, "granted", AUTRE_CLE)
+    _ouvrir_reglages(telephone, serveur)
+    expect(_etat_push(telephone)).to_have_text(ACTIVES)
+    _laisser_passer(telephone)
+    ancien, nouveau = _abonnements(telephone)
+    retrait = f"/api/push/abonnement?endpoint={quote(ancien['endpoint'], safe='')}"
+    assert _journal(telephone) == ["unsubscribe", "subscribe", RENVOI, f"DELETE {retrait}"]
+    assert [r["octets"] for r in _subscribes(telephone)] == [_octets(cles_push.publique)]
+    assert requetes == [("POST", "/api/push/abonnement", nouveau), ("DELETE", retrait, None)]
+
+
+def test_un_essai_qui_ne_part_pas_refait_l_abonnement(telephone, serveur, cles_push):
+    """Réponse R3, point d'attention 2 : Chrome garde un abonnement que le service push a rejeté ;
+    le renvoi le remet en base, et l'essai, qui ne part pas, le refait, puis se relance une fois."""
+    requetes = simuler_push(telephone, "granted", cles_push.publique,
+                            essais=(ESSAI_PERDU, ESSAI_PARTI))
+    _ouvrir_reglages(telephone, serveur)
+    expect(_etat_push(telephone)).to_have_text(ACTIVES)
+    _toucher_le_bouton(telephone)
+    expect(_etat_push(telephone)).to_have_text(f"{ACTIVES} {REPARATION}")
+    expect(_bouton_push(telephone)).to_have_text(ESSAYER)
+    assert _journal(telephone) == [RENVOI, ESSAI, "unsubscribe", "subscribe", RENVOI, ESSAI]
+    assert [r["octets"] for r in _subscribes(telephone)] == [_octets(cles_push.publique)]
+    garde, nouveau = _abonnements(telephone)
+    assert [corps for methode, _, corps in requetes if methode == "POST" and corps] == [garde,
+                                                                                        nouveau]
+
+
+def test_un_essai_qui_ne_part_toujours_pas_se_dit_en_erreur(telephone, serveur, cles_push):
+    """Réponse R3 : le second essai, après le nouvel abonnement, ne part pas non plus ; il ne se
+    relance pas une troisième fois, et Réglages le dit en erreur."""
+    simuler_push(telephone, "granted", cles_push.publique, essais=(ESSAI_PERDU,))
+    _ouvrir_reglages(telephone, serveur)
+    expect(_etat_push(telephone)).to_have_text(ACTIVES)
+    _toucher_le_bouton(telephone)
+    expect(_etat_push(telephone)).to_have_text(_en_erreur(TOUJOURS_PAS))
+    expect(_bouton_push(telephone)).to_have_text(ACTIVER)
+    assert _journal(telephone) == [RENVOI, ESSAI, "unsubscribe", "subscribe", RENVOI, ESSAI]
+
+
+def test_un_essai_parti_avec_un_echec_ne_repare_rien(telephone, serveur, cles_push):
+    """Décision 12 : la condition porte sur `envoyes`, jamais sur `echecs` ; un essai parti vers
+    cet appareil, et refusé par un autre abonnement, ne désabonne pas un téléphone qui reçoit."""
+    requetes = simuler_push(telephone, "granted", cles_push.publique,
+                            essais=({"envoyes": 1, "echecs": 1},))
+    _ouvrir_reglages(telephone, serveur)
+    expect(_etat_push(telephone)).to_have_text(ACTIVES)
+    _toucher_le_bouton(telephone)
+    expect(_etat_push(telephone)).to_have_text(ACTIVES)
+    assert _journal(telephone) == [RENVOI, ESSAI]
+    (garde,) = _abonnements(telephone)
+    assert requetes == [("POST", "/api/push/abonnement", garde), ("POST", "/api/push/test", None)]
+
+
+def test_activer_les_notifications_refait_un_abonnement_rejete(telephone, serveur, cles_push):
+    """Réponse R3, précision 1 : l'essai qui finit « Activer les notifications » lit sa réponse
+    comme celui du bouton d'essai, et refait l'abonnement rejeté que `subscribe` a rendu."""
+    requetes = simuler_push(telephone, "default", None, accordee="granted",
+                            essais=(ESSAI_PERDU, ESSAI_PARTI))
+    _ouvrir_reglages(telephone, serveur)
+    expect(_etat_push(telephone)).to_have_text(INACTIVES)
+    expect(_bouton_push(telephone)).to_have_text(ACTIVER)
+    _toucher_le_bouton(telephone)
+    expect(_etat_push(telephone)).to_have_text(f"{ACTIVES} {REPARATION}")
+    assert _journal(telephone) == ["requestPermission", "subscribe", RENVOI, ESSAI,
+                                   "unsubscribe", "subscribe", RENVOI, ESSAI]
+    assert [r["octets"] for r in _subscribes(telephone)] == [_octets(cles_push.publique)] * 2
+    premier, nouveau = _abonnements(telephone)
+    assert [corps for methode, _, corps in requetes if methode == "POST" and corps] == [premier,
+                                                                                        nouveau]
+
+
+def test_activer_des_notifications_refusees_le_dit_dans_reglages(telephone, serveur, cles_push):
+    """Décision 12 : les refus d'`activerPush` reprennent les phrases de Réglages."""
+    requetes = simuler_push(telephone, "default", None, accordee="denied")
+    _ouvrir_reglages(telephone, serveur)
+    expect(_etat_push(telephone)).to_have_text(INACTIVES)
+    _toucher_le_bouton(telephone)
+    expect(_etat_push(telephone)).to_have_text(BLOQUEES)
+    expect(_bouton_push(telephone)).to_have_text(ACTIVER)
+    assert _journal(telephone) == ["requestPermission"]
+    assert requetes == []
+
+
+def test_le_reabonnement_attend_le_service_worker_actif(telephone, serveur, cles_push):
+    """Chrome rejette un `subscribe` sans service worker actif : le réabonnement attend
+    `navigator.serviceWorker.ready`."""
+    telephone.add_init_script(READY_RETENU)
+    simuler_push(telephone, "granted", None)
+    _ouvrir_reglages(telephone, serveur)
+    _laisser_passer(telephone, 500)
+    assert "subscribe" not in _journal(telephone)
+    expect(_etat_push(telephone)).to_have_text(INACTIVES)
+
+    telephone.evaluate("() => window.__libererReady()")
+    expect(_etat_push(telephone)).to_have_text(ACTIVES)
+    _laisser_passer(telephone)
+    assert _journal(telephone) == ["subscribe", RENVOI]
+
+
+def test_sans_permission_l_ouverture_ne_demande_rien(telephone, serveur, cles_push):
+    """Sans geste, Chrome refuse ou ignore la demande de permission : l'ouverture n'en fait
+    aucune (réponse 11)."""
+    requetes = simuler_push(telephone, "default", None)
+    _ouvrir_reglages(telephone, serveur)
+    _laisser_passer(telephone, 300)
+    expect(_etat_push(telephone)).to_have_text(INACTIVES)
+    expect(_bouton_push(telephone)).to_have_text(ACTIVER)
+    assert telephone.evaluate("() => window.__push.demandes") == 0
+    assert _journal(telephone) == []
+    assert requetes == []
+
+
+def test_des_notifications_bloquees_se_disent(telephone, serveur, cles_push):
+    requetes = simuler_push(telephone, "denied", None)
+    _ouvrir_reglages(telephone, serveur)
+    expect(_etat_push(telephone)).to_have_text(BLOQUEES)
+    expect(_bouton_push(telephone)).to_have_text(ACTIVER)
+    _laisser_passer(telephone)
+    assert _journal(telephone) == []
+    assert requetes == []
+
+
+def test_sans_push_reglages_dit_indisponible(telephone, serveur, cles_push):
+    requetes = simuler_push(telephone, "granted", None, sans_push=True)
+    _ouvrir_reglages(telephone, serveur)
+    expect(_etat_push(telephone)).to_have_text(f"{INDISPONIBLE} {SANS_PUSH_WEB}")
+    _laisser_passer(telephone)
+    assert _journal(telephone) == []
+    assert requetes == []
+
+
+@pytest.mark.parametrize("panne", ["renvoi_500", "subscribe_rejete", "register_rejete"])
+def test_un_renvoi_en_echec_se_dit_dans_reglages(telephone, serveur, cles_push, console_attendue,
+                                                 panne):
+    """Un renvoi refusé par le serveur, un refus du service push, un enregistrement impossible :
+    Réglages le dit en erreur, avec sa cause, et propose de réessayer."""
+    if panne == "renvoi_500":
+        console_attendue.append("500")
+        simuler_push(telephone, "granted", cles_push.publique, renvoi=500)
+        cause = PANNE_RENVOI
+    elif panne == "subscribe_rejete":
+        simuler_push(telephone, "granted", None, subscribe_rejete=True)
+        cause = REFUS_PUSH
+    else:
+        telephone.add_init_script(REGISTER_REJETE)
+        simuler_push(telephone, "granted", cles_push.publique)
+        cause = SANS_SERVICE_WORKER
+    _ouvrir_reglages(telephone, serveur)
+    expect(_etat_push(telephone)).to_have_text(_en_erreur(cause))
+    expect(_bouton_push(telephone)).to_have_text(ACTIVER)
+
+
+def test_activer_les_notifications_abonne_puis_envoie_un_essai(telephone, serveur, cles_push):
+    requetes = simuler_push(telephone, "default", None, accordee="granted")
+    _ouvrir_reglages(telephone, serveur)
+    expect(_bouton_push(telephone)).to_have_text(ACTIVER)
+    _toucher_le_bouton(telephone)
+    expect(_etat_push(telephone)).to_have_text(ACTIVES)
+    expect(_bouton_push(telephone)).to_have_text(ESSAYER)
+    assert _journal(telephone) == ["requestPermission", "subscribe", RENVOI, ESSAI]
+    (nouveau,) = _abonnements(telephone)
+    assert requetes == [("POST", "/api/push/abonnement", nouveau),
+                        ("POST", "/api/push/test", None)]
+
+
+def test_reglages_se_touche_du_doigt_et_tient_dans_l_ecran(telephone, serveur, cles_push):
+    """Mesuré aussi sous une police large : celle du runner Linux de la CI est plus large que
+    celles de Windows, et une vue qui déborde de côté y décale les clics."""
+    simuler_push(telephone, "granted", cles_push.publique)
+    for police_large in (False, True):
+        if police_large:
+            telephone.add_init_script(POLICE_LARGE)
+        _ouvrir_reglages(telephone, serveur)
+        expect(_bouton_push(telephone)).to_have_text(ESSAYER)
+        expect(telephone.locator("#liste-appareils .ligne-appareil").first).to_be_visible()
+        expect(telephone.locator("#liste-passkeys")).not_to_be_empty()
+        if police_large:
+            assert "Verdana" in telephone.evaluate(
+                "getComputedStyle(document.querySelector('#contenu-reglages')).fontFamily")
+        _cibles_du_doigt(telephone, "#vue-reglages")
+        _tient_dans_l_ecran(telephone)

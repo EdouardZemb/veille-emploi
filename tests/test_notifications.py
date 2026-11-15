@@ -8,6 +8,7 @@ precisement dans le cas ou il doit servir.
 from __future__ import annotations
 
 import smtplib
+from pathlib import Path
 
 import pytest
 
@@ -286,3 +287,17 @@ def test_le_geste_nomme_ce_que_reglages_affiche():
         "« Envoyer une notification d'essai »",
     ):
         assert libelle in notifications.AUCUN_APPAREIL
+
+
+def test_le_geste_du_mail_nomme_ce_que_reglages_affiche():
+    """Ce que le mail de repli cite (`AUCUN_APPAREIL`), Réglages l'affiche : sa phrase et ses deux
+    boutons sont écrits dans `app.js` ou dans `index.html`."""
+    racine = Path(notifications.__file__).resolve().parent
+    page = ((racine / "static" / "app.js").read_text(encoding="utf-8")
+            + (racine / "templates" / "index.html").read_text(encoding="utf-8"))
+    for libelle in (
+        "Cet appareil reçoit les notifications",
+        "Activer les notifications",
+        "Envoyer une notification d'essai",
+    ):
+        assert libelle in page, libelle

@@ -462,7 +462,10 @@ async function chargerDocuments() {
 // Réglages — ce qui s'ajuste sans SSH
 // ---------------------------------------------------------------------------
 
+// « Notifications » et « Quitter » sont écrits dans la page, hors de ce que cette fonction
+// réécrit : ils restent quand `/api/reglages` échoue (décision 11 du plan du lot 3).
 async function chargerReglages() {
+  afficherEtatPush();
   const cible = $('#contenu-reglages');
   try {
     const r = await api('/api/reglages');
@@ -2382,8 +2385,37 @@ $('#resume-offres').addEventListener('click', ev => {
 });
 
 // ---------------------------------------------------------------------------
-// Notifications push
+// Notifications push (E11 ; décisions 11 et 12 du plan du lot 3)
+//
+// Réglages dit ce que reçoit cet appareil, en cinq cas, chacun sa phrase. À l'ouverture, la
+// console renvoie l'abonnement de cet appareil, ou se réabonne, sans jamais demander la
+// permission : sans geste, Chrome la refuse ou l'ignore. Aucun de ces gestes n'écrit de message
+// ni rien dans la console du navigateur : leur résultat se lit dans Réglages.
 // ---------------------------------------------------------------------------
+
+const ETATS_PUSH = {
+  indisponible: 'Les notifications ne sont pas disponibles sur cet appareil.',
+  bloquees: "Les notifications sont bloquées pour la console sur cet appareil. Autorise-les dans les réglages d'Android (Applications › Veille emploi › Notifications) ou dans ceux du site, dans Chrome, puis touche « Activer les notifications ».",
+  inactives: 'Cet appareil ne reçoit pas les notifications.',
+  actives: 'Cet appareil reçoit les notifications.',
+  erreur: cause => `Cet appareil n'a pas pu s'abonner aux notifications : ${cause}. Touche « Activer les notifications » pour réessayer.`,
+};
+// Ce qui manque à un appareil où les notifications ne sont pas disponibles.
+const RAISONS_PUSH = {
+  navigateur: 'Ce navigateur ne gère pas le push web.',
+  https: 'Il faut ouvrir la console en HTTPS.',
+  vapid: "Le serveur n'a pas de clé VAPID : elle naît au démarrage de la console (sans conteneur, `veille init`).",
+};
+// Le premier essai n'était pas parti, le second, après un nouvel abonnement, l'est (réponse R3).
+const REPARATION_PUSH = "Le premier essai n'était pas parti : l'abonnement de cet appareil vient d'être refait, et la notification d'essai est partie.";
+const CAUSES_PUSH = {
+  serviceWorker: "le service worker de la console ne s'est pas enregistré",
+  essai: "la notification d'essai n'est pas partie, même avec un nouvel abonnement",
+};
+
+// `cle` : l'un des cinq cas d'`ETATS_PUSH`. `detail` : la raison d'un état indisponible, la cause
+// d'une erreur, ou la phrase de la réparation d'un état actif.
+let etatPush = { cle: 'inactives', detail: '' };
 
 function base64EnOctets(base64) {
   const bourrage = '='.repeat((4 - base64.length % 4) % 4);
@@ -2391,36 +2423,169 @@ function base64EnOctets(base64) {
   return Uint8Array.from([...brut].map(c => c.charCodeAt(0)));
 }
 
+// Un texte échappé, ses `…` rendus en code.
+function avecCode(texte) {
+  return echapper(texte).replace(/`([^`]+)`/g, '<code>$1</code>');
+}
+
+// La cause d'un échec, sans point final : la phrase « en erreur » met le sien.
+function causeDe(erreur) {
+  return String((erreur && erreur.message) || erreur || '').replace(/[\s.]+$/, '') || 'cause inconnue';
+}
+
+// Le cas d'`etatPush`, dans Réglages : sa phrase, et le bouton qui va avec. Le bouton essaie
+// quand cet appareil reçoit, et active sinon ; il s'éteint quand le push n'est pas disponible.
+function afficherEtatPush() {
+  const { cle, detail } = etatPush;
+  const phrase = cle === 'erreur'
+    ? ETATS_PUSH.erreur(detail)
+    : [ETATS_PUSH[cle], detail].filter(Boolean).join(' ');
+  $('#etat-push').innerHTML = avecCode(phrase);
+  const bouton = $('#btn-push');
+  bouton.textContent = cle === 'actives' ? "Envoyer une notification d'essai" : 'Activer les notifications';
+  bouton.disabled = cle === 'indisponible';
+}
+
+// Ce qui manque au push sur cet appareil, ou '' : le contexte sûr d'abord, puisque hors HTTPS
+// Chrome retire aussi le service worker et le push, puis les API, puis la clé du serveur.
+function raisonPushIndisponible() {
+  if (!window.isSecureContext) return RAISONS_PUSH.https;
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+    return RAISONS_PUSH.navigateur;
+  }
+  if (!CLE_VAPID) return RAISONS_PUSH.vapid;
+  return '';
+}
+
+// Enregistre `/sw.js`, puis attend un service worker actif : Chrome rejette un `subscribe` sans
+// lui. Rend l'enregistrement actif, ou null si `/sw.js` ne s'enregistre pas.
+async function enregistrerServiceWorker() {
+  try {
+    await navigator.serviceWorker.register('/sw.js');
+  } catch (e) {
+    return null;
+  }
+  return navigator.serviceWorker.ready;
+}
+
+function envoyerAbonnement(abonnement) {
+  return api('/api/push/abonnement', { method: 'POST', body: JSON.stringify(abonnement.toJSON()) });
+}
+
+// Abonne cet appareil avec la clé de la page, puis envoie l'abonnement au serveur.
+async function abonner(enregistrement) {
+  const abonnement = await enregistrement.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: base64EnOctets(CLE_VAPID),
+  });
+  await envoyerAbonnement(abonnement);
+}
+
+// Les clés se comparent sur leurs octets : `options.applicationServerKey` est un ArrayBuffer, la
+// clé de la page du base64url. Comparées en chaînes, elles différeraient toujours.
+function faitAvecLaCleDeLaPage(abonnement) {
+  const sienne = new Uint8Array(abonnement.options.applicationServerKey);
+  const attendue = base64EnOctets(CLE_VAPID);
+  return sienne.length === attendue.length && sienne.every((octet, i) => octet === attendue[i]);
+}
+
+// Lancée une fois, à l'ouverture, jamais au retour au premier plan. Permission accordée, elle
+// renvoie l'abonnement de cet appareil, ou se réabonne s'il n'y en a plus, ou s'il a été fait avec
+// une autre clé VAPID que celle de la page : l'ancien est alors retiré du serveur, qu'un push en
+// 403 ne retirerait jamais (réponse 22). Rend le cas atteint.
+async function synchroniserPush() {
+  const raison = raisonPushIndisponible();
+  if (raison) {
+    etatPush = { cle: 'indisponible', detail: raison };
+  } else if (Notification.permission === 'denied') {
+    etatPush = { cle: 'bloquees', detail: '' };
+  } else if (Notification.permission !== 'granted') {
+    etatPush = { cle: 'inactives', detail: '' };
+  } else {
+    try {
+      const enregistrement = await enregistrerServiceWorker();
+      if (!enregistrement) throw new Error(CAUSES_PUSH.serviceWorker);
+      const abonnement = await enregistrement.pushManager.getSubscription();
+      if (!abonnement) {
+        await abonner(enregistrement);
+      } else if (faitAvecLaCleDeLaPage(abonnement)) {
+        await envoyerAbonnement(abonnement);
+      } else {
+        await abonnement.unsubscribe();
+        await abonner(enregistrement);
+        await api(`/api/push/abonnement?endpoint=${encodeURIComponent(abonnement.endpoint)}`,
+                  { method: 'DELETE' });
+      }
+      etatPush = { cle: 'actives', detail: '' };
+    } catch (e) {
+      etatPush = { cle: 'erreur', detail: causeDe(e) };
+    }
+  }
+  afficherEtatPush();
+  return etatPush.cle;
+}
+
+// « Envoyer une notification d'essai », et la fin d'« Activer les notifications ». L'essai lit sa
+// réponse (réponse R3) : Chrome peut garder un abonnement que le service push a rejeté, et que le
+// serveur a retiré. Si `envoyes` vaut 0 (jamais sur `echecs` : un essai parti ne répare rien),
+// l'abonnement se refait, une fois, sans `DELETE` de l'ancien, que le serveur a retiré au 404 ou au
+// 410, puis l'essai se relance, une fois.
+async function envoyerEssai() {
+  try {
+    const essai = await api('/api/push/test', { method: 'POST' });
+    if (essai.envoyes > 0) {
+      etatPush = { cle: 'actives', detail: '' };
+    } else {
+      const enregistrement = await enregistrerServiceWorker();
+      if (!enregistrement) throw new Error(CAUSES_PUSH.serviceWorker);
+      const rejete = await enregistrement.pushManager.getSubscription();
+      if (rejete) await rejete.unsubscribe();
+      await abonner(enregistrement);
+      const second = await api('/api/push/test', { method: 'POST' });
+      etatPush = second.envoyes > 0
+        ? { cle: 'actives', detail: REPARATION_PUSH }
+        : { cle: 'erreur', detail: CAUSES_PUSH.essai };
+    }
+  } catch (e) {
+    etatPush = { cle: 'erreur', detail: causeDe(e) };
+  }
+  afficherEtatPush();
+}
+
+// « Activer les notifications » : la permission, l'abonnement, son envoi au serveur, puis l'essai,
+// par `envoyerEssai`. Ses refus se disent dans Réglages, par les phrases d'`ETATS_PUSH`.
 async function activerPush() {
-  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-    message("Ce navigateur ne gere pas le push web.", true); return;
-  }
-  if (!CLE_VAPID) {
-    message("Pas de cle VAPID sur le serveur : lance `veille init`.", true); return;
-  }
-  if (!window.isSecureContext) {
-    message("Le push exige HTTPS. Active les certificats HTTPS du tailnet, puis `tailscale serve`.", true);
+  const raison = raisonPushIndisponible();
+  if (raison) {
+    etatPush = { cle: 'indisponible', detail: raison };
+    afficherEtatPush();
     return;
   }
   try {
-    const enregistrement = await navigator.serviceWorker.register('/sw.js');
     const permission = await Notification.requestPermission();
-    if (permission !== 'granted') { message('Notifications refusees par le navigateur.', true); return; }
-    const abonnement = await enregistrement.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: base64EnOctets(CLE_VAPID),
-    });
-    await api('/api/push/abonnement', { method: 'POST', body: JSON.stringify(abonnement.toJSON()) });
-    message('Notifications activees sur cet appareil.');
-    await api('/api/push/test', { method: 'POST' });
-  } catch (e) { message('Activation impossible : ' + e.message, true); }
+    if (permission !== 'granted') {
+      etatPush = { cle: permission === 'denied' ? 'bloquees' : 'inactives', detail: '' };
+      afficherEtatPush();
+      return;
+    }
+    const enregistrement = await enregistrerServiceWorker();
+    if (!enregistrement) throw new Error(CAUSES_PUSH.serviceWorker);
+    await abonner(enregistrement);
+  } catch (e) {
+    etatPush = { cle: 'erreur', detail: causeDe(e) };
+    afficherEtatPush();
+    return;
+  }
+  await envoyerEssai();
 }
 
-$('#btn-push').onclick = activerPush;
+// Éteint pendant le geste, le bouton se rallume avec le nouvel état (`afficherEtatPush`).
+$('#btn-push').onclick = () => {
+  $('#btn-push').disabled = true;
+  return etatPush.cle === 'actives' ? envoyerEssai() : activerPush();
+};
 
-if ('serviceWorker' in navigator && window.isSecureContext) {
-  navigator.serviceWorker.register('/sw.js').catch(() => {});
-}
+synchroniserPush();
 
 // ---------------------------------------------------------------------------
 

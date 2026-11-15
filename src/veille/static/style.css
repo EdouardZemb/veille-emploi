@@ -26,8 +26,6 @@ h1,h2,h3,.offre-titre{text-wrap:balance}
   display:flex;align-items:center;justify-content:space-between;gap:12px;
   padding:12px 16px;background:var(--fond2);border-bottom:1px solid var(--trait);
 }
-.barre-actions{display:flex;gap:8px;align-items:center}
-.enligne{display:inline}
 .onglets{display:flex;gap:2px;padding:0 10px;background:var(--fond2);border-bottom:1px solid var(--trait);
   overflow-x:auto}
 .onglet{

@@ -20,7 +20,9 @@ def test_parcours_complet(serveur, navigateur):
     page.click("#btn-enregistrer")
     page.wait_for_url(f"{url}/")
 
-    # 2. On quitte, puis la passkey rouvre la console.
+    # 2. On quitte, depuis Plus › Réglages, puis la passkey rouvre la console.
+    page.click('button.onglet[data-vue="plus"]')
+    page.click('button.lien-plus[data-vue="reglages"]')
     page.click("form[action='/deconnexion'] button")
     page.wait_for_url(f"{url}/connexion")
     page.click("#btn-passkey")
