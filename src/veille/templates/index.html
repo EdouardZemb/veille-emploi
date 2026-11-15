@@ -9,25 +9,21 @@
 <link rel="stylesheet" href="/static/style.css?v={{ v_css }}">
 </head>
 <body data-seuil="{{ seuil_interessant }}" data-vapid="{{ cle_vapid }}"
+      data-etat-demande="{{ etat_demande or '' }}"
       data-atout='{{ atout_mis_en_avant|tojson }}'>
 
 <!-- La barre et les onglets collent ensemble en haut de l'écran : les onglets
-     suivent la hauteur réelle de la barre, sans décalage écrit à la main. -->
+     suivent la hauteur réelle de la barre, sans décalage écrit à la main. La barre ne
+     garde que le titre : « Notifications » et « Quitter » sont dans Réglages (E11). -->
 <div class="entete">
 <header class="barre">
   <h1>Veille emploi</h1>
-  <div class="barre-actions">
-    <button id="btn-push" class="discret" title="Activer les notifications sur cet appareil">Notifications</button>
-    <form action="/deconnexion" method="post" class="enligne">
-      <button class="discret" type="submit">Quitter</button>
-    </form>
-  </div>
 </header>
 
 <nav class="onglets">
   <button class="onglet actif" data-vue="a-faire">À faire</button>
   <button class="onglet" data-vue="candidatures">Candidatures</button>
-  <button class="onglet" data-vue="plus">Plus</button>
+  <button class="onglet" data-vue="plus">Plus <span id="pastille-plus" class="pastille"></span></button>
 </nav>
 </div>
 
@@ -56,112 +52,68 @@
 </section>
 
 <!-- ------------------------------------------------------------------ -->
-<!-- « Plus » mène aux anciens écrans, inchangés jusqu'à leur remaniement
-     (ADR-0003, § 6). Chacun commence par « ‹ Plus ». -->
+<!-- « Plus » mène aux écrans qui ne servent pas chaque jour (ADR-0003, § 6). Chacun commence
+     par « ‹ Plus ». « Chercher une offre » ouvre Toutes les offres, le curseur dans la
+     recherche (décision 5 du plan du lot 3). La pastille de l'onglet et celle de « Mes
+     critères » comptent les offres à classer ; celle du « Bilan », les archivées nouvelles. -->
 <section id="vue-plus" class="vue cachee">
   <nav class="liste-plus" aria-label="Les autres écrans">
+    <button class="lien-plus" data-vue="offres" data-chercher>Chercher une offre</button>
     <button class="lien-plus" data-vue="offres">Toutes les offres</button>
-    <button class="lien-plus" data-vue="relances">Relances <span id="pastille-relances" class="pastille"></span></button>
-    <button class="lien-plus" data-vue="archive">Archive <span id="pastille-archive" class="pastille"></span></button>
-    <button class="lien-plus" data-vue="classer">À classer <span id="pastille-classer" class="pastille"></span></button>
-    <button class="lien-plus" data-vue="pilotage">Pilotage</button>
+    <button class="lien-plus" data-vue="criteres">Mes critères <span id="pastille-criteres" class="pastille"></span></button>
+    <button class="lien-plus" data-vue="bilan">Bilan <span id="pastille-bilan" class="pastille"></span></button>
     <button class="lien-plus" data-vue="documents">Documents</button>
     <button class="lien-plus" data-vue="reglages">Réglages</button>
   </nav>
 </section>
 
 <!-- ------------------------------------------------------------------ -->
+<!-- Toutes les offres (décisions 2 à 6 du plan du lot 3) : trois filtres toujours visibles, la
+     recherche, l'état et la famille, puis la bascule de l'atout mis en avant. Les valeurs de
+     l'état sont celles de `etats.ETATS_FILTRABLES` ; sans état, la liste montre les offres en
+     cours. Le résumé dit le vrai nombre et nomme les filtres actifs ; chaque offre est une
+     ligne qui ouvre sa fiche. -->
 <section id="vue-offres" class="vue cachee">
   <button class="retour-plus" data-vue="plus">‹ Plus</button>
-  <!-- Barre toujours visible. Sur telephone c'est la SEULE chose entre le haut
-       de l'ecran et la premiere offre : un bouton pour ouvrir les reglages, un
-       acces direct a l'atout mis en avant, et les filtres actifs sous forme de puces
-       pour qu'une liste courte ne reste jamais inexpliquee. -->
-  <div class="barre-filtres">
-    <button id="btn-filtres" class="discret" aria-expanded="false" aria-controls="panneau-filtres">
-      Filtres<span id="compte-filtres" class="badge"></span>
-    </button>
+  <div class="filtres">
+    <input type="search" id="f-recherche" aria-label="Chercher une offre"
+           placeholder="Intitulé, employeur, lieu…">
+    <select id="f-etat" aria-label="État">
+      <option value="">En cours</option>
+      <option value="a_voir">À voir</option>
+      <option value="je_postule">Je postule</option>
+      <option value="envoyee">Envoyée</option>
+      <option value="entretien">Entretien</option>
+      <option value="close">Close</option>
+      <option value="mise_de_cote">Mises de côté</option>
+    </select>
+    <select id="f-famille" aria-label="Famille">
+      <option value="">Toutes les familles</option>
+      {% for cle, libelle in familles.items() %}<option value="{{ cle }}">{{ libelle }}</option>{% endfor %}
+    </select>
     <button id="btn-atout" class="discret bascule" aria-pressed="false"{% if not atout_mis_en_avant %} hidden{% endif %}
             title="{{ atout_mis_en_avant.bouton_titre if atout_mis_en_avant }}">
       {{ atout_mis_en_avant.bouton if atout_mis_en_avant }}
     </button>
-    <button id="btn-documenter" class="discret bascule" aria-pressed="false"
-            title="Offres a fort potentiel dont l'information est trop mince pour candidater : dix minutes de recherche les debloquent">
-      À documenter<span id="compte-documenter" class="badge"></span>
-    </button>
-    <div id="puces-filtres" class="puces"></div>
-  </div>
-
-  <div class="filtres" id="panneau-filtres">
-    <input type="search" id="f-recherche" placeholder="Intitule, employeur, lieu...">
-    <select id="f-statut">
-      <option value="">Tous les statuts actifs</option>
-      {% for s in statuts %}<option value="{{ s }}">{{ s.replace('_',' ') }}</option>{% endfor %}
-    </select>
-    <select id="f-zone">
-      <option value="">Toutes les zones</option>
-      {% for cle, libelle in zones.items() %}<option value="{{ cle }}">{{ libelle }}</option>{% endfor %}
-    </select>
-    <select id="f-famille">
-      <option value="">Toutes les familles</option>
-      {% for cle, libelle in familles.items() %}<option value="{{ cle }}">{{ libelle }}</option>{% endfor %}
-    </select>
-    <select id="f-atout" title="Filtre sur un atout : ce que tu apportes et que peu d'autres apportent">
-      <option value="">Tous les atouts</option>
-      {% for cle, libelle in atouts.items() %}<option value="{{ cle }}">{{ libelle }}</option>{% endfor %}
-    </select>
-    <select id="f-verification" title="Depuis quand cette annonce n'a-t-elle pas ete controlee ?">
-      <option value="">Vérification : tout</option>
-      <option value="jamais">Jamais vérifiées</option>
-      <option value="ancienne">Pas vues depuis 7 jours</option>
-      <option value="recente">Vues ces 2 jours</option>
-      <option value="par_edouard">Vérifiées par moi</option>
-      <option value="non_verifiable">Non vérifiables</option>
-    </select>
-    <select id="f-tri" title="Ordre de la liste">
-      <option value="">Trier par score</option>
-      <option value="verification">Les moins récemment vérifiées d'abord</option>
-      <option value="recente">Les plus récemment collectées d'abord</option>
-    </select>
-    <label class="case"><input type="checkbox" id="f-ecartees"> voir les ecartees</label>
-    <button id="btn-rescorer" class="discret" title="Recalcule tous les scores avec le fichier de criteres actuel">Recalculer</button>
   </div>
   <p id="resume-offres" class="resume"></p>
   <div id="liste-offres" class="liste"></div>
 </section>
 
 <!-- ------------------------------------------------------------------ -->
-<!-- ------------------------------------------------------------------ -->
-<!-- Les offres qu'aucun motif n'a su classer. Une proposition s'y lit
-     avec les mots qui la justifient ; rien ne s'applique sans sa coche. -->
-<section id="vue-classer" class="vue cachee">
+<!-- Mes critères (décision 10 du plan du lot 3) : les offres à classer, le recalcul des
+     scores, et le rappel que les critères se changent dans la configuration de l'instance. -->
+<section id="vue-criteres" class="vue cachee">
   <button class="retour-plus" data-vue="plus">‹ Plus</button>
-  <div id="liste-classer" class="liste"></div>
-</section>
-
-<section id="vue-relances" class="vue cachee">
-  <button class="retour-plus" data-vue="plus">‹ Plus</button>
-  <p class="resume">Candidatures dont la relance est due.</p>
-  <div id="liste-relances" class="liste"></div>
+  <div id="contenu-criteres"></div>
 </section>
 
 <!-- ------------------------------------------------------------------ -->
-<!-- L'archive ne supprime rien : elle sort de la liste active les annonces
-     dont on a la PREUVE qu'elles ne sont plus en ligne. Le motif est
-     toujours affiche, et tout est reversible en un clic. -->
-<section id="vue-archive" class="vue cachee">
+<!-- Le Bilan (décisions 7 et 8) : l'entonnoir et ses tableaux, puis trois listes repliées,
+     les archivées, les closes et les mises de côté. L'archive ne supprime rien. -->
+<section id="vue-bilan" class="vue cachee">
   <button class="retour-plus" data-vue="plus">‹ Plus</button>
-  <p class="resume">Annonces retirées de leur site. Rien n'est supprimé :
-    le score, l'explication et tes notes sont conservés. Si une offre est là
-    à tort, <b>Remettre dans le flux</b> la ressort — et elle n'y retournera
-    plus jamais toute seule.</p>
-  <div id="liste-archive" class="liste"></div>
-</section>
-
-<!-- ------------------------------------------------------------------ -->
-<section id="vue-pilotage" class="vue cachee">
-  <button class="retour-plus" data-vue="plus">‹ Plus</button>
-  <div id="entonnoir"></div>
+  <div id="contenu-bilan"></div>
 </section>
 
 <!-- ------------------------------------------------------------------ -->
@@ -173,9 +125,26 @@
 </section>
 
 <!-- ------------------------------------------------------------------ -->
+<!-- Réglages (décision 11 du plan du lot 3) : « Notifications » en tête, ce que reçoit cet
+     appareil et le bouton, puis ce que `chargerReglages` réécrit, puis « Quitter » au pied.
+     Les deux blocs sont écrits ici : « Quitter » marche même si `/api/reglages` échoue. Le
+     libellé du bouton et la phrase de `#etat-push` suivent l'état du push de cet appareil
+     (`afficherEtatPush`, app.js). -->
 <section id="vue-reglages" class="vue cachee">
   <button class="retour-plus" data-vue="plus">‹ Plus</button>
+  <div id="bloc-notifications" class="bloc">
+    <h2>Notifications</h2>
+    <p id="etat-push" class="resume"></p>
+    <div class="actions">
+      <button id="btn-push">Activer les notifications</button>
+    </div>
+  </div>
   <div id="contenu-reglages"></div>
+  <div id="bloc-quitter" class="bloc">
+    <form action="/deconnexion" method="post">
+      <button class="discret" type="submit">Quitter</button>
+    </form>
+  </div>
 </section>
 
 <!-- Fenetre de detail ------------------------------------------------- -->

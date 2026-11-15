@@ -357,11 +357,10 @@ TRAVAUX_D_UNE_OFFRE = (
     ("veille.dossier", "regenerer_pdf"),
 )
 
-# Générer un dossier ou une relance, tout recalcul d'une seule offre, et l'affinement : sa
+# Une relance, tout recalcul d'une seule offre, et l'affinement : sa
 # consigne et ses règles seraient celles de l'exemple, appliquées à une lettre réelle, et le
 # PDF refait porterait le préfixe de l'exemple.
 GESTES_SUR_UNE_OFFRE = (
-    ("POST", "/api/offres/{id}/dossier?forcer=true", None),
     ("GET", "/api/offres/{id}/relance", None),
     ("POST", "/api/offres/{id}/texte", {"texte": "Le texte complet de l'annonce, collé."}),
     ("POST", "/api/offres/{id}/verifier", None),

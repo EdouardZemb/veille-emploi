@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import re
 from datetime import date, timedelta
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from playwright.sync_api import expect
@@ -284,25 +284,27 @@ def test_une_notification_mene_a_a_faire(telephone, parcours):
 
 
 def test_un_autre_filtre_mene_a_toutes_les_offres(telephone, parcours):
+    """Le serveur traduit le statut du lien en état (`etats.etat_du_lien`) : le filtre d'état."""
     telephone.goto(f"{parcours['url']}/?filtre=interessante")
     expect(telephone.locator("#vue-offres")).to_be_visible()
     expect(telephone.locator("#vue-a-faire")).to_be_hidden()
     expect(_actif(telephone)).to_have_attribute("data-vue", "plus")
-    expect(telephone.locator("#f-statut")).to_have_value("interessante")
+    expect(telephone.locator("#f-etat")).to_have_value("je_postule")
 
 
-def test_plus_mene_aux_anciens_ecrans(telephone, parcours):
+def test_plus_mene_a_ses_ecrans(telephone, parcours):
     _ouvrir(telephone, parcours["url"])
-    telephone.get_by_role("button", name="Plus", exact=True).click()
+    # Le nom d'un bouton comprend le texte de sa pastille : « Plus » devient « Plus 2 ».
+    telephone.locator('.onglet[data-vue="plus"]').click()
     expect(telephone.locator("#vue-plus")).to_be_visible()
-    telephone.get_by_role("button", name="Toutes les offres").click()
-    expect(telephone.locator("#vue-offres .offre").first).to_be_visible()
+    telephone.locator('.lien-plus[data-vue="bilan"]').click()
+    expect(telephone.locator("#vue-bilan details[data-liste]").first).to_be_visible()
     expect(telephone.locator("#vue-plus")).to_be_hidden()
     expect(_actif(telephone)).to_have_attribute("data-vue", "plus")
 
     telephone.get_by_role("button", name="‹ Plus").click()
     expect(telephone.locator("#vue-plus")).to_be_visible()
-    expect(telephone.locator("#vue-offres")).to_be_hidden()
+    expect(telephone.locator("#vue-bilan")).to_be_hidden()
     expect(_actif(telephone)).to_have_attribute("data-vue", "plus")
 
 
@@ -462,12 +464,29 @@ def test_a_faire_vide_le_dit(telephone, parcours):
         "Rien à faire pour l'instant : aucune offre au-dessus du seuil de 45.")
 
 
+def _attendre_demande_offres(page, condition):
+    """Attend la demande de Toutes les offres dont les paramètres remplissent `condition`."""
+    return page.expect_request(lambda r: urlsplit(r.url).path == "/api/offres"
+                               and condition(parse_qs(urlsplit(r.url).query)))
+
+
 def test_les_offres_sous_le_seuil_menent_a_toutes_les_offres(telephone, parcours):
+    """L'état « À voir », les autres filtres vidés (décision 3 du plan du lot 3, réponse 25) :
+    une recherche laissée dans Toutes les offres ne cache pas les offres annoncées."""
     _servir_a_faire(telephone, {**VIDE, "sous_le_seuil": 3})
     telephone.goto(f"{parcours['url']}/")
-    telephone.get_by_role("button", name="Voir les 3 sous le seuil ›").click()
+    telephone.locator('.onglet[data-vue="plus"]').click()
+    telephone.locator('.lien-plus[data-vue="offres"]:not([data-chercher])').click()
+    with _attendre_demande_offres(telephone, lambda p: p.get("recherche") == ["recherche laissée"]):
+        telephone.locator("#f-recherche").fill("recherche laissée")
+    telephone.locator('.onglet[data-vue="a-faire"]').click()
+
+    with _attendre_demande_offres(telephone, lambda p: p.get("etat") == ["a_voir"]) as demande:
+        telephone.get_by_role("button", name="Voir les 3 sous le seuil ›").click()
+    assert parse_qs(urlsplit(demande.value.url).query) == {"etat": ["a_voir"]}
     expect(telephone.locator("#vue-offres")).to_be_visible()
-    expect(telephone.locator("#f-statut")).to_have_value("nouveau")
+    expect(telephone.locator("#f-etat")).to_have_value("a_voir")
+    expect(telephone.locator("#f-recherche")).to_have_value("")
     expect(_actif(telephone)).to_have_attribute("data-vue", "plus")
 
 
@@ -516,6 +535,9 @@ def _fiche(page, offre_id: int):
 def _fermer(page) -> None:
     page.locator("#fenetre").get_by_role("button", name="Fermer").click()
     expect(page.locator("#fenetre")).to_be_hidden()
+    # La fermeture retire l'entrée de la fenêtre par un retour asynchrone (`history.go(-1)`) :
+    # un `page.goto` lancé avant qu'il soit posé serait annulé (net::ERR_ABORTED).
+    page.wait_for_function("() => !(history.state && history.state.fenetre)")
 
 
 def _ouvrir_candidatures(page, url: str) -> None:
@@ -584,7 +606,6 @@ def test_la_fiche_ne_montre_que_les_actions_de_son_etat(telephone, parcours, fic
     expect(fiche.locator('[data-action="relance"]')).to_have_count(1)
     expect(fiche.locator('[data-action="reponse"]')).to_have_count(3)
     expect(fiche.locator('[data-action="postuler"]')).to_have_count(0)
-    expect(fiche.locator('[data-action="dossier"]')).to_have_count(0)
     statuts = fiche.locator('[data-action="reponse"]').evaluate_all(
         "bs => bs.map(b => b.dataset.statut)")
     assert statuts == ["entretien", "refus", "accepte"]
@@ -599,7 +620,8 @@ def test_chaque_etat_a_sa_ligne_d_actions(telephone, parcours, fiches):
         "a_voir": ("À voir", ["postuler", "plus-tard", "non"], False),
         "de_cote": ("Mise de côté", ["postuler", "plus-tard", "non"], True),
         "plus_tard": ("Plus tard", ["postuler", "non"], False),
-        "a_preparer": ("Je postule", ["preparer"], True),
+        # Sans dossier, « Je l'ai envoyée » suit la préparation (décision 20 du plan du lot 3).
+        "a_preparer": ("Je postule", ["preparer", "envoyee"], True),
         "pret": ("Je postule", ["envoyee", "preparer"], True),
         "envoyee": ("Envoyée", ["relance", "reponse", "reponse", "reponse"], True),
         "entretien": ("Entretien", ["entretien", "reponse", "reponse"], True),
@@ -808,13 +830,13 @@ def test_candidatures_se_touchent_du_doigt_et_tiennent_dans_l_ecran(
 
 
 def test_plus_se_touche_du_doigt_et_tient_dans_l_ecran(telephone, parcours):
-    """Les lignes de « Plus », et « ‹ Plus » sur un ancien écran (ADR-0003, § 7)."""
+    """Les lignes de « Plus », et « ‹ Plus » sur un de ses écrans (ADR-0003, § 7)."""
     _ouvrir(telephone, parcours["url"])
-    telephone.get_by_role("button", name="Plus", exact=True).click()
+    telephone.locator('.onglet[data-vue="plus"]').click()
     expect(telephone.locator("#vue-plus")).to_be_visible()
     hauteurs = telephone.locator("#vue-plus .lien-plus").evaluate_all(
         "es => es.map(e => e.getBoundingClientRect().height)")
-    assert len(hauteurs) == 7
+    assert len(hauteurs) == 6
     assert min(hauteurs) >= DOIGT
     assert telephone.evaluate("document.documentElement.scrollWidth") <= TELEPHONE["viewport"]["width"]
 
@@ -1131,7 +1153,8 @@ def test_un_echec_propose_de_reessayer(telephone, parcours, fiches):
     telephone.evaluate("id => ouvrirFiche(id)", offre_id)
     fiche = _fiche(telephone, offre_id)
     expect(fiche.locator(".etat-fiche")).to_have_text("Je postule")
-    assert _actions(fiche) == ["preparer"]
+    # Sans dossier, « Je l'ai envoyée » suit la préparation (décision 20 du plan du lot 3).
+    assert _actions(fiche) == ["preparer", "envoyee"]
     assert db.lire_offre(offre_id)["statut"] == "interessante"
 
 
@@ -1303,6 +1326,9 @@ def test_dossier_pret_se_touche_du_doigt_et_tient_dans_l_ecran(telephone, parcou
     fenetre = telephone.locator("#fenetre")
     expect(_titre(telephone)).to_have_text("Dossier prêt")
     expect(fenetre).to_contain_text("Ton kit de candidature n'est pas branché")
+    # Le bloc est seul à dire le kit provisoire : il reprend le remède (décision 16).
+    for remede in ("VEILLE_KIT", "/donnees/kit", "gabarits/"):
+        expect(fenetre).to_contain_text(remede)
 
     def mesurer(attendus: tuple[str, ...]) -> None:
         mesures = _cibles(telephone)

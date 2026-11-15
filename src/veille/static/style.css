@@ -26,8 +26,6 @@ h1,h2,h3,.offre-titre{text-wrap:balance}
   display:flex;align-items:center;justify-content:space-between;gap:12px;
   padding:12px 16px;background:var(--fond2);border-bottom:1px solid var(--trait);
 }
-.barre-actions{display:flex;gap:8px;align-items:center}
-.enligne{display:inline}
 .onglets{display:flex;gap:2px;padding:0 10px;background:var(--fond2);border-bottom:1px solid var(--trait);
   overflow-x:auto}
 .onglet{
@@ -42,50 +40,20 @@ h1,h2,h3,.offre-titre{text-wrap:balance}
 .vue{padding:14px 16px;max-width:1000px;margin:0 auto}
 .cachee{display:none}
 
-/* ---------- filtres ---------- */
-/* Barre compacte, toujours visible. Le panneau complet se replie : sur
-   telephone les offres doivent venir en premier, les reglages sont atteignables
-   mais jamais devant. */
-.barre-filtres{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
-.badge{
-  display:inline-block;min-width:18px;margin-left:6px;padding:0 5px;
-  background:var(--accent);color:#06121f;border-radius:9px;
-  font-size:.74rem;font-weight:700;text-align:center;font-variant-numeric:tabular-nums;
-}
-.badge:empty{display:none}
+/* ---------- Toutes les offres : trois filtres, puis la bascule ---------- */
+/* Toujours visibles (décision 4 du plan du lot 3) : ni panneau replié, ni puces ; le résumé
+   nomme les filtres actifs. Ils ne servent qu'à être touchés : 44 px partout. */
+.filtres{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:4px}
+.filtres input[type=search]{flex:1 1 220px;min-width:0}
+.filtres input[type=search],.filtres select{min-height:44px}
 button.bascule[aria-pressed="true"]{
   background:rgba(61,220,151,.18);color:var(--bon);
   box-shadow:inset 0 0 0 1px rgba(61,220,151,.45);
 }
-
-/* Puces des filtres actifs : sans elles, une liste courte reste inexpliquee
-   quand le panneau est replie. */
-.puces{display:flex;flex-wrap:wrap;gap:6px;flex:1 1 auto;min-width:0}
-.puce{
-  display:inline-flex;align-items:center;gap:6px;
-  background:var(--fond3);color:var(--doux);border:1px solid var(--trait);
-  border-radius:999px;padding:3px 6px 3px 11px;font-size:.78rem;
-}
-.puce button{
-  background:none;border:none;color:var(--doux);cursor:pointer;
-  font-size:1rem;line-height:1;padding:0 4px;font-weight:400;position:relative;
-}
-/* La croix est petite ; sa zone tapable fait 40 x 30 px. Pas plus haut : les lignes
-   de puces sont à environ 32 px l'une de l'autre, et deux zones ne se chevauchent pas. */
-.puce button::after{
-  content:"";position:absolute;left:50%;top:50%;width:40px;height:30px;translate:-50% -50%;
-}
-.puce button:hover{color:var(--mauvais)}
-
-.filtres{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
-.filtres[hidden]{display:none}
-.filtres input[type=search]{flex:1 1 220px;min-width:0}
 input,select{
   background:var(--fond2);color:var(--texte);border:1px solid var(--trait);
   border-radius:var(--rayon);padding:9px 11px;
 }
-.case{display:flex;align-items:center;gap:6px;color:var(--doux);font-size:.88rem}
-.case input{padding:0}
 button{
   background:var(--accent);color:#06121f;border:none;border-radius:var(--rayon);
   padding:9px 14px;cursor:pointer;font-weight:600;
@@ -99,7 +67,7 @@ button.discret:hover{background:var(--trait)}
 button:disabled{opacity:.5;cursor:default}
 .resume{color:var(--doux);font-size:.88rem;margin:6px 0 12px}
 
-/* ---------- cartes d'offre ---------- */
+/* ---------- offres : fiches et lignes ---------- */
 .liste{display:flex;flex-direction:column;gap:10px}
 .offre{
   background:var(--fond2);border:1px solid var(--trait);border-left:4px solid var(--trait);
@@ -125,11 +93,6 @@ button:disabled{opacity:.5;cursor:default}
 .etiquette{background:var(--fond3);color:var(--doux);border-radius:6px;padding:2px 8px;font-size:.76rem}
 .etiquette.alerte{background:rgba(240,180,41,.16);color:var(--moyen)}
 .etiquette.grave{background:rgba(239,100,97,.16);color:var(--mauvais)}
-.etiquette.atout{background:rgba(91,157,255,.13);color:var(--accent)}
-.etiquette.atout-fort{
-  background:linear-gradient(90deg,rgba(61,220,151,.22),rgba(91,157,255,.22));
-  color:var(--bon);font-weight:650;border:1px solid rgba(61,220,151,.35);
-}
 
 .actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:11px}
 .actions button{padding:7px 11px;font-size:.86rem}
@@ -185,6 +148,31 @@ details.plus-tard > .liste{margin-top:6px}
 }
 .lien-plus:hover{background:var(--fond3)}
 .lien-plus::after{content:"›";margin-left:auto;color:var(--doux);font-size:1.2rem;line-height:1}
+/* Une ligne d'offre (Toutes les offres, le Bilan) : un bouton qui ouvre la fiche. Un intitulé
+   sans espace s'y coupe. */
+.ligne-offre{
+  display:flex;flex-direction:column;gap:2px;width:100%;min-height:44px;
+  color:var(--texte);font-weight:400;text-align:left;border-left-color:var(--accent);
+  overflow-wrap:anywhere;
+}
+.ligne-offre:hover{background:var(--fond3)}
+.ligne-offre-haut{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.ligne-offre .offre-titre{margin:0;min-width:0}
+.ligne-offre-bas{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px}
+.etat-ligne{font-size:.78rem;font-weight:600;color:var(--accent)}
+.precision{font-size:.82rem;color:var(--doux)}
+/* Les volets de Mes critères et du Bilan : un résumé de 44 px, comme ceux de la fiche. */
+.vue details.repli{border-top:1px solid var(--trait)}
+.vue details.repli > summary{min-height:44px;padding-block:11px;cursor:pointer;color:var(--doux);font-weight:600}
+.vue details.repli > .liste{margin:4px 0 14px}
+.listes-bilan details.repli:last-child{border-bottom:1px solid var(--trait)}
+.listes-bilan .archivee{overflow-wrap:anywhere}
+#contenu-bilan td{overflow-wrap:anywhere}
+/* Une proposition à classer : sa case et son intitulé se touchent ensemble. */
+#contenu-criteres{overflow-wrap:anywhere}
+.proposition{display:flex;flex-direction:column;gap:2px;min-width:0}
+.case-classer{display:flex;align-items:center;gap:10px;min-height:44px;cursor:pointer}
+.case-classer input{flex-shrink:0;width:20px;height:20px;padding:0}
 .retour-plus{
   min-height:44px;margin:-8px 0 4px -4px;padding:0 10px 0 4px;
   background:none;color:var(--accent);font-weight:500;
@@ -314,28 +302,29 @@ dialog textarea#texte-annonce{min-height:150px;font-family:inherit}
 /* ---------- telephone ---------- */
 @media (max-width:640px){
   .vue{padding:12px}
-  /* Une seule ligne compacte avant la premiere offre. Quand le panneau
-     s'ouvre, chaque controle prend toute la largeur pour rester tapable. */
-  .filtres select,.filtres input[type=search],.filtres button{flex:1 1 100%}
-  /* Sans `min-width:0`, un sélecteur reste aussi large que sa plus longue option : un
-     libellé de zone long faisait défiler toute la page de côté. */
-  .filtres select{min-width:0}
-  .barre-filtres{gap:6px}
-  .puces{flex-basis:100%;order:3}
+  /* La recherche tient sa ligne ; l'état et la famille se partagent la suivante, et la
+     bascule passe dessous. Sans `min-width:0`, un sélecteur reste aussi large que sa plus
+     longue option : un libellé long faisait défiler toute la page de côté. */
+  .filtres input[type=search]{flex-basis:100%}
+  .filtres select{flex:1 1 140px;min-width:0}
   .offre-haut{flex-direction:row}
   .actions button{flex:1 1 auto}
   .offre{padding:12px 13px}
   .formulaire,.formulaire.enligne{max-width:none}
   .formulaire.enligne input{flex:1 1 auto;width:auto}
   .bloc{padding:13px 14px}
-  /* Au doigt, 44 px au moins : les boutons, la case des écartées, les liens de
-     téléchargement. La croix des puces a sa propre zone (`.puce button::after`). */
+  /* Au doigt, 44 px au moins : les boutons et les liens de téléchargement. */
   button{min-height:44px}
-  .puce button{min-height:0}
-  .case{min-height:44px}
   /* La marge est sur le lien, pas sur la ligne : c'est le lien qu'on touche. */
   .fichiers .fichier{padding:0 0 10px}
   .fichier a{flex-basis:100%;padding-block:11px}
+  /* Les tableaux du Bilan tiennent dans l'écran, même sous une police large (DejaVu Sans du
+     runner Linux, Verdana) : des cellules serrées, un corps un peu plus petit. Les en-têtes ne se
+     coupent pas : ils donnent sa largeur minimale à une colonne de nombres. */
+  #contenu-bilan table{font-size:.8rem}
+  #contenu-bilan th,#contenu-bilan td{padding:6px 4px}
+  #contenu-bilan th:first-child,#contenu-bilan td:first-child{padding-left:0}
+  #contenu-bilan th:last-child,#contenu-bilan td:last-child{padding-right:0}
 }
 
 /* Sans mouvement demandé : l'appui et les messages changent d'état sans transition. */
@@ -355,27 +344,6 @@ b.monte{color:var(--bon)} b.descend{color:var(--mauvais)}
 .citation{
   color:var(--doux);font-style:italic;display:inline-block;margin-top:3px;
   background:var(--fond3);padding:5px 9px;border-radius:6px;line-height:1.45;
-}
-
-/* ---------- deux axes, deux repères ----------
-   Le score de correspondance et la complétude ne doivent jamais se ressembler :
-   couleurs et formes distinctes, et jamais côte à côte dans un même nombre. */
-.reperes{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 2px}
-.verif,.completude{border-radius:6px;padding:2px 8px;font-size:.74rem;white-space:nowrap}
-.verif{background:var(--fond3);color:var(--doux)}
-.verif.jamais{background:rgba(240,180,41,.16);color:var(--moyen)}
-.verif.non-verifiable{background:rgba(239,100,97,.14);color:var(--mauvais)}
-.verif.ancienne{background:rgba(240,180,41,.10);color:var(--moyen)}
-.verif.par-edouard{background:rgba(61,220,151,.14);color:var(--bon)}
-/* La complétude est encadrée, jamais pleine : on ne la confond pas avec un score. */
-.completude{background:transparent;border:1px solid var(--fond3);color:var(--doux)}
-.completude.solide{border-color:var(--bon);color:var(--bon)}
-.completude.correct{border-color:var(--accent);color:var(--accent)}
-.completude.mince{border-color:var(--moyen);color:var(--moyen)}
-.completude.insuffisant{border-color:var(--mauvais);color:var(--mauvais)}
-@media (max-width:640px){
-  .reperes{gap:5px}
-  .verif,.completude{font-size:.72rem}
 }
 
 /* ---------- champs de saisie du destinataire ---------- */

@@ -19,8 +19,9 @@ le `docs/CANDIDATURE.md` du dépôt de données.
 
 Sur une offre « À voir », ou mise de côté, « Je postule » passe l'offre à
 l'état « Je postule » et lance aussitôt la préparation. Sur la fiche d'une
-offre « Je postule » sans dossier, « Préparer ma candidature » la reprend. Une
-préparation laissée en route attend dans « À finir », marquée
+offre « Je postule » sans dossier, « Préparer ma candidature » la reprend, et
+« Je l'ai envoyée » dit une candidature faite sans dossier, par un formulaire
+en ligne. Une préparation laissée en route attend dans « À finir », marquée
 « Dossier à préparer ».
 
 Pendant le travail, le bouton se désactive et compte les secondes
@@ -248,7 +249,7 @@ non.
 Sur « Dossier prêt », ou dans la fiche de l'offre, touche **« Je l'ai envoyée »** et choisis le canal. La console :
 
 - horodate l'envoi ;
-- programme la **relance à 10 jours**, qui apparaît dans *Plus › Relances* (et dans « À finir », sous « À faire ») ;
+- programme la **relance à 10 jours** : sa date paraît sur la ligne « Envoyée » de « Candidatures », et la relance due passe en tête d'« À finir », sous « À faire » ;
 - compte ce canal dans l'entonnoir, pour que tu voies lesquels répondent.
 
 Le délai de relance se règle dans `db.changer_statut(delai_relance_jours=…)`.
@@ -262,7 +263,7 @@ Deux chiffres, deux questions, **jamais mélangés** :
 | | Question | Où le voir |
 |---|---|---|
 | **Score** | ce poste me va-t-il ? | pastille pleine, en haut à droite de la carte |
-| **Dossier** *(complétude)* | en sait-on assez pour écrire une candidature qui tienne ? | pastille **encadrée**, sous l'employeur |
+| **Dossier** *(complétude)* | en sait-on assez pour écrire une candidature qui tienne ? | l'étape « Information trop mince » de la préparation, sous le seuil |
 
 Une offre à **110 / dossier 28** est excellente et indocumentée : elle mérite dix
 minutes de recherche. Une offre à **25 / dossier 90** est parfaitement documentée
@@ -291,9 +292,9 @@ plus, chacun avec le geste qui le comble**. Tu peux passer outre —
 
 **La conséquence pratique.** Le collage du texte complet vaut 35 points à lui
 seul, et c'est le seul geste qui débloque à peu près toutes les offres venues
-des alertes mail, qui n'en portent qu'un extrait. Filtre sur *dossier
-insuffisant* + *score au-dessus du seuil* : score élevé, information trop
-mince. Ce sont elles qui méritent tes dix minutes.
+des alertes mail, qui n'en portent qu'un extrait. Tu n'as pas à les chercher :
+sur une offre mal documentée, « Je postule » lit le texte de l'annonce quand il
+le peut, et te le demande sinon.
 
 ---
 
@@ -399,11 +400,6 @@ PDF, déjà neufs, le zip encore l'ancien, ou supprimé. L'écran d'échec le di
 réessaie avant d'envoyer. La note du destinataire part dès le début de la
 génération, et ne revient qu'à la fin d'une génération complète : « Dossier
 prêt » n'affirme alors aucun destinataire.
-
-Les anciens écrans (*Plus › Toutes les offres*, *Plus › Relances*) gardent
-leur « Générer le dossier » jusqu'au lot 3 de l'ADR-0003, qui les refond. Ce
-bouton-là réécrit la lettre du jour sans ranger d'abord dans l'historique la
-version qu'il remplace ([les pistes](pistes.md)).
 
 ### La lettre est assemblée à partir de l'annonce
 

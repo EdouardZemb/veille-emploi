@@ -13,8 +13,7 @@ separement. C'est exactement le genre de chiffre qu'on a envie de fusionner
 seule information qui lui dit OU passer dix minutes.
 
 USAGE PRINCIPAL : « Préparer ma candidature » (`preparation.py`), qui s'arrête
-sous le seuil, et le « Générer le dossier » des anciens écrans, jusqu'au lot 3.
-Sans le bilan, la génération sortirait une lettre d'un extrait de trois lignes,
+sous le seuil. Sans le bilan, la génération sortirait une lettre d'un extrait de trois lignes,
 creuse sans que rien ne l'avertisse. Le bilan prévient AVANT, et dit CE QUI
 manque — « données insuffisantes » sans préciser laquelle ne sert à rien.
 """

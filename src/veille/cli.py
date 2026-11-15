@@ -194,7 +194,8 @@ def cmd_rescorer(args: argparse.Namespace) -> int:
         print(f"  {ecartees} offre(s) partie(s) au rebut : les nouveaux criteres les rejettent.")
     if differees:
         print(f"  {differees} offre(s) mise(s) de cote : recevables plus tard, "
-              f"consultables par le filtre Statut.")
+              f"consultables par le filtre d'etat « Mises de cote » de Plus › Toutes les offres, "
+              f"et dans le Bilan.")
     if remises:
         print(f"  {remises} offre(s) revenue(s) dans le flux.")
     if ecartees or remises or differees:
@@ -232,7 +233,7 @@ def cmd_verifier(args: argparse.Namespace) -> int:
               f"(tu les as triees ou tu as genere un dossier).")
     if r.archivees:
         print()
-        print(f"{len(r.archivees)} offre(s) archivees. Plus › Archive pour les voir, "
+        print(f"{len(r.archivees)} offre(s) archivees. Plus › Bilan pour les voir, "
               f"« Remettre dans le flux » si l'une y est a tort.")
     else:
         print()
@@ -614,17 +615,18 @@ def cmd_tester_notification(args: argparse.Namespace) -> int:
     print("--- Canal 1 : push web ---")
     cles = notifications.charger_vapid()
     if not cles:
-        print("  cles VAPID absentes : lance `veille init`")
+        print("  cles VAPID absentes : elles naissent au demarrage de la console "
+              "(sans conteneur, `veille init`)")
     else:
         print(f"  cles VAPID presentes (sujet {cles.sujet})")
     abonnements = db.lister_abonnements()
     print(f"  appareils abonnes : {len(abonnements)}")
     if not abonnements:
-        print("  -> aucun appareil. Il faut d'abord ouvrir la console en HTTPS sur le")
-        print("     tailnet, puis appuyer sur 'Notifications'. Voir docs/DEMARRAGE.md.")
+        print("  -> aucun appareil. Il faut d'abord ouvrir la console sur le telephone, puis")
+        print("     Plus › Reglages, « Activer les notifications ». Voir docs/DEMARRAGE.md.")
     else:
         ok, ko = notifications.envoyer_push(
-            "Veille emploi", "Essai du canal push.", url="/"
+            "Veille emploi", "Essai du canal push.", url="/?filtre=nouveau"
         )
         print(f"  envoyes : {ok} | echecs : {ko}")
 

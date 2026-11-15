@@ -431,7 +431,8 @@ def _atout_mis_en_avant(criteres) -> dict[str, str] | None:
                 "cle": cle,
                 "libelle": str(info.get("libelle") or atout.get("libelle") or cle),
                 "titre": str(info.get("titre") or ""),
-                # le bouton de filtre de la barre : son texte, sinon celui de l'etiquette
+                # la bascule de l'atout, en tete de Toutes les offres : son texte, sinon
+                # celui de l'etiquette
                 "bouton": str(info.get("bouton") or info.get("libelle") or atout.get("libelle") or cle),
                 "bouton_titre": str(info.get("bouton_titre") or info.get("titre") or ""),
             }
@@ -444,20 +445,20 @@ def console(request: Request):
         return RedirectResponse("/connexion", status_code=303)
     criteres = charger_criteres()
     cles = notifications.charger_vapid()
+    # Un ancien lien d'entree (?filtre=<statut>) se traduit ici : le JS ne connait aucun etat.
+    etat_demande = etats.etat_du_lien(request.query_params.get("filtre"))
     return gabarits.TemplateResponse(
         request,
         "index.html",
         {
-            "statuts": STATUTS,
             "v_css": empreinte_statique("style.css"),
             "v_js": empreinte_statique("app.js"),
             "familles": {k: v.get("libelle", k) for k, v in criteres.familles.items()},
-            "zones": {k: v.get("libelle", k) for k, v in criteres.zones.items()},
-            "atouts": {k: v.get("libelle", k) for k, v in criteres.atouts.items()},
             "seuil_interessant": reglages.lire_seuil(),
             "cle_vapid": cles.publique if cles else "",
             "atout_mis_en_avant": _atout_mis_en_avant(criteres),
             "sert_l_exemple": _sert_l_exemple_par_oubli(),
+            "etat_demande": etat_demande,
         },
     )
 
@@ -476,47 +477,38 @@ def api_offres(
     source: str | None = None,
     recherche: str | None = None,
     inclure_ecartees: bool = False,
-    verification: str | None = None,
-    tri: str | None = None,
-    a_documenter: bool = False,
     limite: int = 200,
+    etat: str | None = None,
 ):
     from . import completude as _completude
 
-    offres = db.lister_offres(
-            verification=verification,
-            tri=tri,
-            statut=statut,
-            zone=zone,
-            famille=famille,
-            atout=atout,
-            source=source,
-            recherche=recherche,
-            inclure_ecartees=inclure_ecartees,
-            limite=limite,
+    # Un etat vide vaut aucun etat. Sans etat, la liste montre les offres en cours,
+    # sauf si un statut ou inclure_ecartees est donne : ils gardent leur sens.
+    etat = etat or None
+    statuts = None
+    if etat is not None or not (statut or inclure_ecartees):
+        try:
+            statuts = etats.statuts_du_filtre(etat)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+    filtres = dict(
+        statut=statut,
+        statuts=statuts,
+        zone=zone,
+        famille=famille,
+        atout=atout,
+        source=source,
+        recherche=recherche,
+        inclure_ecartees=inclure_ecartees,
     )
+    offres = db.lister_offres(limite=limite, **filtres)
+    total = db.compter_offres(**filtres)
     # La complétude voyage AVEC l'offre, mais dans sa propre clé : les deux axes
     # ne se rencontrent jamais dans un meme nombre.
     for o in offres:
         o["completude"] = _completude.evaluer(o).as_dict()
-
-    # « A documenter » : fort potentiel, information trop mince. C'est le
-    # croisement des DEUX axes — et il ne peut se calculer qu'ici, une fois la
-    # complétude attachee. Le compte voyage avec la liste pour que le bouton
-    # puisse l'afficher sans une requete de plus.
-    seuil_score = reglages.lire_seuil()
-
-    def a_travailler(o):
-        return (o["score"] >= seuil_score
-                and not o["completude"]["suffisant_pour_dossier"]
-                and o["statut"] not in ("ecartee", "differee"))
-
-    for o in offres:
         o["etat"] = etats.etat_de(o)
-    compte = sum(1 for o in offres if a_travailler(o))
-    if a_documenter:
-        offres = [o for o in offres if a_travailler(o)]
-    return {"offres": offres, "a_documenter": compte}
+    return {"offres": offres, "total": total}
 
 
 @app.get("/api/affinement", dependencies=[Depends(auth.exiger_session)])
@@ -802,45 +794,6 @@ def api_entretien(offre_id: int):
         prep, offre, fichier.read_text(encoding="utf-8") if fichier else "")
     corps["dossier_genere"] = bool(pieces)
     return corps
-
-
-@app.post("/api/offres/{offre_id}/dossier", dependencies=[Depends(auth.exiger_session)])
-def api_dossier(offre_id: int, forcer: bool = False):
-    """Genere le dossier — en prevenant AVANT si l'information est trop mince.
-
-    Sans ce garde-fou, il peut sortir une lettre depuis un extrait de trois
-    lignes : le resultat est creux et rien ne l'avertit. On refuse d'abord, en
-    disant ce qui manque et comment le combler, et `forcer=true` passe outre si
-    c'est son choix.
-    """
-    from . import completude
-
-    refus = _refus_sans_configuration_hors_conteneur()
-    if refus is not None:
-        return refus
-    offre = db.lire_offre(offre_id)
-    if not offre:
-        raise HTTPException(404, "offre inconnue")
-
-    bilan = completude.evaluer(offre)
-    if not bilan.suffisant_pour_dossier and not forcer:
-        return {"ok": False, "raison": "completude_insuffisante", "completude": bilan.as_dict()}
-
-    resultat = dossier.generer(offre)
-    db.maj_champs(offre_id, dossier_chemin=str(resultat.chemin))
-    db.journaliser(offre_id, "dossier_genere", resultat.gabarit_lettre)
-    return {
-        "ok": True,
-        "dossier": resultat.chemin.name,
-        "fichiers": resultat.fichiers,
-        "gabarit_lettre": resultat.gabarit_lettre,
-        "kit_provisoire": resultat.kit_provisoire,
-        "avertissements": resultat.avertissements,
-        "archive": f"/api/offres/{offre_id}/dossier/archive",
-        "completude": bilan.as_dict(),
-        "pieces_envoi": resultat.pieces_envoi,
-        "archive_complete": f"/api/offres/{offre_id}/dossier/archive?complet=true",
-    }
 
 
 class DemandePreparation(BaseModel):
@@ -1306,11 +1259,6 @@ def api_entonnoir():
     return db.entonnoir()
 
 
-@app.get("/api/relances", dependencies=[Depends(auth.exiger_session)])
-def api_relances():
-    return {"relances": db.relances_dues()}
-
-
 @app.get("/api/a-faire", dependencies=[Depends(auth.exiger_session)])
 def api_a_faire():
     seuil = reglages.lire_seuil()
@@ -1376,7 +1324,7 @@ def api_desabonnement(endpoint: str):
 @app.post("/api/push/test", dependencies=[Depends(auth.exiger_session)])
 def api_push_test():
     ok, ko = notifications.envoyer_push(
-        "Veille emploi", "Notification de test - le push fonctionne.", url="/"
+        "Veille emploi", "Notification de test - le push fonctionne.", url="/?filtre=nouveau"
     )
     return {"envoyes": ok, "echecs": ko}
 

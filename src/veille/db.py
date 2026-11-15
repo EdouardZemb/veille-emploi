@@ -15,7 +15,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Sequence
 
 from .config import CHEMIN_DB
 from .models import Contribution, Offre
@@ -519,30 +519,33 @@ def _ligne_en_dict(r: sqlite3.Row) -> dict[str, Any]:
     return d
 
 
-def lister_offres(
-    statut: str | None = None,
-    zone: str | None = None,
-    famille: str | None = None,
-    atout: str | None = None,
-    source: str | None = None,
-    recherche: str | None = None,
-    inclure_ecartees: bool = False,
-    inclure_archivees: bool = False,
-    verification: str | None = None,
-    tri: str | None = None,
-    limite: int = 200,
-) -> list[dict[str, Any]]:
-    clauses, params = [], []
+def _clauses_offres(
+    statut: str | None,
+    statuts: Sequence[str] | None,
+    zone: str | None,
+    famille: str | None,
+    atout: str | None,
+    source: str | None,
+    recherche: str | None,
+    inclure_ecartees: bool,
+    inclure_archivees: bool,
+) -> tuple[str, list[Any]]:
+    """La clause WHERE et ses parametres, partages par la liste et son compte."""
+    clauses: list[str] = []
+    params: list[Any] = []
     # L'archive est un onglet a part : rien n'est supprime, mais une offre
     # retiree du site ne doit plus occuper la liste active.
     if not inclure_archivees:
         clauses.append("archivee_le IS NULL")
+    if statuts is not None:
+        clauses.append(f"statut IN ({','.join('?' * len(statuts))})")
+        params += list(statuts)
     if statut:
         clauses.append("statut = ?")
         params.append(statut)
-    elif not inclure_ecartees:
+    elif statuts is None and not inclure_ecartees:
         # Ni une offre ecartee, ni une offre mise en attente, ne remontent
-        # dans le flux courant. Elles restent accessibles par le filtre statut.
+        # dans le flux courant. Elles restent accessibles par le filtre d'etat de Toutes les offres.
         clauses.append("statut NOT IN ('ecartee','differee')")
     if zone:
         clauses.append("zone = ?")
@@ -562,38 +565,52 @@ def lister_offres(
         clauses.append("(titre LIKE ? OR employeur LIKE ? OR lieu LIKE ?)")
         params += [f"%{recherche}%"] * 3
 
-    # Filtrer par FRAICHEUR de verification : « jamais vue » et « vue ce matin »
-    # ne doivent pas se ressembler, et il doit pouvoir isoler les unes des autres.
-    if verification == "jamais":
-        clauses.append("verifiee_le IS NULL")
-    elif verification == "non_verifiable":
-        clauses.append("verdict_verification = 'interdite'")
-    elif verification == "par_edouard":
-        clauses.append("verifiee_par = 'edouard'")
-    elif verification == "ancienne":
-        limite_age = (datetime.now() - timedelta(days=7)).isoformat(timespec="seconds")
-        clauses.append("(verifiee_le IS NULL OR verifiee_le < ?)")
-        params.append(limite_age)
-    elif verification == "recente":
-        limite_age = (datetime.now() - timedelta(days=2)).isoformat(timespec="seconds")
-        clauses.append("verifiee_le >= ?")
-        params.append(limite_age)
-
-    ordres = {
-        "score": "score DESC, date_collecte DESC",
-        # NULLS FIRST : une offre jamais verifiee est la plus urgente a regarder.
-        "verification": "verifiee_le IS NOT NULL, verifiee_le ASC, score DESC",
-        "recente": "date_collecte DESC, score DESC",
-    }
-    ordre = ordres.get(tri or "score", ordres["score"])
-
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    return where, params
+
+
+def lister_offres(
+    statut: str | None = None,
+    zone: str | None = None,
+    famille: str | None = None,
+    atout: str | None = None,
+    source: str | None = None,
+    recherche: str | None = None,
+    inclure_ecartees: bool = False,
+    inclure_archivees: bool = False,
+    limite: int = 200,
+    statuts: Sequence[str] | None = None,
+) -> list[dict[str, Any]]:
+    where, params = _clauses_offres(
+        statut, statuts, zone, famille, atout, source, recherche,
+        inclure_ecartees, inclure_archivees,
+    )
     with connexion() as cx:
         rows = cx.execute(
-            f"SELECT * FROM offres {where} ORDER BY {ordre} LIMIT ?",
+            f"SELECT * FROM offres {where} ORDER BY score DESC, date_collecte DESC LIMIT ?",
             (*params, limite),
         ).fetchall()
     return [_ligne_en_dict(r) for r in rows]
+
+
+def compter_offres(
+    statut: str | None = None,
+    zone: str | None = None,
+    famille: str | None = None,
+    atout: str | None = None,
+    source: str | None = None,
+    recherche: str | None = None,
+    inclure_ecartees: bool = False,
+    inclure_archivees: bool = False,
+    statuts: Sequence[str] | None = None,
+) -> int:
+    """Le nombre d'offres qui repondent aux filtres de `lister_offres`, sans sa limite."""
+    where, params = _clauses_offres(
+        statut, statuts, zone, famille, atout, source, recherche,
+        inclure_ecartees, inclure_archivees,
+    )
+    with connexion() as cx:
+        return cx.execute(f"SELECT COUNT(*) FROM offres {where}", params).fetchone()[0]
 
 
 def lire_offre(offre_id: int) -> dict[str, Any] | None:

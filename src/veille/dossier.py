@@ -77,6 +77,15 @@ _RE_COMMENTAIRE = re.compile(r"(<!--.*?-->)", re.S)
 _RE_SECTION = re.compile(r"\{\{#([a-z_]+)\}\}(.*?)\{\{/\1\}\}", re.S)
 
 
+# La première phrase des avertissements de `generer` quand le kit est provisoire. « Préparer ma
+# candidature » ne la reprend pas : le bloc de « Dossier prêt » dit déjà le kit provisoire.
+AVERTISSEMENT_KIT_PROVISOIRE = (
+    "Kit de candidature provisoire : les pieces viennent du dossier gabarits/ de ta "
+    "configuration (VEILLE_CONFIG) et non "
+    "de ton CV maitre. Pointe VEILLE_KIT sur le vrai kit des qu'il est livre."
+)
+
+
 @dataclass
 class ResultatDossier:
     chemin: Path
@@ -721,11 +730,7 @@ def generer(offre: dict[str, Any]) -> ResultatDossier:
     avertissements: list[str] = []
     provisoire = _kit_est_provisoire()
     if provisoire:
-        avertissements.append(
-            "Kit de candidature provisoire : les pieces viennent du dossier gabarits/ de ta "
-            "configuration (VEILLE_CONFIG) et non "
-            "de ton CV maitre. Pointe VEILLE_KIT sur le vrai kit des qu'il est livre."
-        )
+        avertissements.append(AVERTISSEMENT_KIT_PROVISOIRE)
 
     nom_dossier = f"{date.today().isoformat()}_{_ardoise(offre.get('employeur') or 'employeur')}_{_ardoise(offre.get('titre'), 40)}"
     cible = CHEMIN_DOSSIERS / nom_dossier

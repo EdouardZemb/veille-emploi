@@ -23,9 +23,9 @@ cd <le clone>
 systemctl --user restart veille-web
 ```
 
-Le bouton **Recalculer** de la console fait exactement la même chose. En
-conteneur, la configuration est montée en lecture seule : elle change par une
-PR, et arrive par le déploiement.
+Le bouton **Recalculer tous les scores**, dans *Plus › Mes critères*, fait
+exactement la même chose. En conteneur, la configuration est montée en lecture
+seule : elle change par une PR, et arrive par le déploiement.
 
 ### Ce que le rescorage a le droit de faire
 
@@ -167,8 +167,9 @@ langues:
 ```
 
 `mise_en_attente: true` sort les offres germanophones du flux courant et les
-range dans le statut **différée**, consultable par le filtre *Statut* de la
-console. **Aucune n'est perdue.**
+range dans le statut **différée**, consultable par le filtre d'état
+« Mises de côté » de *Plus › Toutes les offres*, et dans le Bilan.
+**Aucune n'est perdue.**
 
 Le jour où ton allemand suffit, repasse à `false`, lance `veille rescorer`, et
 elles reviennent toutes d'un coup dans ta liste.
@@ -197,8 +198,9 @@ langue_annonce:
 ```
 
 Avec `mise_en_attente: true`, les annonces allemandes passent en statut
-**différée** — consultables par le filtre *Statut* de la console, avec leur
-motif écrit. Aucune n'est perdue, aucune n'est supprimée.
+**différée** — consultables par le filtre d'état « Mises de côté » de
+*Plus › Toutes les offres*, et dans le Bilan, avec leur motif écrit. Aucune
+n'est perdue, aucune n'est supprimée.
 
 ### Pour les faire revenir
 
@@ -313,11 +315,11 @@ accessible ») ne déclenchent pas l'atout.
       bouton_titre: "…"                # facultatif
 ```
 
-Un seul atout au plus. Les offres qui le portent reçoivent une étiquette
-(`libelle`, et `titre` au survol), et un bouton dans la barre de la console les
-isole d'un clic. `bouton` et `bouton_titre` sont le texte du bouton et son
-survol ; absents, ils reprennent `libelle` et `titre`. Sans atout mis en avant,
-le bouton ne s'affiche pas.
+Un seul atout au plus. Une bascule, en tête de *Plus › Toutes les offres*,
+isole d'un toucher les offres qui le portent, et le résumé de la liste nomme
+alors l'atout par son `libelle`. `bouton` et `bouton_titre` sont le texte de la
+bascule et son survol ; absents, ils reprennent `libelle` et `titre`. Sans
+atout mis en avant, la bascule ne s'affiche pas.
 
 ### `formule`
 
@@ -678,7 +680,7 @@ section venue.
 
 ## La boucle de correction, au bout de trente offres
 
-**Plus › Pilotage** agrège tes motifs d'écartement. C'est la donnée la plus
+**Plus › Bilan** agrège tes motifs d'écartement. C'est la donnée la plus
 utile du dispositif : elle dit ce que le scoring rate.
 
 Lis la colonne **score moyen** de ce tableau :

@@ -321,7 +321,7 @@ Une fois l'étape 3 faite :
 1. Ouvre l'adresse de la console dans Chrome
 2. Connecte-toi
 3. Menu ⋮ → **Ajouter à l'écran d'accueil**
-4. Dans la console, bouton **Notifications** → autorise
+4. Dans la console, *Plus › Réglages*, « Activer les notifications » → autorise
 
 Une notification de test part immédiatement. Sur Android le push est fiable,
 y compris sans que la PWA soit installée — mais installée, elle démarre plus

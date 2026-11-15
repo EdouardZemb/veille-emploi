@@ -85,127 +85,6 @@ function listeContributions(o) {
   }).join('');
 }
 
-function carteOffre(o) {
-  const n = niveau(o.score);
-  const meta = [o.employeur, o.lieu, o.type_contrat, o.date_publication, o.source]
-    .filter(Boolean).map(x => `<span>${echapper(x)}</span>`).join('');
-
-  const etiquettes = [etiquetteSalaire(o)];
-  // L'atout mis en avant (choisi dans la configuration) passe en premier.
-  if (ATOUT && (o.atouts || []).includes(ATOUT.cle)) {
-    etiquettes.unshift(`<span class="etiquette atout-fort" title="${echapper(ATOUT.titre)}">${echapper(ATOUT.libelle)}</span>`);
-  }
-  (o.atouts || []).filter(a => !ATOUT || a !== ATOUT.cle).forEach(a => {
-    etiquettes.push(`<span class="etiquette atout">${echapper(a.replace(/_/g, ' '))}</span>`);
-  });
-  if (o.donnees_partielles) {
-    etiquettes.push('<span class="etiquette alerte" title="Le mail ne contenait qu\'un extrait : le score ne porte que sur l\'intitule et le lieu">donnees partielles</span>');
-  }
-  if (o.statut && o.statut !== 'nouveau') {
-    etiquettes.push(`<span class="etiquette">${echapper(o.statut.replace(/_/g, ' '))}</span>`);
-  }
-  if (o.motif_ecartement) {
-    etiquettes.push(`<span class="etiquette grave">${echapper(o.motif_ecartement)}</span>`);
-  }
-  if (o.date_relance_due) {
-    etiquettes.push(`<span class="etiquette">relance le ${echapper(o.date_relance_due)}</span>`);
-  }
-
-  const contribs = listeContributions(o);
-
-  const titre = o.url
-    ? `<a href="${echapper(o.url)}" target="_blank" rel="noopener noreferrer">${echapper(o.titre)}</a>`
-    : echapper(o.titre);
-
-  return `
-  <article class="offre ${n}" data-id="${o.id}">
-    <div class="offre-haut">
-      <div>
-        <p class="offre-titre">${titre}</p>
-        <div class="meta">${meta}</div>
-      </div>
-      <span class="score ${n}">${o.score}</span>
-    </div>
-    <div class="reperes">${pastilleVerification(o)}${pastilleCompletude(o.completude)}</div>
-    <div class="etiquettes">${etiquettes.join('')}</div>
-    <details class="explication">
-      <summary>Pourquoi ce score</summary>
-      <ul class="contribs">${contribs || '<li>aucune contribution</li>'}</ul>
-    </details>
-    <div class="actions">
-      <button data-action="dossier">Generer le dossier</button>
-      <button class="discret" data-action="statut" data-statut="interessante">Interessante</button>
-      <button class="discret" data-action="statut" data-statut="a_traiter">A traiter</button>
-      <button class="discret" data-action="envoyee">Candidature envoyee</button>
-      <button class="discret" data-action="relance">Mot de relance</button>
-      <button class="discret" data-action="ecarter">Ecarter</button>
-      <button class="discret" data-action="entretien">Préparer l'entretien</button>
-      <button class="discret" data-action="detail">${o.donnees_partielles ? `Lire l'annonce` : 'Detail'}</button>
-      <button class="discret obsolete" data-action="obsolete" title="Tu as ouvert l'annonce et elle n'y est plus">Obsolète</button>
-    </div>
-  </article>`;
-}
-
-// ---------------------------------------------------------------------------
-// Fraîcheur de vérification : trois états, pas un seul indicateur
-//
-//   • vérifiée automatiquement — on a pu sonder le site
-//   • vérifiée par toi         — tu as regardé, ça vaut preuve
-//   • jamais vérifiée          — dont « non vérifiable », site qui l'interdit
-//
-// Ces trois choses ne veulent pas dire la même chose et ne doivent pas se
-// ressembler. Une annonce jamais vue et une annonce vue ce matin non plus :
-// d'où l'âge en clair, et pas une date enfouie dans le détail.
-// ---------------------------------------------------------------------------
-
-function ageEnJours(horodatage) {
-  if (!horodatage) return null;
-  const t = Date.parse(horodatage);
-  if (Number.isNaN(t)) return null;
-  return Math.floor((Date.now() - t) / 86400000);
-}
-
-function etatVerification(o) {
-  if (o.verdict_verification === 'interdite') {
-    return { cle: 'non-verifiable', texte: 'non vérifiable', titre:
-      "Ce site interdit la lecture automatisée : seule ta vérification compte." };
-  }
-  if (!o.verifiee_le) {
-    return { cle: 'jamais', texte: 'jamais vérifiée', titre:
-      "Cette annonce n'a jamais été contrôlée." };
-  }
-  const j = ageEnJours(o.verifiee_le);
-  const quand = j === 0 ? "aujourd'hui" : j === 1 ? 'hier' : `il y a ${j} j`;
-  const qui = o.verifiee_par === 'edouard' ? 'par toi' : 'auto';
-  const vieille = j !== null && j >= 7;
-  return {
-    cle: qui === 'par toi' ? 'par-edouard' : (vieille ? 'ancienne' : 'auto'),
-    texte: `vérifiée ${quand} · ${qui}`,
-    titre: o.motif_verification || '',
-  };
-}
-
-function pastilleVerification(o) {
-  const e = etatVerification(o);
-  return `<span class="verif ${e.cle}" title="${echapper(e.titre)}">${echapper(e.texte)}</span>`;
-}
-
-// ---------------------------------------------------------------------------
-// Complétude — DEUXIÈME axe, jamais mélangé au score de correspondance
-//
-// Le score dit si l'offre lui va. La complétude dit si on en sait assez pour
-// écrire une candidature qui tienne. Une offre à 87 mal documentée et une
-// offre à 25 bien documentée doivent rester lisibles séparément : aucune
-// moyenne des deux n'existe nulle part.
-// ---------------------------------------------------------------------------
-
-function pastilleCompletude(c) {
-  if (!c) return '';
-  return `<span class="completude ${echapper(c.niveau)}"
-    title="Information disponible sur le poste — sans rapport avec le score de correspondance">
-    dossier ${c.score}/100 · ${echapper(c.niveau)}</span>`;
-}
-
 // ---------------------------------------------------------------------------
 // Le geste manuel : un clic depuis la liste, réversible d'un autre clic
 // ---------------------------------------------------------------------------
@@ -217,78 +96,128 @@ async function constater(id, enLigne) {
             { method: 'POST' });
   // La vue courante, pas la liste des offres : le geste vient aussi de « À faire ».
   rafraichir();
-  message(enLigne ? 'Notée encore en ligne.' : 'Archivée — annulable dans Plus › Archive.');
+  message(enLigne ? 'Notée encore en ligne.' : 'Archivée — annulable dans Plus › Bilan.');
+}
+
+// ---------------------------------------------------------------------------
+// Toutes les offres (ADR-0003, § 6 ; décisions 2 à 6 du plan du lot 3)
+//
+// Trois filtres toujours visibles, la recherche, l'état et la famille, puis la bascule de
+// l'atout mis en avant. Chaque offre est une ligne qui ouvre sa fiche (`ligneOffre`). Sans
+// état, la liste montre les offres en cours ; une recherche sans état porte sur toutes les
+// offres, closes et mises de côté comprises. Le résumé dit le vrai nombre (`total`), nomme
+// les filtres actifs, et « Effacer les filtres » les retire, liste vide ou non.
+// ---------------------------------------------------------------------------
+
+// L'atout filtré : celui de la bascule, ou celui d'un ancien lien d'entrée (`?atout=`).
+let atoutFiltre = '';
+// Le numéro de la dernière demande : une réponse plus ancienne arrive trop tard (point
+// d'attention 3 du plan du lot 3), elle ne remplace pas la liste.
+let numeroOffres = 0;
+// La recherche attend 280 ms de calme : une frappe rapide n'envoie qu'une demande.
+let minuteurRecherche;
+
+const PORTEE_RECHERCHE = 'La recherche porte sur toutes les offres, closes et mises de côté comprises.';
+
+// Les filtres actifs, nommés comme le résumé les dit. L'atout mis en avant se nomme par son
+// libellé ; un autre, que la page ne connaît pas, par sa clé (décision 3).
+function filtresActifs() {
+  const actifs = [];
+  const recherche = $('#f-recherche').value.trim();
+  if (recherche) actifs.push({ cle: 'recherche', libelle: 'Recherche', valeur: recherche });
+  for (const [id, cle, libelle] of [['#f-etat', 'etat', 'État'], ['#f-famille', 'famille', 'Famille']]) {
+    const champ = $(id);
+    if (champ.value) {
+      actifs.push({ cle, libelle, valeur: champ.options[champ.selectedIndex].textContent.trim() });
+    }
+  }
+  if (atoutFiltre) {
+    actifs.push({ cle: 'atout', libelle: 'Atout',
+                  valeur: ATOUT && atoutFiltre === ATOUT.cle ? ATOUT.libelle : atoutFiltre });
+  }
+  return actifs;
+}
+
+// Ce que la liste demande. L'état part au serveur, qui le traduit en statuts (`etats.py`) ;
+// `inclure_ecartees` ne part que pour une recherche sans état (décision 4).
+function parametresOffres() {
+  const p = new URLSearchParams();
+  const recherche = $('#f-recherche').value.trim();
+  const etat = $('#f-etat').value;
+  if (recherche) p.set('recherche', recherche);
+  if (etat) p.set('etat', etat);
+  else if (recherche) p.set('inclure_ecartees', 'true');
+  if ($('#f-famille').value) p.set('famille', $('#f-famille').value);
+  if (atoutFiltre) p.set('atout', atoutFiltre);
+  return p;
+}
+
+// Les trois champs et l'atout, vidés, sans recharger la liste.
+function viderFiltres() {
+  clearTimeout(minuteurRecherche);
+  $('#f-recherche').value = '';
+  $('#f-etat').value = '';
+  $('#f-famille').value = '';
+  atoutFiltre = '';
+}
+
+function effacerFiltres() {
+  viderFiltres();
+  chargerOffres();
+}
+
+// « a », « a et b », « a, b et c ».
+function enumerer(textes) {
+  return textes.length < 2 ? textes.join('')
+    : `${textes.slice(0, -1).join(', ')} et ${textes[textes.length - 1]}`;
+}
+
+// Le résumé : le vrai nombre, le plafond s'il est atteint, la portée d'une recherche sans
+// état, puis les filtres actifs et « Effacer les filtres ». Une liste vide se dit ici aussi :
+// jamais une base qui paraît vide quand un filtre la restreint.
+function resumeOffres(d, actifs, p) {
+  const nommes = enumerer(actifs.map(a =>
+    `<b>${echapper(a.libelle.toLowerCase())} : ${echapper(a.valeur)}</b>`));
+  const portee = p.has('inclure_ecartees') ? ` ${PORTEE_RECHERCHE}` : '';
+  const effacer = actifs.length
+    ? ' <button class="discret" data-effacer-filtres>Effacer les filtres</button>' : '';
+  if (!d.offres.length) {
+    return actifs.length ? `Aucune offre avec ${nommes}.${portee}${effacer}`
+      : "Aucune offre en cours. Les closes et les mises de côté se voient par le filtre d'état.";
+  }
+  const total = Number(d.total ?? d.offres.length);
+  const bonnes = d.offres.filter(o => o.score >= SEUIL).length;
+  let html = `${total} offre(s), dont ${bonnes} au-dessus du seuil de ${SEUIL}.`;
+  // Plafonnée (200 lignes, `app.py`), la liste le dit : ses lignes viennent par score.
+  if (total > d.offres.length) html += ` Les ${d.offres.length} premières, par score.`;
+  return html + portee + (actifs.length ? ` Avec ${nommes}.` : '') + effacer;
+}
+
+function marquerBascule() {
+  $('#btn-atout').setAttribute('aria-pressed', String(Boolean(ATOUT) && atoutFiltre === ATOUT.cle));
+}
+
+async function chargerOffres() {
+  clearTimeout(minuteurRecherche);
+  const numero = ++numeroOffres;
+  const p = parametresOffres();
+  const actifs = filtresActifs();
+  marquerBascule();
+  try {
+    const d = await api('/api/offres?' + p);
+    // Une demande plus récente est partie : c'est sa réponse qui dira la liste.
+    if (numero !== numeroOffres) return;
+    // `ligneOffre(o)`, pas `map(ligneOffre)` : l'indice deviendrait sa précision.
+    $('#liste-offres').innerHTML = d.offres.map(o => ligneOffre(o)).join('');
+    $('#resume-offres').innerHTML = resumeOffres(d, actifs, p);
+  } catch (e) {
+    if (numero === numeroOffres) message(e.message, true);
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Chargement des listes
 // ---------------------------------------------------------------------------
-
-let offresCourantes = [];
-
-async function chargerOffres() {
-  const p = new URLSearchParams();
-  const r = $('#f-recherche').value.trim();
-  if (r) p.set('recherche', r);
-  for (const [id, cle] of [['#f-statut', 'statut'], ['#f-zone', 'zone'],
-                           ['#f-famille', 'famille'], ['#f-atout', 'atout']]) {
-    if ($(id).value) p.set(cle, $(id).value);
-  }
-  if (aDocumenter) p.set('a_documenter', 'true');
-  if ($('#f-verification').value) p.set('verification', $('#f-verification').value);
-  if ($('#f-tri').value) p.set('tri', $('#f-tri').value);
-  if ($('#f-ecartees').checked) p.set('inclure_ecartees', 'true');
-
-  try {
-    const d = await api('/api/offres?' + p);
-    offresCourantes = d.offres;
-    // Le compte vient AVEC la liste : le bouton dit toujours la verite, sans
-    // requete supplementaire.
-    const badge = $('#compte-documenter');
-    badge.textContent = d.a_documenter ? String(d.a_documenter) : '';
-    badge.classList.toggle('visible', Boolean(d.a_documenter));
-    const actifs = filtresActifs();
-
-    let vide;
-    if (aDocumenter && !d.offres.length) {
-      vide = `<p class="resume">Rien à documenter : toutes tes offres au-dessus du
-        seuil ont assez d'information pour un dossier. Reclique sur
-        <b>À documenter</b> pour revoir la liste complète.</p>`;
-    } else if (actifs.length) {
-      // Ne jamais laisser croire que la base est vide alors qu'un filtre la
-      // restreint : c'est le piege classique d'un panneau replie.
-      vide = `<p class="resume">Aucune offre avec
-        ${actifs.map(a => `<b>${echapper(a.libelle.toLowerCase())} : ${echapper(a.valeur)}</b>`).join(' et ')}.
-        <button class="discret" id="tout-effacer">Effacer les filtres</button></p>`;
-    } else {
-      vide = `<p class="resume">Aucune offre en base. La collecte n'a encore rien trouve :
-        lance <code>veille collecter</code> sur le serveur, ou verifie que tes alertes mail
-        arrivent bien dans le libelle configure.</p>`;
-    }
-    $('#liste-offres').innerHTML = d.offres.map(carteOffre).join('') || vide;
-    const bouton = $('#tout-effacer');
-    if (bouton) bouton.onclick = () => {
-      CHAMPS_FILTRES.forEach(c => { $(c.id).value = ''; });
-      $('#f-ecartees').checked = false;
-      synchroniserFiltres();
-      chargerOffres();
-    };
-
-    const bonnes = d.offres.filter(o => o.score >= SEUIL).length;
-    $('#resume-offres').textContent =
-      `${d.offres.length} offre(s) affichee(s), dont ${bonnes} au-dessus du seuil de ${SEUIL}.`
-      + (actifs.length ? ` ${actifs.length} filtre(s) actif(s).` : '');
-  } catch (e) { message(e.message, true); }
-}
-
-async function chargerRelances() {
-  try {
-    const d = await api('/api/relances');
-    $('#liste-relances').innerHTML = d.relances.map(carteOffre).join('') ||
-      '<p class="resume">Aucune relance due.</p>';
-    $('#pastille-relances').textContent = d.relances.length || '';
-  } catch (e) { message(e.message, true); }
-}
 
 function tableau(titre, lignes, colonnes) {
   if (!lignes.length) return '';
@@ -299,48 +228,49 @@ function tableau(titre, lignes, colonnes) {
   return `<div class="bloc"><h2>${titre}</h2><table><thead><tr>${entetes}</tr></thead><tbody>${corps}</tbody></table></div>`;
 }
 
-async function chargerPilotage() {
-  try {
-    const e = await api('/api/entonnoir');
-    let html = `<div class="bloc"><h2>Entonnoir</h2><div class="chiffres">
-      <div class="chiffre"><b>${e.total}</b><span>offres collectees</span></div>
-      <div class="chiffre"><b>${e.par_statut.nouveau || 0}</b><span>nouvelles</span></div>
-      <div class="chiffre"><b>${e.envoyees}</b><span>candidatures</span></div>
-      <div class="chiffre"><b>${e.repondues}</b><span>reponses</span></div>
-      <div class="chiffre"><b>${e.taux_reponse_global}%</b><span>taux de reponse</span></div>
-    </div></div>`;
+// L'entonnoir du Bilan et ses tableaux, repris de l'ancien Pilotage (décision 7 du plan du
+// lot 3) : le canal demandé à « Je l'ai envoyée » ne servirait à rien sans le sien.
+function blocsEntonnoir(e) {
+  let html = `<div class="bloc"><h2>Entonnoir</h2><div class="chiffres">
+    <div class="chiffre"><b>${echapper(e.total)}</b><span>offres collectées</span></div>
+    <div class="chiffre"><b>${echapper(e.par_statut.nouveau || 0)}</b><span>nouvelles</span></div>
+    <div class="chiffre"><b>${echapper(e.envoyees)}</b><span>candidatures</span></div>
+    <div class="chiffre"><b>${echapper(e.repondues)}</b><span>réponses</span></div>
+    <div class="chiffre"><b>${echapper(e.taux_reponse_global)}%</b><span>taux de réponse</span></div>
+  </div></div>`;
 
-    html += tableau('Par canal de candidature', e.par_canal, [
-      { libelle: 'Canal', valeur: l => l.canal },
-      { libelle: 'Envoyees', n: 1, valeur: l => l.envoyees },
-      { libelle: 'Reponses', n: 1, valeur: l => l.reponses },
-      { libelle: 'Taux', n: 1, valeur: l => l.taux_reponse + '%' },
-    ]);
-    html += tableau('Par famille de metier', e.par_famille, [
-      { libelle: 'Famille', valeur: l => l.famille },
-      { libelle: 'Envoyees', n: 1, valeur: l => l.envoyees },
-      { libelle: 'Reponses', n: 1, valeur: l => l.reponses },
-      { libelle: 'Taux', n: 1, valeur: l => l.taux_reponse + '%' },
-    ]);
-    html += tableau('Rendement des sources', e.par_source, [
-      { libelle: 'Source', valeur: l => l.source },
-      { libelle: 'Collectees', n: 1, valeur: l => l.collectees },
-      { libelle: 'Retenues', n: 1, valeur: l => l.retenues },
-      { libelle: 'Candidatures', n: 1, valeur: l => l.candidatures },
-    ]);
-    html += tableau("Motifs d'ecartement - ce que le scoring rate", e.motifs_ecartement, [
-      { libelle: 'Motif', valeur: l => l.motif },
-      { libelle: 'Nombre', n: 1, valeur: l => l.n },
-      { libelle: 'Score moyen', n: 1, valeur: l => l.score_moyen },
-    ]);
-    if (e.motifs_ecartement.length >= 30) {
-      html += `<div class="bloc"><p class="resume">Tu as passe les 30 offres ecartees :
-        les motifs ci-dessus sont maintenant assez nombreux pour dire ce que le scoring rate.
-        Regarde ceux qui reviennent avec un score eleve - ce sont des regles a ajouter
-        dans le <code>criteres.yaml</code> de ta configuration (<code>VEILLE_CONFIG</code>).</p></div>`;
-    }
-    $('#entonnoir').innerHTML = html;
-  } catch (e) { message(e.message, true); }
+  html += tableau('Par canal de candidature', e.par_canal, [
+    { libelle: 'Canal', valeur: l => l.canal },
+    { libelle: 'Envoyées', n: 1, valeur: l => l.envoyees },
+    { libelle: 'Réponses', n: 1, valeur: l => l.reponses },
+    { libelle: 'Taux', n: 1, valeur: l => l.taux_reponse + '%' },
+  ]);
+  html += tableau('Par famille de métier', e.par_famille, [
+    { libelle: 'Famille', valeur: l => l.famille },
+    { libelle: 'Envoyées', n: 1, valeur: l => l.envoyees },
+    { libelle: 'Réponses', n: 1, valeur: l => l.reponses },
+    { libelle: 'Taux', n: 1, valeur: l => l.taux_reponse + '%' },
+  ]);
+  html += tableau('Rendement des sources', e.par_source, [
+    { libelle: 'Source', valeur: l => l.source },
+    { libelle: 'Collectées', n: 1, valeur: l => l.collectees },
+    { libelle: 'Retenues', n: 1, valeur: l => l.retenues },
+    { libelle: 'Candidatures', n: 1, valeur: l => l.candidatures },
+  ]);
+  html += tableau("Motifs d'écartement : ce que le score rate", e.motifs_ecartement, [
+    { libelle: 'Motif', valeur: l => l.motif },
+    { libelle: 'Nombre', n: 1, valeur: l => l.n },
+    { libelle: 'Score moyen', n: 1, valeur: l => l.score_moyen },
+  ]);
+  // Les critères arrivent par le déploiement, dans la configuration de l'instance : la
+  // console ne les change pas (décision 10).
+  if (e.motifs_ecartement.length >= 30) {
+    html += `<div class="bloc"><p class="resume">Tu as passé les 30 motifs d'écartement :
+      ils sont maintenant assez nombreux pour dire ce que le score rate. Regarde ceux qui
+      reviennent avec un score élevé : ce sont des règles à ajouter au <code>criteres.yaml</code>
+      de la configuration de l'instance, qui arrive par le déploiement.</p></div>`;
+  }
+  return html;
 }
 
 // ---------------------------------------------------------------------------
@@ -409,7 +339,10 @@ async function chargerDocuments() {
 // Réglages — ce qui s'ajuste sans SSH
 // ---------------------------------------------------------------------------
 
+// « Notifications » et « Quitter » sont écrits dans la page, hors de ce que cette fonction
+// réécrit : ils restent quand `/api/reglages` échoue (décision 11 du plan du lot 3).
 async function chargerReglages() {
+  afficherEtatPush();
   const cible = $('#contenu-reglages');
   try {
     const r = await api('/api/reglages');
@@ -602,113 +535,6 @@ async function changerStatut(id, statut, motif, canal) {
   rafraichir();
 }
 
-function afficherDossier(id, d) {
-  const avert = d.avertissements.map(a => `<p class="avert">${echapper(a)}</p>`).join('');
-  const fichiers = d.fichiers.map(f =>
-    `<li><a href="/api/offres/${id}/dossier/${encodeURIComponent(f)}" download>${echapper(f)}</a></li>`).join('');
-  const c = d.completude;
-  // Quand le kit n'est pas branche, la lettre n'est qu'un squelette et aucun CV
-  // n'est joint. Le dire FRANCHEMENT et en premier : sans ca, il voit un
-  // resultat creux et conclut que « la generation ne fonctionne pas ».
-  const provisoire = d.kit_provisoire ? `
-    <p class="avert grave"><b>⚠ Ton kit de candidature n'est pas branché</b><br>
-      Ce dossier contient un <b>squelette</b> de lettre — aucune phrase écrite — et
-      <b>aucun CV</b>. Ce n'est pas une panne : la console n'a rien à joindre.
-      Les pièces sont sur ton PC, pas sur le serveur.</p>` : '';
-
-  $('#fenetre-contenu').innerHTML = `
-    <h2>Dossier genere</h2>
-    ${provisoire}
-    <p class="resume">${echapper(d.dossier)}</p>
-    ${c ? `<p class="resume"><span class="completude ${echapper(c.niveau)}">dossier ${c.score}/100 · ${echapper(c.niveau)}</span></p>` : ''}
-    ${d.gabarit_lettre ? `<p class="resume">Lettre construite depuis le gabarit <code>${echapper(d.gabarit_lettre)}</code>.</p>` : ''}
-    ${avert}
-    <ul class="fichiers">${fichiers}</ul>
-    <p><a href="${d.archive}" download><b>Télécharger le paquet d'envoi (.zip)</b></a>
-       &nbsp;·&nbsp;
-       <a class="discret" href="${d.archive_complete}" download>dossier complet, avec ta fiche de préparation</a></p>
-    <div id="zone-affinement"></div>`;
-  $('#fenetre').showModal();
-  blocAffinement(id).then(h => { $('#zone-affinement').innerHTML = h; brancherAffinement(id); });
-}
-
-// Ce qui manque, nommé, avec l'action qui le comble. « Information
-// insuffisante » sans dire laquelle ne sert à rien.
-function afficherCompletudeInsuffisante(id, c, bouton) {
-  const manques = c.manques.map(m =>
-    `<li class="contre"><span class="pts moins">-${m.points}</span>
-      <span><b>${echapper(m.libelle)}</b><br>
-      <span class="citation">${echapper(m.quoi_faire)}</span></span></li>`).join('');
-  $('#fenetre-contenu').innerHTML = `
-    <h2>Information trop mince pour un dossier sérieux</h2>
-    <p class="avert grave"><b>Dossier ${c.score}/100 — ${echapper(c.niveau)}</b><br>
-      Le seuil est à ${c.seuil}. Une lettre écrite là-dessus sera générique, et
-      ça se verra. Ce chiffre n'a <b>rien à voir</b> avec le score de
-      correspondance : il dit ce qu'on <i>sait</i>, pas si le poste te va.</p>
-    <p class="resume"><b>Ce qui manque, par ordre d'importance</b></p>
-    <ul class="preuves">${manques}</ul>
-    ${c.acquis.length ? `<p class="resume"><b>Déjà acquis</b> : ${echapper(c.acquis.join(', '))}.</p>` : ''}
-    <div class="actions">
-      <button id="btn-completer">Compléter l'annonce d'abord</button>
-      <button class="discret" id="btn-forcer">Générer quand même</button>
-    </div>`;
-  $('#fenetre').showModal();
-  $('#btn-completer').onclick = () => { $('#fenetre').close(); ouvrirDetail(id); };
-  $('#btn-forcer').onclick = async () => {
-    $('#fenetre').close();
-    try {
-      const d = await api(`/api/offres/${id}/dossier?forcer=true`, { method: 'POST' });
-      afficherDossier(id, d);
-      // La vue de derrière dit encore « Dossier à préparer » : elle se recharge.
-      rafraichir();
-    } catch (e) { message(e.message, true); }
-  };
-}
-
-async function genererDossier(id, bouton) {
-  // Le libellé revient tel qu'il était. Seuls les anciens écrans gardent ce geste, jusqu'au
-  // lot 3 : la fiche passe par la préparation (`preparerCandidature`).
-  const libelle = bouton.textContent;
-  bouton.disabled = true;
-  bouton.textContent = 'Generation...';
-  try {
-    const d = await api(`/api/offres/${id}/dossier`, { method: 'POST' });
-    if (d.ok === false && d.raison === 'completude_insuffisante') {
-      afficherCompletudeInsuffisante(id, d.completude, bouton);
-      return;
-    }
-    afficherDossier(id, d);
-    // La vue de derrière dit encore « Dossier à préparer » : elle se recharge.
-    rafraichir();
-  } catch (e) {
-    message(e.message, true);
-  } finally {
-    bouton.disabled = false;
-    bouton.textContent = libelle;
-  }
-}
-
-function demanderMotif(id) {
-  $('#fenetre-contenu').innerHTML = `
-    <h2>Ecarter cette offre</h2>
-    <p class="resume">Le motif est obligatoire : c'est lui qui dira, au bout d'une trentaine
-    d'offres, ce que le scoring rate. Une offre ecartee ne remontera jamais.</p>
-    <textarea id="motif" placeholder="Ex : trop junior / stack sans rapport / employeur deja contacte"></textarea>
-    <div class="actions">
-      <button id="valider-motif">Ecarter</button>
-      <button class="discret" id="annuler-motif">Annuler</button>
-    </div>`;
-  $('#fenetre').showModal();
-  $('#annuler-motif').onclick = () => $('#fenetre').close();
-  $('#valider-motif').onclick = async () => {
-    const motif = $('#motif').value.trim();
-    if (!motif) { message('Un motif est necessaire.', true); return; }
-    $('#fenetre').close();
-    try { await changerStatut(id, 'ecartee', motif); }
-    catch (e) { message(e.message, true); }
-  };
-}
-
 function demanderCanal(id) {
   $('#fenetre-contenu').innerHTML = `
     <h2>Candidature envoyee</h2>
@@ -718,7 +544,7 @@ function demanderCanal(id) {
       ${['site employeur', 'LinkedIn', 'mail direct', 'cabinet', 'cooptation', 'autre']
         .map(c => `<button class="discret" data-canal="${c}">${c}</button>`).join('')}
     </div>`;
-  $('#fenetre').showModal();
+  ouvrirFenetre();
   $$('#fenetre-contenu [data-canal]').forEach(b => {
     b.onclick = async () => {
       $('#fenetre').close();
@@ -751,6 +577,28 @@ const LIBELLES_ETAT = {
   close: 'Close',
   mise_de_cote: 'Mise de côté',
 };
+
+// Remise à plus tard, l'offre reste « À voir », mais s'affiche « Plus tard » (ADR-0003, § 1).
+function libelleEtat(o) {
+  return o.statut === 'a_traiter' ? 'Plus tard' : (LIBELLES_ETAT[o.etat] || o.etat || '');
+}
+
+// Une ligne d'offre (décision 6 du plan du lot 3) : un bouton qui ouvre la fiche, avec
+// l'intitulé, l'employeur, le score, l'état et, au Bilan, ce qui la situe (`precision`).
+function ligneOffre(o, precision = '') {
+  const n = niveau(o.score);
+  return `<button class="offre ligne-offre" data-action="fiche" data-id="${Number(o.id)}">
+    <span class="ligne-offre-haut">
+      <span class="offre-titre">${echapper(o.titre)}</span>
+      <span class="score ${n}">${echapper(o.score)}</span>
+    </span>
+    ${o.employeur ? `<span class="menu">${echapper(o.employeur)}</span>` : ''}
+    <span class="ligne-offre-bas">
+      <span class="etat-ligne">${echapper(libelleEtat(o))}</span>
+      ${precision ? `<span class="precision">${echapper(precision)}</span>` : ''}
+    </span>
+  </button>`;
+}
 
 // Seules une candidature et une relance envoyées attendent une relance (`db.relances_dues`).
 // Une réponse reçue garde en base la date de son envoi : l'écran ne la montre pas.
@@ -801,7 +649,7 @@ function carteAVoir(o) {
 }
 
 // Les offres que la file ne montre pas, au-dessus du seuil au-delà des premières, ou
-// dessous : « Toutes les offres », filtrée sur les nouvelles.
+// dessous : « Toutes les offres », filtrée sur l'état « À voir ».
 function liensVersToutes(d) {
   const textes = [];
   if (d.a_voir_restantes) {
@@ -846,10 +694,12 @@ async function chargerAFaire() {
       }
     }
     cible.innerHTML = html;
+    // L'état « À voir », les autres filtres vidés : il ramène aussi les « Plus tard » et les
+    // offres au-dessus du seuil (décision 3 du plan du lot 3, réponse 25).
     $$('[data-vers-toutes]', cible).forEach(b => {
       b.onclick = () => {
-        $('#f-statut').value = 'nouveau';
-        synchroniserFiltres();
+        viderFiltres();
+        $('#f-etat').value = 'a_voir';
         afficherVue('offres');
       };
     });
@@ -878,7 +728,7 @@ function demanderNon(id, titre) {
       <button class="discret" id="btn-annuler-non">Annuler</button>
     </div>`;
   const fenetre = $('#fenetre');
-  if (!fenetre.open) fenetre.showModal();
+  ouvrirFenetre();
   remplirMotifs(id);
   $('#btn-annuler-non').onclick = () => fenetre.close();
   $('#btn-ecarter-non').onclick = ev => {
@@ -910,14 +760,28 @@ async function remplirMotifs(id) {
   });
 }
 
-// « Plus » : les pastilles de ses lignes, à chaque ouverture.
-async function chargerPlus() {
-  compterArchiveNouvelles();
-  try {
-    const [r, c] = await Promise.all([api('/api/relances'), api('/api/classement')]);
-    $('#pastille-relances').textContent = r.relances.length || '';
-    $('#pastille-classer').textContent = c.propositions.length || '';
-  } catch (e) { message(e.message, true); }
+// Les pastilles (décision 9 du plan du lot 3) : l'onglet « Plus » et la ligne « Mes
+// critères » comptent les offres à classer, la ligne « Bilan » les archivées nouvelles depuis
+// la dernière visite. `rafraichir()` les recompte : l'onglet dit juste depuis tout écran. Une
+// panne ne dit rien, chacune pour son compte : elles tournent à chaque geste.
+function poserPastille(selecteur, nombre) {
+  const pastille = $(selecteur);
+  if (pastille) pastille.textContent = nombre ? String(nombre) : '';
+}
+
+async function compterPastilles() {
+  const p = new URLSearchParams();
+  const visite = derniereVisiteArchive();
+  if (visite) p.set('depuis', visite);
+  p.set('limite', '1');
+  await Promise.all([
+    api('/api/classement').then(c => {
+      poserPastille('#pastille-plus', c.propositions.length);
+      poserPastille('#pastille-criteres', c.propositions.length);
+    }).catch(() => { /* hors ligne : on ne casse pas la page */ }),
+    api(`/api/archive?${p}`).then(r => poserPastille('#pastille-bilan', r.nouvelles))
+      .catch(() => { /* hors ligne : on ne casse pas la page */ }),
+  ]);
 }
 
 // ---------------------------------------------------------------------------
@@ -946,8 +810,12 @@ function actionsDeFiche(o) {
     case 'je_postule':
       // Sans dossier, la préparation ; avec, l'envoi, et « Dossier prêt », qui porte les pièces,
       // le destinataire et l'affinement (décision 12 du plan du lot 2). Les deux passent par
-      // la même route : un dossier existant est rendu, jamais refait.
-      if (!o.dossier_chemin) return '<button data-action="preparer">Préparer ma candidature</button>';
+      // la même route : un dossier existant est rendu, jamais refait. Une candidature faite
+      // sans dossier (un formulaire en ligne) se dit envoyée d'ici (décision 20 du plan du lot 3).
+      if (!o.dossier_chemin) {
+        return `<button data-action="preparer">Préparer ma candidature</button>
+          <button class="discret" data-action="envoyee">Je l'ai envoyée</button>`;
+      }
       return `<button data-action="envoyee">Je l'ai envoyée</button>
         <button class="discret" data-action="preparer">Dossier prêt ›</button>`;
     case 'envoyee':
@@ -973,8 +841,7 @@ function contenuFiche(o) {
     ? `<a class="lien-annonce" href="${echapper(o.url)}" target="_blank" rel="noopener noreferrer">Voir l'annonce ›</a>`
     : '';
   const contribs = listeContributions(o);
-  // Remise à plus tard, l'offre reste « À voir », mais s'affiche « Plus tard » (ADR-0003, § 1).
-  const etat = o.statut === 'a_traiter' ? 'Plus tard' : (LIBELLES_ETAT[o.etat] || o.etat);
+  const etat = libelleEtat(o);
   return `
   <div class="offre fiche" data-id="${Number(o.id)}">
     <div class="offre-haut">
@@ -1016,7 +883,7 @@ async function ouvrirFiche(id) {
     ? $$('details[open]', avant).map(d => d.dataset.repli) : [];
   contenu.innerHTML = contenuFiche(o);
   $$('details[data-repli]', contenu).forEach(d => { d.open = ouverts.includes(d.dataset.repli); });
-  if (!fenetre.open) fenetre.showModal();
+  ouvrirFenetre();
 }
 
 // Le statut, puis la fiche sur le nouvel état ; `changerStatut` recharge la vue de derrière.
@@ -1093,9 +960,8 @@ function afficherEtape(id, r, options) {
 // sinon la position de l'écran d'avant, comme après « Enregistrer et régénérer » touché en bas.
 function montrerEtape(html) {
   $('#fenetre-contenu').innerHTML = `<div class="etape">${html}</div>`;
-  const fenetre = $('#fenetre');
-  if (!fenetre.open) fenetre.showModal();
-  fenetre.scrollTop = 0;
+  ouvrirFenetre();
+  $('#fenetre').scrollTop = 0;
 }
 
 // Les avertissements de l'étape, dans l'ordre de la route : l'alerte éliminatoire d'abord.
@@ -1222,10 +1088,14 @@ function afficherDossierPret(id, r) {
     ? `<a href="/api/offres/${Number(id)}/dossier/archive" download>Tout en un zip</a>`
     : '<button class="discret" id="btn-regenerer">Régénérer le dossier</button>';
   // Quand le kit n'est pas branché, la lettre n'est qu'un squelette et aucun CV n'est joint :
-  // le dire d'abord, sans quoi un dossier creux passe pour une panne.
+  // le dire d'abord, sans quoi un dossier creux passe pour une panne. Ce bloc est seul à le dire
+  // (l'étape ne reprend pas la phrase de `dossier.generer`) : il porte aussi le remède.
   const provisoire = r.kit_provisoire ? `<p class="avert grave"><b>⚠ Ton kit de candidature n'est pas branché</b><br>
-      Ce dossier contient un <b>squelette</b> de lettre et <b>aucun CV</b> : la console n'a rien
-      à joindre. Ce n'est pas une panne.</p>` : '';
+      Ce dossier contient un <b>squelette</b> de lettre et <b>aucun CV</b> : les pièces viennent du
+      dossier <code>gabarits/</code> de la configuration de l'instance, pas de ton CV maître. Ce
+      n'est pas une panne. Copie le vrai kit dans le dossier que désigne <code>VEILLE_KIT</code>
+      (<code>/donnees/kit</code> en conteneur) dès qu'il est livré (<code>docs/CANDIDATURE.md</code>,
+      « Copier ton kit sur le serveur »).</p>` : '';
   montrerEtape(`${avertissementsEtape(r)}
     <h2>Dossier prêt</h2>
     ${provisoire}
@@ -1558,7 +1428,7 @@ async function ouvrirEntretien(id) {
       }
     }
     $('#fenetre-contenu').innerHTML = html;
-    $('#fenetre').showModal();
+    ouvrirFenetre();
   } catch (e) { message(e.message, true); }
 }
 
@@ -1585,7 +1455,7 @@ async function ouvrirDetail(id) {
       <ul class="fichiers">${evts || '<li>aucun</li>'}</ul>
       <h3>Texte enregistré</h3>
       <p class="resume">${echapper((o.description || '(rien)').slice(0, 1200))}</p>`;
-    $('#fenetre').showModal();
+    ouvrirFenetre();
     brancherVerification(id);
     brancherDestinataire(id);
     brancherExigences(id);
@@ -1649,14 +1519,10 @@ document.addEventListener('click', ev => {
   const a = bouton.dataset.action;
   // Un geste fait depuis la fiche la rouvre sur le nouvel état.
   const dansFiche = offre.classList.contains('fiche');
-  if (a === 'dossier') genererDossier(id, bouton);
-  else if (a === 'statut') changerStatut(id, bouton.dataset.statut).catch(e => message(e.message, true));
-  else if (a === 'ecarter') demanderMotif(id);
-  else if (a === 'envoyee') demanderCanal(id);
+  if (a === 'envoyee') demanderCanal(id);
   else if (a === 'relance') ouvrirRelance(id);
   else if (a === 'entretien') ouvrirEntretien(id);
   else if (a === 'detail') ouvrirDetail(id);
-  else if (a === 'obsolete') constater(id, false).catch(e => message(e.message, true));
   // « Je postule » lance la préparation ; la fiche « Je postule » la reprend (« Préparer ma
   // candidature », « Dossier prêt › »).
   else if (a === 'postuler' || a === 'preparer') preparerCandidature(id, bouton);
@@ -1668,26 +1534,35 @@ document.addEventListener('click', ev => {
   else if (a === 'revenir') gesteNeuf(bouton, () => changerStatutPuisFiche(id, 'nouveau'));
   else if (a === 'notes') gesteNeuf(bouton, () => enregistrerNotes(id, bouton));
   else if (a === 'fiche') ouvrirFiche(id).catch(e => message(e.message, true));
+  else if (a === 'desarchiver') gesteNeuf(bouton, () => remettreDansLeFlux(id));
 });
 
 // ---------------------------------------------------------------------------
 // Onglets, filtres
 // ---------------------------------------------------------------------------
 
-let vueCourante = 'offres';
+// La vue montrée : celle de l'entrée courante de l'historique. « À faire » est la première.
+let vueCourante = 'a-faire';
 
 // ---------------------------------------------------------------------------
-// Archive : les annonces retirées de leur site
+// Le Bilan (ADR-0003, § 6 ; décisions 7 et 8 du plan du lot 3)
 //
-// Règle du dispositif : archiver à tort est bien pire que garder une annonce
-// morte. Trois conséquences visibles ici —
+// L'entonnoir et ses tableaux, puis trois listes repliées : les archivées, les
+// closes et les mises de côté. Chacune dit son vrai nombre dans son titre, et son
+// plafond quand elle l'atteint. Une liste dépliée le reste quand le Bilan se
+// recharge : un geste fait dans une fiche ouverte depuis lui passe par `rafraichir()`.
+//
+// Les archivées : archiver à tort est bien pire que garder une annonce morte.
+// Trois conséquences visibles ici —
 //   1. le motif est TOUJOURS affiché, jamais une disparition muette ;
 //   2. une pastille compte ce qui est parti depuis sa dernière visite, pour
-//      qu'une archive automatique ne soit jamais invisible ;
+//      qu'une archive automatique ne soit jamais invisible : déplier la liste
+//      vaut visite, ouvrir le Bilan non ;
 //   3. « Remettre dans le flux » est définitif : la vérification ne réarchive
-//      jamais ce qu'il vient de ressortir.
+//      jamais ce qu'il vient de ressortir. Une close remise dans le flux reste close.
 // ---------------------------------------------------------------------------
 
+// La même clé qu'avant le lot 3 : la pastille d'un téléphone ne repart pas de zéro.
 const CLE_VISITE_ARCHIVE = 'veille:archive-vue-le';
 
 function derniereVisiteArchive() {
@@ -1695,65 +1570,110 @@ function derniereVisiteArchive() {
   catch { return ''; }
 }
 
-function marquerArchiveVue() {
-  try { localStorage.setItem(CLE_VISITE_ARCHIVE, new Date().toISOString()); }
+// La visite est le `archivee_le` de la plus récente archivée montrée (la liste vient par date
+// décroissante), jamais l'heure du téléphone : `archivee_le` est à l'heure locale du serveur, et
+// les deux horloges ne se comparent pas. Une archivée arrivée après la liste montrée reste
+// nouvelle. Sans archivée montrée, la visite enregistrée ne change pas ; une ancienne, en UTC, se
+// relit telle quelle.
+function marquerArchiveVue(archivees) {
+  const plusRecente = archivees.length ? archivees[0].archivee_le : '';
+  if (!plusRecente) return;
+  try { localStorage.setItem(CLE_VISITE_ARCHIVE, String(plusRecente)); }
   catch { /* navigation privée : la pastille reste, ce n'est pas grave */ }
 }
 
-async function compterArchiveNouvelles() {
-  const p = new URLSearchParams();
-  const d = derniereVisiteArchive();
-  if (d) p.set('depuis', d);
-  p.set('limite', '1');
-  try {
-    const r = await api(`/api/archive?${p}`);
-    const pastille = $('#pastille-archive');
-    if (!pastille) return;
-    pastille.textContent = r.nouvelles ? String(r.nouvelles) : '';
-    pastille.classList.toggle('visible', Boolean(r.nouvelles));
-  } catch { /* hors ligne : on ne casse pas la page */ }
+// Une archivée : son titre ouvre la fiche, son motif est toujours dit.
+function carteArchivee(o) {
+  return `
+  <article class="offre archivee" data-id="${Number(o.id)}">
+    <div class="offre-haut">
+      <button class="offre-titre" data-action="fiche">${echapper(o.titre)}</button>
+      <span class="score">${echapper(o.score)}</span>
+    </div>
+    <p class="menu">${echapper(o.employeur || '')} ${echapper(o.lieu || '')}
+      ${o.disparue_le ? `· disparue vers le ${echapper(String(o.disparue_le).slice(0, 10))}` : ''}</p>
+    <p class="avert"><b>Pourquoi elle est ici</b><br>${echapper(o.archive_motif || 'motif non enregistré')}</p>
+    <div class="actions">
+      <button data-action="desarchiver">Remettre dans le flux</button>
+      ${o.url ? `<a class="lien-annonce" href="${echapper(o.url)}" target="_blank" rel="noopener noreferrer">Ouvrir l'annonce ›</a>` : ''}
+    </div>
+  </article>`;
 }
 
-async function chargerArchive() {
-  const p = new URLSearchParams();
-  const d = derniereVisiteArchive();
-  if (d) p.set('depuis', d);
-  const r = await api(`/api/archive?${p}`);
-  const cible = $('#liste-archive');
+// Ce qui situe une close : le motif d'une écartée, ou la réponse. Un refus ou une
+// acceptation peut garder en base le motif d'un ancien écartement, qui ne dit plus rien.
+function motifClose(o) {
+  if (o.statut === 'refus') return 'Refus';
+  if (o.statut === 'accepte') return 'Acceptée';
+  return o.motif_ecartement || '';
+}
 
-  if (!r.offres.length) {
-    cible.innerHTML = `<p class="resume">Aucune annonce archivée pour l'instant.</p>`;
-    marquerArchiveVue();
-    compterArchiveNouvelles();
-    return;
+// Les trois listes. Les archivées viennent par date d'archivage, les autres par score : le
+// plafond (200 lignes, `app.py`) se dit selon l'ordre.
+const LISTES_BILAN = {
+  archivees: { libelle: 'Archivées', plafond: n => `les ${n} dernières archivées`,
+               vide: 'Aucune annonce archivée pour l\'instant.' },
+  closes: { libelle: 'Closes', plafond: n => `les ${n} premières, par score`,
+            vide: 'Aucune offre close.' },
+  'mises-de-cote': { libelle: 'Mises de côté', plafond: n => `les ${n} premières, par score`,
+                     vide: 'Aucune offre mise de côté.' },
+};
+
+function listeBilan(nom, total, lignes, ouvertes, intro = '') {
+  const l = LISTES_BILAN[nom];
+  const n = Number(total) || 0;
+  const resume = lignes.length < n ? `${l.libelle} (${n}, ${l.plafond(lignes.length)})`
+    : `${l.libelle} (${n})`;
+  return `<details class="repli" data-liste="${nom}"${ouvertes.includes(nom) ? ' open' : ''}>
+    <summary>${echapper(resume)}</summary>
+    ${intro}
+    ${lignes.length ? `<div class="liste">${lignes.join('')}</div>`
+      : `<p class="resume">${echapper(l.vide)}</p>`}
+  </details>`;
+}
+
+async function chargerBilan() {
+  const cible = $('#contenu-bilan');
+  try {
+    const [e, archive, closes, deCote] = await Promise.all([
+      api('/api/entonnoir'),
+      api('/api/archive'),
+      api('/api/offres?etat=close'),
+      api('/api/offres?etat=mise_de_cote'),
+    ]);
+    // Lues après l'attente : une liste dépliée pendant le chargement le reste aussi.
+    const ouvertes = $$('details[data-liste][open]', cible).map(d => d.dataset.liste);
+    cible.innerHTML = blocsEntonnoir(e) + `<div class="listes-bilan">
+      ${listeBilan('archivees', archive.nouvelles, archive.offres.map(carteArchivee), ouvertes,
+        `<p class="resume">Annonces retirées de leur site. Rien n'est supprimé : le score,
+          l'explication et tes notes sont conservés. Si une offre est là à tort,
+          <b>Remettre dans le flux</b> la ressort, et elle n'y retournera plus jamais toute seule.</p>`)}
+      ${listeBilan('closes', closes.total, closes.offres.map(o => ligneOffre(o, motifClose(o))), ouvertes)}
+      ${listeBilan('mises-de-cote', deCote.total,
+        deCote.offres.map(o => ligneOffre(o, o.motif_ecartement || '')), ouvertes)}
+    </div>`;
+    // Déplier les archivées vaut visite, jusqu'à la plus récente de celles montrées. `toggle`
+    // part aussi pour une liste rouverte par ce rechargement : elle est sous les yeux, la visite
+    // se marque de nouveau.
+    const archivees = $('details[data-liste="archivees"]', cible);
+    archivees.addEventListener('toggle', () => {
+      if (!archivees.open) return;
+      marquerArchiveVue(archive.offres);
+      compterPastilles();
+    });
+  } catch (err) {
+    message(err.message, true);
+    if (!cible.children.length) {
+      cible.innerHTML = `<p class="avert">Le Bilan n'a pas pu se charger : ${echapper(err.message)}</p>`;
+    }
   }
+}
 
-  cible.innerHTML = r.offres.map(o => `
-    <article class="offre archivee" data-id="${o.id}">
-      <div class="offre-haut">
-        <h3>${echapper(o.titre)}</h3>
-        <span class="score">${o.score}</span>
-      </div>
-      <p class="menu">${echapper(o.employeur || '')} ${echapper(o.lieu || '')}
-        ${o.disparue_le ? `· disparue vers le ${echapper(o.disparue_le.slice(0, 10))}` : ''}</p>
-      <p class="avert"><b>Pourquoi elle est ici</b><br>${echapper(o.archive_motif || 'motif non enregistré')}</p>
-      <div class="actions">
-        <button data-action="desarchiver">Remettre dans le flux</button>
-        ${o.url ? `<a class="discret" href="${echapper(o.url)}" target="_blank" rel="noopener noreferrer">Ouvrir l'annonce</a>` : ''}
-      </div>
-    </article>`).join('');
-
-  cible.querySelectorAll('[data-action="desarchiver"]').forEach(b => {
-    b.onclick = async () => {
-      const id = b.closest('.offre').dataset.id;
-      await api(`/api/offres/${id}/desarchiver`, { method: 'POST' });
-      chargerArchive();
-      compterArchiveNouvelles();
-    };
-  });
-
-  marquerArchiveVue();
-  compterArchiveNouvelles();
+// Le Bilan se recharge, la liste des archivées gardée ouverte (le geste s'y fait).
+async function remettreDansLeFlux(id) {
+  await api(`/api/offres/${id}/desarchiver`, { method: 'POST' });
+  message("Remise dans le flux : elle ne repartira plus seule à l'archive.");
+  rafraichir();
 }
 
 // ---------------------------------------------------------------------------
@@ -2020,27 +1940,37 @@ function brancherVerification(id) {
 
 
 // ---------------------------------------------------------------------------
-// « À classer » : les offres qu'aucun motif n'a su ranger
+// Mes critères (ADR-0003, § 6 ; décision 10 du plan du lot 3)
 //
-// Mesure du 02/10/2026 : une part notable des offres sans famille, certaines
-// encore actives. La
-// plupart le méritent — une annonce de Hauswart ne relève d'aucune famille cherchée. Mais
+// Les offres à classer d'abord, le seul geste qui y attend ; puis « Recalculer tous
+// les scores » ; puis le rappel : les critères se changent dans la configuration de
+// l'instance, qui arrive par le déploiement, pas dans la console.
+//
+// Les offres à classer : celles qu'aucun motif n'a su ranger. Mesure du 02/10/2026 :
+// une part notable des offres sans famille, certaines encore actives. La plupart le
+// méritent — une annonce de Hauswart ne relève d'aucune famille cherchée. Mais
 // « Automation Tester » et « automatisation de tests » en faisaient partie.
 //
 // Chaque proposition montre les MOTS qui la justifient. Rien ne s'applique
 // sans sa coche : une case préchée serait un classement automatique déguisé.
 // ---------------------------------------------------------------------------
 
-async function chargerClasser() {
+async function chargerCriteres() {
+  const cible = $('#contenu-criteres');
   try {
     const d = await api('/api/classement');
-    $('#pastille-classer').textContent = d.propositions.length || '';
+    // Le nombre que compte la pastille, dit en clair : le titre compte aussi les offres sans
+    // aucune proposition.
+    const n = d.propositions.length;
+    const aValider = n ? `<p class="resume compte-propositions">${echapper(n)} proposition${n > 1 ? 's' : ''}
+      à valider</p>` : '';
 
     let html = `<div class="bloc">
-      <h2>Offres sans famille — ${d.sans_famille}</h2>
+      <h2>Offres sans famille — ${echapper(d.sans_famille)}</h2>
+      ${aValider}
       <p class="resume">Une famille est proposée quand l'intitulé recoupe les
         motifs de <b>criteres.yaml</b>. Les mots qui la justifient sont affichés :
-        si tu ne les reconnais pas, ne coche pas. Le barème ne change pas —
+        si tu ne les reconnais pas, ne coche pas. Le barème ne change pas :
         une famille validée rapporte ce que rapporte la même famille détectée.</p>`;
 
     if (!d.propositions.length) {
@@ -2048,14 +1978,14 @@ async function chargerClasser() {
         recoupent aucun de tes métiers, et c'est probablement juste.</p>`;
     } else {
       html += `<ul class="preuves">${d.propositions.map(p => `
-        <li class="pour"><span>
-          <label><input type="checkbox" class="classer" checked
-            data-offre="${p.offre_id}" data-famille="${echapper(p.famille)}">
+        <li class="pour"><div class="proposition">
+          <label class="case-classer"><input type="checkbox" class="classer" checked
+            data-offre="${Number(p.offre_id)}" data-famille="${echapper(p.famille)}">
             <b>${echapper(p.titre)}</b></label>
-          <br><span class="menu">${echapper(p.employeur)} · score ${p.score}
+          <span class="menu">${echapper(p.employeur)} · score ${echapper(p.score)}
             · proposé : <b>${echapper(p.libelle)}</b></span>
-          <br>${p.preuves.map(x => `<i>${echapper(x)}</i>`).join('<br>')}
-        </span></li>`).join('')}</ul>
+          <span>${p.preuves.map(x => `<i>${echapper(x)}</i>`).join('<br>')}</span>
+        </div></li>`).join('')}</ul>
         <div class="actions">
           <button id="btn-classer">Valider les cochées et rescorer</button>
           <button class="discret" id="btn-rien-cocher">Tout décocher</button>
@@ -2063,36 +1993,59 @@ async function chargerClasser() {
     }
 
     if (d.sans_proposition.length) {
-      html += `<details class="explication">
-        <summary>${d.sans_proposition.length} offre(s) sans aucune proposition</summary>
+      html += `<details class="repli">
+        <summary>${echapper(d.sans_proposition.length)} offre(s) sans aucune proposition</summary>
         <ul class="fichiers">${d.sans_proposition.map(o =>
-          `<li>${echapper(o.titre)} — ${echapper(o.employeur)} (${o.score})</li>`).join('')}</ul>
+          `<li>${echapper(o.titre)} — ${echapper(o.employeur)} (${echapper(o.score)})</li>`).join('')}</ul>
       </details>`;
     }
-    html += '</div>';
-    $('#liste-classer').innerHTML = html;
+    html += `</div>
+      <div class="bloc">
+        <h2>Les scores</h2>
+        <div class="actions"><button id="btn-recalculer">Recalculer tous les scores</button></div>
+      </div>
+      <div class="bloc"><p class="resume">Les critères se changent dans la configuration de
+        l'instance (<code>criteres.yaml</code>), qui arrive par le déploiement. « Recalculer
+        tous les scores » les applique ensuite aux offres déjà collectées.</p></div>`;
+    cible.innerHTML = html;
 
-    const decocher = $('#btn-rien-cocher');
-    if (decocher) decocher.onclick = () =>
-      document.querySelectorAll('.classer').forEach(c => { c.checked = false; });
+    const decocher = $('#btn-rien-cocher', cible);
+    if (decocher) decocher.onclick = () => $$('.classer', cible).forEach(c => { c.checked = false; });
 
-    const b = $('#btn-classer');
-    if (b) b.onclick = async () => {
-      const decisions = [...document.querySelectorAll('.classer:checked')].map(c => ({
+    const valider = $('#btn-classer', cible);
+    if (valider) valider.onclick = async () => {
+      const decisions = $$('.classer:checked', cible).map(c => ({
         offre_id: Number(c.dataset.offre), famille: c.dataset.famille,
       }));
       if (!decisions.length) { message('Rien de coché.'); return; }
-      b.disabled = true;
+      valider.disabled = true;
       try {
         const r = await api('/api/classement/valider', {
           method: 'POST', body: JSON.stringify({ decisions }),
         });
         message(`${r.validees} offre(s) classée(s) et rescorée(s).`);
-        chargerClasser();
+        // Les pastilles et la liste se relisent : une offre classée n'est plus à classer.
+        rafraichir();
       } catch (e) { message(e.message, true); }
-      finally { b.disabled = false; }
+      finally { valider.disabled = false; }
     };
-  } catch (e) { message(e.message, true); }
+
+    const recalculer = $('#btn-recalculer', cible);
+    recalculer.onclick = async () => {
+      recalculer.disabled = true;
+      try {
+        const r = await api('/api/rescorer', { method: 'POST' });
+        message(`${r.offres_recalculees} offre(s) recalculée(s).`);
+        rafraichir();
+      } catch (e) { message(e.message, true); }
+      finally { recalculer.disabled = false; }
+    };
+  } catch (e) {
+    message(e.message, true);
+    if (!cible.children.length) {
+      cible.innerHTML = `<p class="avert">Mes critères n'ont pas pu se charger : ${echapper(e.message)}</p>`;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2112,7 +2065,7 @@ async function ouvrirRelance(id) {
     }
     if (!r.texte) {
       $('#fenetre-contenu').innerHTML = html;
-      $('#fenetre').showModal();
+      ouvrirFenetre();
       return;
     }
     html += `<p class="resume">Assemblé depuis <b>${echapper(r.gabarit)}</b> et
@@ -2127,7 +2080,7 @@ async function ouvrirRelance(id) {
         <button class="discret" id="btn-relance-envoyee">Je l'ai envoyée</button>
       </div>`;
     $('#fenetre-contenu').innerHTML = html;
-    $('#fenetre').showModal();
+    ouvrirFenetre();
 
     $('#btn-copier-relance').onclick = async () => {
       try {
@@ -2149,30 +2102,37 @@ async function ouvrirRelance(id) {
 const CHARGEURS = {
   'a-faire': chargerAFaire,
   candidatures: chargerCandidatures,
-  plus: chargerPlus,
+  // « Plus » n'a rien à charger : ses pastilles se recomptent à chaque `rafraichir()`. Sans
+  // cette entrée, `rafraichir()` retomberait sur `chargerOffres`.
+  plus: () => {},
   offres: chargerOffres,
-  archive: chargerArchive,
-  relances: chargerRelances,
-  classer: chargerClasser,
-  pilotage: chargerPilotage,
+  criteres: chargerCriteres,
+  bilan: chargerBilan,
   documents: chargerDocuments,
   reglages: chargerReglages,
 };
 
 function rafraichir() {
-  compterArchiveNouvelles();
+  compterPastilles();
   (CHARGEURS[vueCourante] || chargerOffres)();
 }
 
-// Les anciens écrans vivent sous « Plus » : ils gardent son onglet allumé.
+// Les écrans de « Plus » gardent son onglet allumé.
 const ONGLET_DE_VUE = {
-  offres: 'plus', relances: 'plus', archive: 'plus', classer: 'plus',
-  pilotage: 'plus', documents: 'plus', reglages: 'plus',
+  offres: 'plus', criteres: 'plus', bilan: 'plus', documents: 'plus', reglages: 'plus',
 };
 
-function afficherVue(nom) {
+// La vue `nom`, rechargée, ouverte par le haut. Quand elle change, elle entre dans l'historique,
+// au-dessus de celle d'avant ; `historique` faux, elle n'y entre pas : revenue par le retour, ou
+// montrée par une page rechargée. Un nom inconnu, celui d'une entrée laissée par une version qui
+// aurait renommé sa vue, montre « À faire », plutôt qu'une console vide.
+function afficherVue(nom, { historique = true } = {}) {
+  if (!$(`#vue-${nom}`)) nom = 'a-faire';
   const vue = $(`#vue-${nom}`);
-  if (!vue) return;
+  if (historique && nom !== vueCourante) {
+    const ici = history.state || {};
+    history.pushState({ vue: nom, precedente: vueCourante, profondeur: (ici.profondeur || 0) + 1 }, '');
+  }
   vueCourante = nom;
   const onglet = ONGLET_DE_VUE[nom] || nom;
   $$('.onglet').forEach(o => o.classList.toggle('actif', o.dataset.vue === onglet));
@@ -2183,134 +2143,177 @@ function afficherVue(nom) {
   rafraichir();
 }
 
-// Tout `[data-vue]` mène à son écran : les onglets, les lignes de « Plus », « ‹ Plus ».
+// ---------------------------------------------------------------------------
+// Le retour d'Android (E10 ; décision 15 du plan du lot 3)
+//
+// Une entrée d'historique par changement de vue, `{vue, precedente, profondeur}`, et une par
+// ouverture de la fenêtre : la même, marquée `fenetre`. Ce que la fenêtre montre ensuite (la
+// fiche, puis « Non », une étape, « Dossier prêt », le mot de relance, le canal, le détail) n'en
+// ajoute pas : le retour la ferme, quoi qu'elle montre, sans revenir à la fiche. Sans fenêtre, il
+// revient à la vue d'avant, rechargée ; depuis « À faire », la première entrée, il quitte
+// l'application.
+// ---------------------------------------------------------------------------
+
+// Vrai entre le retour que lance la fermeture de la fenêtre et son `popstate`.
+let retourDeFermeture = false;
+// « Chercher une offre » rejointe par le retour : le curseur va dans la recherche à son arrivée.
+let curseurApresRetour = false;
+// Un seul retour à la fois. Vrai entre un retour que lance la console (celui d'`allerA`, de la
+// fermeture de la fenêtre, ou de l'entrée morte d'une page rechargée) et son `popstate` :
+// `allerA` attend, sans rien faire. Un second toucher d'ici là lancerait un second retour, que
+// Chromium compte depuis l'entrée où mène le premier, et la console dépasserait la vue d'avant ;
+// un onglet touché pousserait sa vue au-dessus d'une entrée que le retour reprend.
+let retourEnCours = false;
+// Le filet du drapeau : un retour sans entrée à ce pas (la première oubliée, Chrome n'en gardant
+// qu'une cinquantaine) ne donne aucun `popstate`. Un retour dans la page arrive en quelques
+// millisecondes ; passé une seconde, il n'arrivera plus, et les onglets répondent de nouveau.
+// `siPerdu` part alors : le repli de l'appelant.
+let filetDuRetour;
+const DELAI_DU_FILET_MS = 1000;
+
+function reculer(pas, siPerdu) {
+  retourEnCours = true;
+  clearTimeout(filetDuRetour);
+  filetDuRetour = setTimeout(() => {
+    retourEnCours = false;
+    if (siPerdu) siPerdu();
+  }, DELAI_DU_FILET_MS);
+  history.go(-pas);
+}
+
+// Le repli de l'onglet « À faire » quand la première entrée est oubliée : l'entrée courante
+// devient la première, à l'adresse `/`, et « À faire » se montre, comme avant le lot 3.
+function revenirAuDebut() {
+  history.replaceState({ vue: 'a-faire', precedente: null, profondeur: 0 }, '', '/');
+  afficherVue('a-faire', { historique: false });
+}
+
+// Seule à ouvrir la fenêtre. Fermée, elle entre dans l'historique, puis s'ouvre ; déjà ouverte,
+// elle n'y entre pas une seconde fois, et l'appelant ne fait qu'en remplacer le contenu.
+function ouvrirFenetre() {
+  const fenetre = $('#fenetre');
+  if (fenetre.open) return;
+  history.pushState({ ...history.state, fenetre: true }, '');
+  fenetre.showModal();
+}
+
+// Fermée sans traverser l'historique (« Fermer », Échap, un geste qui la ferme, ou le retour
+// d'Android quand Chrome la ferme lui-même, par `cancel` puis `close`), la fenêtre retire son
+// entrée par un retour. Fermée par le retour, rien à retirer : `close` part après le `popstate`,
+// et l'entrée courante est déjà celle de la vue.
+$('#fenetre').addEventListener('close', () => {
+  if (!history.state?.fenetre) return;
+  retourDeFermeture = true;
+  reculer(1);
+});
+
+// Le retour, et les vues qu'`allerA` rejoint par lui. Celui que lance la fermeture ne touche à
+// rien ; mais si la fenêtre s'est rouverte avant qu'il n'arrive, il a pu atterrir sur l'entrée
+// de la vue, la fenêtre ouverte : elle y repose la sienne. Un autre ferme la fenêtre ouverte, et
+// montre la vue de l'entrée si elle diffère ; la vue sous une fenêtre fermée ne se recharge pas.
+window.addEventListener('popstate', ev => {
+  const fenetre = $('#fenetre');
+  const entree = ev.state || {};
+  retourEnCours = false;
+  clearTimeout(filetDuRetour);
+  if (retourDeFermeture) {
+    retourDeFermeture = false;
+    if (fenetre.open && !entree.fenetre) history.pushState({ ...ev.state, fenetre: true }, '');
+    return;
+  }
+  if (fenetre.open) fenetre.close();
+  if (entree.vue && entree.vue !== vueCourante) afficherVue(entree.vue, { historique: false });
+  if (curseurApresRetour && vueCourante === 'offres') $('#f-recherche').focus();
+  curseurApresRetour = false;
+});
+
+// Le geste de tout `[data-vue]` : les onglets, les lignes de « Plus », « ‹ Plus ». L'onglet
+// « À faire » revient à la première entrée : le retour depuis lui quitte toujours l'application.
+// La vue ouverte juste avant se rejoint par le retour, sans entrée de plus. Une autre entre dans
+// l'historique. `chercher` : « Chercher une offre », le curseur dans la recherche (décision 5),
+// posé une fois la vue montrée, et les filtres vidés avant d'y aller, par une entrée comme par le
+// retour : un état posé plus tôt (un lien d'entrée, « Voir les N sous le seuil », un choix) ne
+// cache pas une offre close à la recherche (point d'attention 6). Pendant un retour en cours, rien.
+function allerA(nom, { chercher = false } = {}) {
+  if (retourEnCours) return;
+  if (chercher) viderFiltres();
+  const ici = history.state || {};
+  if (nom === 'a-faire' && ici.profondeur > 0) {
+    reculer(ici.profondeur, revenirAuDebut);
+  } else if (nom !== vueCourante && ici.precedente === nom) {
+    curseurApresRetour = chercher;
+    reculer(1);
+  } else {
+    afficherVue(nom);
+    if (chercher) $('#f-recherche').focus();
+  }
+}
+
 document.addEventListener('click', ev => {
   const lien = ev.target.closest('[data-vue]');
-  if (lien) afficherVue(lien.dataset.vue);
+  if (lien) allerA(lien.dataset.vue, { chercher: lien.hasAttribute('data-chercher') });
 });
 
 // ---------------------------------------------------------------------------
-// Filtres : repliés par défaut sur téléphone
-//
-// Contrainte de conception, pas cosmétique : la console est consultée
-// principalement depuis un téléphone. Les offres passent devant, toujours. Les
-// réglages restent à un geste, et les filtres actifs restent visibles sous
-// forme de puces — sinon une liste courte paraît vide sans qu'on comprenne
-// qu'un filtre la restreint.
+// Toutes les offres : les gestes de ses trois filtres et de sa bascule
 // ---------------------------------------------------------------------------
 
-const CHAMPS_FILTRES = [
-  { id: '#f-recherche', cle: 'recherche', libelle: 'Recherche' },
-  { id: '#f-statut', cle: 'statut', libelle: 'Statut' },
-  { id: '#f-zone', cle: 'zone', libelle: 'Zone' },
-  { id: '#f-famille', cle: 'famille', libelle: 'Famille' },
-  { id: '#f-atout', cle: 'atout', libelle: 'Atout' },
-];
-
-const surTelephone = () => window.matchMedia('(max-width: 640px)').matches;
-
-function libelleValeur(champ) {
-  const el = $(champ.id);
-  if (el.tagName === 'SELECT') {
-    return el.options[el.selectedIndex]?.textContent.trim() || el.value;
-  }
-  return el.value.trim();
-}
-
-function filtresActifs() {
-  const actifs = CHAMPS_FILTRES
-    .filter(c => $(c.id).value.trim())
-    .map(c => ({ ...c, valeur: libelleValeur(c) }));
-  if ($('#f-ecartees').checked) {
-    actifs.push({ id: '#f-ecartees', cle: 'ecartees', libelle: 'Écartées', valeur: 'incluses' });
-  }
-  return actifs;
-}
-
-function effacerFiltre(id) {
-  const el = $(id);
-  if (el.type === 'checkbox') el.checked = false;
-  else el.value = '';
-  synchroniserFiltres();
-  chargerOffres();
-}
-
-function synchroniserFiltres() {
-  const actifs = filtresActifs();
-
-  $('#compte-filtres').textContent = actifs.length || '';
-  // Les libellés complets de la configuration débordent sur deux lignes au
-  // téléphone : on tronque,
-  // le libellé entier reste en infobulle.
-  const court = t => (t.length > 26 ? t.slice(0, 25).trimEnd() + '…' : t);
-  $('#puces-filtres').innerHTML = actifs.map(a =>
-    `<span class="puce" title="${echapper(a.libelle)} : ${echapper(a.valeur)}">${echapper(court(a.valeur))}
-       <button data-effacer="${a.id}" aria-label="Retirer le filtre ${echapper(a.libelle)}">×</button>
-     </span>`).join('');
-
-  const atoutActif = !!ATOUT && $('#f-atout').value === ATOUT.cle;
-  $('#btn-atout').setAttribute('aria-pressed', String(atoutActif));
-}
-
-$('#puces-filtres').addEventListener('click', ev => {
-  const b = ev.target.closest('[data-effacer]');
-  if (b) effacerFiltre(b.dataset.effacer);
-});
-
-$('#btn-filtres').onclick = () => {
-  const panneau = $('#panneau-filtres');
-  const ouvert = !panneau.hidden;
-  panneau.hidden = ouvert;
-  $('#btn-filtres').setAttribute('aria-expanded', String(!ouvert));
+$('#f-recherche').oninput = () => {
+  clearTimeout(minuteurRecherche);
+  minuteurRecherche = setTimeout(chargerOffres, 280);
 };
+$('#f-etat').onchange = () => chargerOffres();
+$('#f-famille').onchange = () => chargerOffres();
 
-// « À documenter » : score élevé, dossier trop mince. C'est la file de travail
-// la plus rentable — dix minutes chacune et elles deviennent candidatables —
-// donc elle est accessible en un geste, pas au fond du panneau des filtres.
-let aDocumenter = false;
-$('#btn-documenter').onclick = () => {
-  aDocumenter = !aDocumenter;
-  $('#btn-documenter').setAttribute('aria-pressed', String(aDocumenter));
-  chargerOffres();
-};
-
-// Accès en un geste à l'atout mis en avant par la configuration : son avantage
-// le plus rare, donc le filtre le plus utile au quotidien.
+// L'atout mis en avant par la configuration, en un geste : son avantage le plus rare. Touchée
+// pendant le filtre d'un autre atout (un ancien lien), la bascule le remplace.
 $('#btn-atout').onclick = () => {
   if (!ATOUT) return;
-  const champ = $('#f-atout');
-  champ.value = champ.value === ATOUT.cle ? '' : ATOUT.cle;
-  synchroniserFiltres();
+  atoutFiltre = atoutFiltre === ATOUT.cle ? '' : ATOUT.cle;
   chargerOffres();
 };
 
-let minuteur;
-$('#f-recherche').oninput = () => {
-  synchroniserFiltres();
-  clearTimeout(minuteur);
-  minuteur = setTimeout(chargerOffres, 280);
-};
-['#f-statut', '#f-zone', '#f-famille', '#f-atout', '#f-verification', '#f-tri', '#f-ecartees'].forEach(s => {
-  $(s).onchange = () => { synchroniserFiltres(); chargerOffres(); };
+// « Effacer les filtres » vit dans le résumé, que chaque réponse réécrit.
+$('#resume-offres').addEventListener('click', ev => {
+  if (ev.target.closest('[data-effacer-filtres]')) effacerFiltres();
 });
 
-// Replié sur téléphone, ouvert sur ordinateur où la place ne manque pas.
-$('#panneau-filtres').hidden = surTelephone();
-$('#btn-filtres').setAttribute('aria-expanded', String(!surTelephone()));
+// ---------------------------------------------------------------------------
+// Notifications push (E11 ; décisions 11 et 12 du plan du lot 3)
+//
+// Réglages dit ce que reçoit cet appareil, en cinq cas, chacun sa phrase. À l'ouverture, la
+// console renvoie l'abonnement de cet appareil, ou se réabonne, sans jamais demander la
+// permission : sans geste, Chrome la refuse ou l'ignore. Aucun de ces gestes n'écrit de message
+// ni rien dans la console du navigateur : leur résultat se lit dans Réglages.
+// ---------------------------------------------------------------------------
 
-$('#btn-rescorer').onclick = async ev => {
-  ev.target.disabled = true;
-  try {
-    const d = await api('/api/rescorer', { method: 'POST' });
-    message(`${d.offres_recalculees} offre(s) recalculee(s).`);
-    chargerOffres();
-  } catch (e) { message(e.message, true); }
-  finally { ev.target.disabled = false; }
+const ETATS_PUSH = {
+  indisponible: 'Les notifications ne sont pas disponibles sur cet appareil.',
+  bloquees: "Les notifications sont bloquées pour la console sur cet appareil. Autorise-les dans les réglages d'Android (Applications › Veille emploi › Notifications) ou dans ceux du site, dans Chrome, puis touche « Activer les notifications ».",
+  inactives: 'Cet appareil ne reçoit pas les notifications.',
+  actives: 'Cet appareil reçoit les notifications.',
+  erreur: cause => `Cet appareil n'a pas pu s'abonner aux notifications : ${cause}. Touche « Activer les notifications » pour réessayer.`,
+};
+// Ce qui manque à un appareil où les notifications ne sont pas disponibles.
+const RAISONS_PUSH = {
+  navigateur: 'Ce navigateur ne gère pas le push web.',
+  https: 'Il faut ouvrir la console en HTTPS.',
+  vapid: "Le serveur n'a pas de clé VAPID : elle naît au démarrage de la console (sans conteneur, `veille init`).",
+};
+// Le premier essai n'était pas parti, le second, après un nouvel abonnement, l'est (réponse R3).
+const REPARATION_PUSH = "Le premier essai n'était pas parti : l'abonnement de cet appareil vient d'être refait, et la notification d'essai est partie.";
+const CAUSES_PUSH = {
+  serviceWorker: "le service worker de la console ne s'est pas enregistré",
+  essai: "la notification d'essai n'est pas partie, même avec un nouvel abonnement",
 };
 
-// ---------------------------------------------------------------------------
-// Notifications push
-// ---------------------------------------------------------------------------
+// `cle` : l'un des cinq cas d'`ETATS_PUSH`, ou '' tant que l'ouverture ne l'a pas lu (le renvoi
+// de l'abonnement en cours) : aucune phrase, plutôt qu'une phrase fausse. `detail` : la raison
+// d'un état indisponible, la cause d'une erreur, ou la phrase de la réparation d'un état actif.
+let etatPush = { cle: '', detail: '' };
+// Un seul geste du push à la fois (le renvoi de l'ouverture, ou un toucher du bouton) : le bouton
+// reste éteint jusqu'à sa fin, même quand Réglages se recharge entre-temps.
+let gestePush = false;
 
 function base64EnOctets(base64) {
   const bourrage = '='.repeat((4 - base64.length % 4) % 4);
@@ -2318,48 +2321,231 @@ function base64EnOctets(base64) {
   return Uint8Array.from([...brut].map(c => c.charCodeAt(0)));
 }
 
+// Un texte échappé, ses `…` rendus en code.
+function avecCode(texte) {
+  return echapper(texte).replace(/`([^`]+)`/g, '<code>$1</code>');
+}
+
+// L'échec d'un `fetch` : une TypeError, au message du navigateur (« Failed to fetch » sous Chrome,
+// « NetworkError… » sous Firefox, « Load failed » sous Safari).
+const ECHEC_RESEAU = /failed to fetch|networkerror|load failed/i;
+
+// La cause d'un échec, en français et sans point final : la phrase « en erreur » met le sien.
+// L'échec d'un `fetch` se traduit ; une erreur sans message est une cause inconnue.
+function causeDe(erreur) {
+  if (erreur instanceof TypeError && ECHEC_RESEAU.test(erreur.message)) {
+    return "la console n'a pas pu être jointe";
+  }
+  const texte = erreur && typeof erreur === 'object' ? erreur.message : erreur;
+  return String(texte || '').replace(/[\s.]+$/, '') || 'cause inconnue';
+}
+
+// Le cas d'`etatPush`, dans Réglages : sa phrase, et le bouton qui va avec. Le bouton essaie
+// quand cet appareil reçoit, et active sinon ; il s'éteint pendant un geste, et quand le push
+// n'est pas disponible.
+function afficherEtatPush() {
+  const { cle, detail } = etatPush;
+  const phrase = cle === 'erreur'
+    ? ETATS_PUSH.erreur(detail)
+    : [ETATS_PUSH[cle], detail].filter(Boolean).join(' ');
+  $('#etat-push').innerHTML = avecCode(phrase);
+  const bouton = $('#btn-push');
+  bouton.textContent = cle === 'actives' ? "Envoyer une notification d'essai" : 'Activer les notifications';
+  bouton.disabled = gestePush || cle === 'indisponible';
+}
+
+// Ce qui manque au push sur cet appareil, ou '' : le contexte sûr d'abord, puisque hors HTTPS
+// Chrome retire aussi le service worker et le push, puis les API, puis la clé du serveur.
+function raisonPushIndisponible() {
+  if (!window.isSecureContext) return RAISONS_PUSH.https;
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+    return RAISONS_PUSH.navigateur;
+  }
+  if (!CLE_VAPID) return RAISONS_PUSH.vapid;
+  return '';
+}
+
+// Enregistre `/sw.js`, puis attend un service worker actif : Chrome rejette un `subscribe` sans
+// lui. Rend l'enregistrement actif, ou null si `/sw.js` ne s'enregistre pas.
+async function enregistrerServiceWorker() {
+  try {
+    await navigator.serviceWorker.register('/sw.js');
+  } catch (e) {
+    return null;
+  }
+  return navigator.serviceWorker.ready;
+}
+
+function envoyerAbonnement(abonnement) {
+  return api('/api/push/abonnement', { method: 'POST', body: JSON.stringify(abonnement.toJSON()) });
+}
+
+// Abonne cet appareil avec la clé de la page, puis envoie l'abonnement au serveur.
+async function abonner(enregistrement) {
+  const abonnement = await enregistrement.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: base64EnOctets(CLE_VAPID),
+  });
+  await envoyerAbonnement(abonnement);
+}
+
+// Les clés se comparent sur leurs octets : `options.applicationServerKey` est un ArrayBuffer, la
+// clé de la page du base64url. Comparées en chaînes, elles différeraient toujours. Une clé
+// illisible (sans `options`, ou `null`) ne dit rien : l'abonnement se renvoie tel quel, et l'essai
+// détectera un abonnement rejeté.
+function porteUneAutreCle(abonnement) {
+  const cle = abonnement.options && abonnement.options.applicationServerKey;
+  if (!cle) return false;
+  const sienne = new Uint8Array(cle);
+  const attendue = base64EnOctets(CLE_VAPID);
+  return sienne.length !== attendue.length || sienne.some((octet, i) => octet !== attendue[i]);
+}
+
+// Met l'abonnement de cet appareil au serveur : le crée s'il manque ; le refait s'il a été fait
+// avec une autre clé VAPID que celle de la page (Chrome refuse un `subscribe` tant qu'il reste),
+// puis retire l'ancien du serveur, qu'un push en 403 ne retirerait jamais (réponse 22) ; sinon,
+// le renvoie tel quel. Un retrait refusé ne dit rien : la ligne morte qui reste est tolérée
+// (décision 12, seconde limite).
+async function mettreAJourAbonnement(enregistrement) {
+  const abonnement = await enregistrement.pushManager.getSubscription();
+  if (!abonnement) {
+    await abonner(enregistrement);
+  } else if (porteUneAutreCle(abonnement)) {
+    await abonnement.unsubscribe();
+    await abonner(enregistrement);
+    try {
+      await api(`/api/push/abonnement?endpoint=${encodeURIComponent(abonnement.endpoint)}`,
+                { method: 'DELETE' });
+    } catch (e) { /* tolérée : voir plus haut */ }
+  } else {
+    await envoyerAbonnement(abonnement);
+  }
+}
+
+// Lancée une fois, à l'ouverture, jamais au retour au premier plan. Permission accordée, elle met
+// l'abonnement de cet appareil au serveur (`mettreAJourAbonnement`) ; le bouton reste éteint, et
+// Réglages ne dit rien, tant qu'elle n'a pas fini. Rend le cas atteint.
+async function synchroniserPush() {
+  const raison = raisonPushIndisponible();
+  if (raison) {
+    etatPush = { cle: 'indisponible', detail: raison };
+  } else if (Notification.permission === 'denied') {
+    etatPush = { cle: 'bloquees', detail: '' };
+  } else if (Notification.permission !== 'granted') {
+    etatPush = { cle: 'inactives', detail: '' };
+  } else {
+    gestePush = true;
+    afficherEtatPush();
+    try {
+      const enregistrement = await enregistrerServiceWorker();
+      if (!enregistrement) throw new Error(CAUSES_PUSH.serviceWorker);
+      await mettreAJourAbonnement(enregistrement);
+      etatPush = { cle: 'actives', detail: '' };
+    } catch (e) {
+      etatPush = { cle: 'erreur', detail: causeDe(e) };
+    } finally {
+      gestePush = false;
+    }
+  }
+  afficherEtatPush();
+  return etatPush.cle;
+}
+
+// « Envoyer une notification d'essai », et la fin d'« Activer les notifications ». L'essai lit sa
+// réponse (réponse R3) : Chrome peut garder un abonnement que le service push a rejeté, et que le
+// serveur a retiré. Si `envoyes` vaut 0 (jamais sur `echecs` : un essai parti ne répare rien),
+// l'abonnement se refait, une fois, sans `DELETE` de l'ancien, que le serveur a retiré au 404 ou au
+// 410, puis l'essai se relance, une fois.
+async function envoyerEssai() {
+  try {
+    const essai = await api('/api/push/test', { method: 'POST' });
+    if (essai.envoyes > 0) {
+      etatPush = { cle: 'actives', detail: '' };
+    } else {
+      const enregistrement = await enregistrerServiceWorker();
+      if (!enregistrement) throw new Error(CAUSES_PUSH.serviceWorker);
+      const rejete = await enregistrement.pushManager.getSubscription();
+      if (rejete) await rejete.unsubscribe();
+      await abonner(enregistrement);
+      const second = await api('/api/push/test', { method: 'POST' });
+      etatPush = second.envoyes > 0
+        ? { cle: 'actives', detail: REPARATION_PUSH }
+        : { cle: 'erreur', detail: CAUSES_PUSH.essai };
+    }
+  } catch (e) {
+    etatPush = { cle: 'erreur', detail: causeDe(e) };
+  }
+  afficherEtatPush();
+}
+
+// « Activer les notifications » : la permission, l'abonnement mis au serveur comme à l'ouverture
+// (`mettreAJourAbonnement`, qui refait celui d'une autre clé), puis l'essai, par `envoyerEssai`.
+// Ses refus se disent dans Réglages, par les phrases d'`ETATS_PUSH`.
 async function activerPush() {
-  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-    message("Ce navigateur ne gere pas le push web.", true); return;
-  }
-  if (!CLE_VAPID) {
-    message("Pas de cle VAPID sur le serveur : lance `veille init`.", true); return;
-  }
-  if (!window.isSecureContext) {
-    message("Le push exige HTTPS. Active les certificats HTTPS du tailnet, puis `tailscale serve`.", true);
+  const raison = raisonPushIndisponible();
+  if (raison) {
+    etatPush = { cle: 'indisponible', detail: raison };
+    afficherEtatPush();
     return;
   }
   try {
-    const enregistrement = await navigator.serviceWorker.register('/sw.js');
     const permission = await Notification.requestPermission();
-    if (permission !== 'granted') { message('Notifications refusees par le navigateur.', true); return; }
-    const abonnement = await enregistrement.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: base64EnOctets(CLE_VAPID),
-    });
-    await api('/api/push/abonnement', { method: 'POST', body: JSON.stringify(abonnement.toJSON()) });
-    message('Notifications activees sur cet appareil.');
-    await api('/api/push/test', { method: 'POST' });
-  } catch (e) { message('Activation impossible : ' + e.message, true); }
+    if (permission !== 'granted') {
+      etatPush = { cle: permission === 'denied' ? 'bloquees' : 'inactives', detail: '' };
+      afficherEtatPush();
+      return;
+    }
+    const enregistrement = await enregistrerServiceWorker();
+    if (!enregistrement) throw new Error(CAUSES_PUSH.serviceWorker);
+    await mettreAJourAbonnement(enregistrement);
+  } catch (e) {
+    etatPush = { cle: 'erreur', detail: causeDe(e) };
+    afficherEtatPush();
+    return;
+  }
+  await envoyerEssai();
 }
 
-$('#btn-push').onclick = activerPush;
+// Le drapeau éteint le bouton pendant le geste ; il se rallume avec le nouvel état. La demande de
+// permission d'`activerPush` part encore dans le geste : rien n'est attendu avant elle.
+$('#btn-push').onclick = async () => {
+  gestePush = true;
+  afficherEtatPush();
+  try {
+    await (etatPush.cle === 'actives' ? envoyerEssai() : activerPush());
+  } finally {
+    gestePush = false;
+    afficherEtatPush();
+  }
+};
 
-if ('serviceWorker' in navigator && window.isSecureContext) {
-  navigator.serviceWorker.register('/sw.js').catch(() => {});
-}
+synchroniserPush();
 
 // ---------------------------------------------------------------------------
 
-// La notification ouvre `/?filtre=nouveau` : la file, qu'elle annonce. Un autre filtre, ou
-// un atout, mène à « Toutes les offres », filtrée comme avant.
-const params = new URLSearchParams(location.search);
-const filtreDemande = params.get('filtre');
-const atoutDemande = params.get('atout');
-const versOffres = Boolean((filtreDemande && filtreDemande !== 'nouveau') || atoutDemande);
-if (versOffres) {
-  if (filtreDemande) $('#f-statut').value = filtreDemande;
-  if (atoutDemande) $('#f-atout').value = atoutDemande;
+// L'entrée dans la console (décision 15). Une entrée qui porte déjà sa vue, celle d'une page
+// rechargée, la montre, sans fenêtre ; si elle porte aussi la fenêtre, un retour retire cette
+// entrée morte, et son `popstate`, sur la même vue, ne la recharge pas. Sinon, « À faire » est la
+// première entrée, à l'adresse `/`. La notification ouvre `/?filtre=nouveau` : la file, qu'elle
+// annonce. Un ancien lien d'entrée ouvre « Toutes les offres », posée au-dessus d'« À faire »
+// (décision 3 du plan du lot 3) : `?filtre=<statut>`, que le serveur traduit en état
+// (`data-etat-demande`, le JS ne traduit aucun statut), ou `?atout=`.
+//
+// Le défilement est à la console : revenue par le retour, une vue s'ouvre en haut (décision 15).
+// Chromium restaurerait celui de son entrée à la première image après le `popstate`, par-dessus
+// le `scrollTo(0, 0)` d'`afficherVue`. Posé ici, avant toute entrée, le mode vaut pour toutes
+// celles que la console pousse ensuite. La vue sous une fenêtre fermée ne bouge pas pour autant :
+// la fenêtre ne fait pas défiler la page, et le `popstate` ne remontre pas la même vue.
+history.scrollRestoration = 'manual';
+const entreeChargee = history.state;
+if (entreeChargee && entreeChargee.vue) {
+  afficherVue(entreeChargee.vue, { historique: false });
+  if (entreeChargee.fenetre) reculer(1);
+} else {
+  const etatDemande = document.body.dataset.etatDemande || '';
+  const atoutDemande = new URLSearchParams(location.search).get('atout') || '';
+  history.replaceState({ vue: 'a-faire', precedente: null, profondeur: 0 }, '', '/');
+  if (etatDemande) $('#f-etat').value = etatDemande;
+  atoutFiltre = atoutDemande;
+  afficherVue(etatDemande || atoutDemande ? 'offres' : 'a-faire');
 }
-synchroniserFiltres();
-afficherVue(versOffres ? 'offres' : 'a-faire');

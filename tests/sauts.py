@@ -1,10 +1,11 @@
 """Les sauts faute de dependance systeme, et ou ils sont interdits.
 
 Sous Windows, des tests se sautent : WeasyPrint, systemd utilisateur, groupes
-de processus POSIX. La CI et le serveur ont tout, et la suite y est lancee avec
-`SUITE_COMPLETE=1` : ces tests y tournent quoi qu'il arrive, si bien qu'une
-dependance perdue (une mise a jour de Pango, un WeasyPrint qui ne s'importe
-plus) y echoue bruyamment au lieu de se sauter en silence.
+de processus POSIX, Node (le service worker). La CI et le serveur ont tout, et
+la suite y est lancee avec `SUITE_COMPLETE=1` : ces tests y tournent quoi qu'il
+arrive, si bien qu'une dependance perdue (une mise a jour de Pango, un
+WeasyPrint qui ne s'importe plus) y echoue bruyamment au lieu de se sauter en
+silence.
 """
 
 from __future__ import annotations

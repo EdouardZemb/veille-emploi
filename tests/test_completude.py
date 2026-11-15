@@ -25,18 +25,6 @@ import pytest
 from veille import completude, db
 from veille.models import Offre
 from veille.scoring import scorer
-from tests.aide_session import connecter
-
-
-@pytest.fixture
-def client_completude():
-    from fastapi.testclient import TestClient
-
-    from veille.app import app
-
-    with TestClient(app, follow_redirects=False) as c:
-        connecter(c)
-        yield c
 
 
 @pytest.fixture(autouse=True)
@@ -245,39 +233,3 @@ def test_coller_le_texte_complet_fait_monter_la_completude():
     apres = completude.evaluer(db.lire_offre(o["id"]))
     assert apres.score > avant.score + 20, (avant.score, apres.score)
     assert apres.suffisant_pour_dossier
-
-
-# --------------------------------------------------------------------------
-# Le filtre « a documenter » — sa file de travail la plus rentable
-#
-# Score de correspondance eleve ET complétude sous le seuil : dix minutes de
-# recherche les rendent candidatables. C'est le meilleur usage de son temps,
-# donc ca ne doit pas se trouver au fond d'un panneau replie.
-# --------------------------------------------------------------------------
-
-
-def test_le_filtre_isole_le_bon_couple(client_completude):
-    """Fort potentiel, information trop mince : ni l'un sans l'autre."""
-    # Des intitules des familles de l'exemple : la correspondance est forte.
-    bonne = _offre(titre="Testeuse fonctionnelle")      # correspondance ok, dossier ok
-    a_documenter = _offre(titre="Automaticienne de tests",
-                          description="Automatisation des tests web et mobile.",
-                          donnees_partielles=True, salaire_min=None, salaire_max=None)
-    faible = _offre(titre="Assistant administratif", employeur="Une societe",
-                    description="Court.", donnees_partielles=True,
-                    salaire_min=None, salaire_max=None)
-
-    ids = [o["id"] for o in
-           client_completude.get("/api/offres?a_documenter=true&limite=500").json()["offres"]]
-    assert a_documenter["id"] in ids, "score eleve + dossier mince doit y etre"
-    assert bonne["id"] not in ids, "bien documentee : rien a chercher"
-    assert faible["id"] not in ids, "score trop bas : pas la peine d'y passer du temps"
-
-
-def test_le_compte_est_rendu_avec_la_liste(client_completude):
-    _offre(titre="Automaticienne de tests",
-           description="Automatisation des tests web et mobile.",
-           donnees_partielles=True, salaire_min=None, salaire_max=None)
-    charge = client_completude.get("/api/offres?limite=500").json()
-    assert "a_documenter" in charge, "le compte doit venir sans requete supplementaire"
-    assert charge["a_documenter"] >= 1

@@ -249,12 +249,11 @@ def test_preparer_note_le_destinataire_de_la_lettre(connecte, monkeypatch):
     assert r.status_code == 404
 
 
-def test_l_ancien_generer_le_dossier_note_aussi_le_destinataire(connecte):
-    """« Générer le dossier », que les anciens écrans gardent jusqu'au lot 3, passe par le même
-    `generer`. Un destinataire enregistré ensuite, sans régénérer (la vue détaillée), se dit sur
-    « Dossier prêt », qui montre toujours celui de la lettre."""
+def test_un_destinataire_enregistre_sans_regenerer_se_dit_sur_dossier_pret(connecte):
+    """Un destinataire enregistré après la génération, sans régénérer (la vue détaillée), se dit
+    sur « Dossier prêt », qui montre toujours celui de la lettre."""
     offre_id = _offre("interessante", **DESTINATAIRE)
-    assert connecte.post(f"/api/offres/{offre_id}/dossier?forcer=true").json()["ok"] is True
+    assert _preparer(connecte, offre_id, forcer=True).json()["etape"] == "pret"
     assert dossier.lire_note_destinataire(_repertoire(offre_id)) == DESTINATAIRE
     r = connecte.post(f"/api/offres/{offre_id}", json={"contact_nom": AUTRE_NOM})
     assert r.status_code == 200
