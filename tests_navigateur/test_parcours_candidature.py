@@ -291,18 +291,19 @@ def test_un_autre_filtre_mene_a_toutes_les_offres(telephone, parcours):
     expect(telephone.locator("#f-statut")).to_have_value("interessante")
 
 
-def test_plus_mene_aux_anciens_ecrans(telephone, parcours):
+def test_plus_mene_a_ses_ecrans(telephone, parcours):
     _ouvrir(telephone, parcours["url"])
-    telephone.get_by_role("button", name="Plus", exact=True).click()
+    # Le nom d'un bouton comprend le texte de sa pastille : « Plus » devient « Plus 2 ».
+    telephone.locator('.onglet[data-vue="plus"]').click()
     expect(telephone.locator("#vue-plus")).to_be_visible()
-    telephone.get_by_role("button", name="Toutes les offres").click()
-    expect(telephone.locator("#vue-offres .offre").first).to_be_visible()
+    telephone.locator('.lien-plus[data-vue="bilan"]').click()
+    expect(telephone.locator("#vue-bilan details[data-liste]").first).to_be_visible()
     expect(telephone.locator("#vue-plus")).to_be_hidden()
     expect(_actif(telephone)).to_have_attribute("data-vue", "plus")
 
     telephone.get_by_role("button", name="‹ Plus").click()
     expect(telephone.locator("#vue-plus")).to_be_visible()
-    expect(telephone.locator("#vue-offres")).to_be_hidden()
+    expect(telephone.locator("#vue-bilan")).to_be_hidden()
     expect(_actif(telephone)).to_have_attribute("data-vue", "plus")
 
 
@@ -808,13 +809,13 @@ def test_candidatures_se_touchent_du_doigt_et_tiennent_dans_l_ecran(
 
 
 def test_plus_se_touche_du_doigt_et_tient_dans_l_ecran(telephone, parcours):
-    """Les lignes de « Plus », et « ‹ Plus » sur un ancien écran (ADR-0003, § 7)."""
+    """Les lignes de « Plus », et « ‹ Plus » sur un de ses écrans (ADR-0003, § 7)."""
     _ouvrir(telephone, parcours["url"])
-    telephone.get_by_role("button", name="Plus", exact=True).click()
+    telephone.locator('.onglet[data-vue="plus"]').click()
     expect(telephone.locator("#vue-plus")).to_be_visible()
     hauteurs = telephone.locator("#vue-plus .lien-plus").evaluate_all(
         "es => es.map(e => e.getBoundingClientRect().height)")
-    assert len(hauteurs) == 7
+    assert len(hauteurs) == 5
     assert min(hauteurs) >= DOIGT
     assert telephone.evaluate("document.documentElement.scrollWidth") <= TELEPHONE["viewport"]["width"]
 

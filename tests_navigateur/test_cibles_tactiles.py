@@ -139,7 +139,7 @@ def test_les_compteurs_et_les_titres_ont_leurs_finitions(telephone):
     """Des chiffres de largeur égale dans les compteurs ; des titres équilibrés."""
     style = "([s, p]) => getComputedStyle(document.querySelector(s))[p]"
     assert "tabular-nums" in telephone.evaluate(style, ["#compte-filtres", "fontVariantNumeric"])
-    assert "tabular-nums" in telephone.evaluate(style, ["#pastille-relances", "fontVariantNumeric"])
+    assert "tabular-nums" in telephone.evaluate(style, ["#pastille-plus", "fontVariantNumeric"])
     assert "balance" in telephone.evaluate(style, [".offre-titre", "textWrap"])
     assert "pretty" in telephone.evaluate(style, ["#resume-offres", "textWrap"])
 

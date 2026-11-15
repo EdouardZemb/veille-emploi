@@ -185,6 +185,31 @@ details.plus-tard > .liste{margin-top:6px}
 }
 .lien-plus:hover{background:var(--fond3)}
 .lien-plus::after{content:"›";margin-left:auto;color:var(--doux);font-size:1.2rem;line-height:1}
+/* Une ligne d'offre (Toutes les offres, le Bilan) : un bouton qui ouvre la fiche. Un intitulé
+   sans espace s'y coupe. */
+.ligne-offre{
+  display:flex;flex-direction:column;gap:2px;width:100%;min-height:44px;
+  color:var(--texte);font-weight:400;text-align:left;border-left-color:var(--accent);
+  overflow-wrap:anywhere;
+}
+.ligne-offre:hover{background:var(--fond3)}
+.ligne-offre-haut{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.ligne-offre .offre-titre{margin:0;min-width:0}
+.ligne-offre-bas{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px}
+.etat-ligne{font-size:.78rem;font-weight:600;color:var(--accent)}
+.precision{font-size:.82rem;color:var(--doux)}
+/* Les volets de Mes critères et du Bilan : un résumé de 44 px, comme ceux de la fiche. */
+.vue details.repli{border-top:1px solid var(--trait)}
+.vue details.repli > summary{min-height:44px;padding-block:11px;cursor:pointer;color:var(--doux);font-weight:600}
+.vue details.repli > .liste{margin:4px 0 14px}
+.listes-bilan details.repli:last-child{border-bottom:1px solid var(--trait)}
+.listes-bilan .archivee{overflow-wrap:anywhere}
+#contenu-bilan td{overflow-wrap:anywhere}
+/* Une proposition à classer : sa case et son intitulé se touchent ensemble. */
+#contenu-criteres{overflow-wrap:anywhere}
+.proposition{display:flex;flex-direction:column;gap:2px;min-width:0}
+.case-classer{display:flex;align-items:center;gap:10px;min-height:44px;cursor:pointer}
+.case-classer input{flex-shrink:0;width:20px;height:20px;padding:0}
 .retour-plus{
   min-height:44px;margin:-8px 0 4px -4px;padding:0 10px 0 4px;
   background:none;color:var(--accent);font-weight:500;
