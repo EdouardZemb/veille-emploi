@@ -1,5 +1,5 @@
-"""« Plus », Mes critères, le Bilan et les pastilles, au téléphone (ADR-0003, § 6 ; décisions 6
-à 10 du plan du lot 3).
+"""« Plus », Toutes les offres et ses trois filtres, Mes critères, le Bilan et les pastilles, au
+téléphone (ADR-0003, § 6 ; décisions 2 à 10 et 20 du plan du lot 3).
 
 Même forme que `test_parcours_candidature.py` : Chromium à la taille d'un téléphone, une session
 ouverte par `auth.ouvrir_session`, aucune erreur dans la console hors de `console_attendue`. Les
@@ -24,7 +24,8 @@ from .test_parcours_candidature import LONG, _inventer, _ouvrir, console_attendu
 
 # La dernière visite des archivées, dans le stockage local : la même clé qu'avant le lot.
 CLE_VISITE = "veille:archive-vue-le"
-ECRANS = ["Toutes les offres", "Mes critères", "Bilan", "Documents", "Réglages"]
+ECRANS = ["Chercher une offre", "Toutes les offres", "Mes critères", "Bilan", "Documents",
+          "Réglages"]
 TITRES_BILAN = ["Entonnoir", "Par canal de candidature", "Par famille de métier",
                 "Rendement des sources", "Motifs d'écartement : ce que le score rate"]
 RAPPEL = ("Les critères se changent dans la configuration de l'instance (criteres.yaml), qui "
@@ -39,6 +40,14 @@ RESCORE = {"ok": True, "offres_recalculees": 12, "nouvellement_ecartees": 0,
            "remises_dans_le_flux": 0, "nouvellement_differees": 0}
 SANS_PROPOSITION = {"offre_id": 990001, "titre": "Offre inventée sans proposition",
                     "employeur": "Employeur inventé", "score": 30}
+# Toutes les offres : l'employeur commun aux trois offres du rappel (point d'attention 6), la
+# portée d'une recherche sans état (décision 4), et ce qui a quitté l'écran avec l'ancien panneau.
+EMPLOYEUR_RAPPEL = "Employeur inventé qui rappelle"
+PORTEE = "La recherche porte sur toutes les offres, closes et mises de côté comprises."
+RETIRES = ["#btn-filtres", "#compte-filtres", "#btn-documenter", "#compte-documenter",
+           "#puces-filtres", "#panneau-filtres", "#f-statut", "#f-zone", "#f-atout",
+           "#f-verification", "#f-tri", "#f-ecartees", "#btn-rescorer"]
+PARAMETRES_RETIRES = {"statut", "zone", "inclure_ecartees", "a_documenter", "verification", "tri"}
 
 # Les routes simulées : une adresse à requête se route par une expression régulière.
 CLASSEMENT = re.compile(r"/api/classement$")
@@ -46,6 +55,8 @@ VALIDER = re.compile(r"/api/classement/valider$")
 ARCHIVE = re.compile(r"/api/archive(\?.*)?$")
 ENTONNOIR = re.compile(r"/api/entonnoir$")
 RESCORER = re.compile(r"/api/rescorer$")
+# Toutes les offres demande toujours `/api/offres?…`, sans paramètre compris ; une fiche, jamais.
+TOUTES = re.compile(r"/api/offres\?")
 
 
 def _filtre(etat: str):
@@ -80,6 +91,31 @@ def plus(serveur):
     *gardees, a_remettre = archivees
     return {"ecartee": ecartee, "refus": refus, "acceptee": acceptee, "longue": longue,
             "de_cote": de_cote, "remise": remise, "archivees": gardees, "a_remettre": a_remettre}
+
+
+@pytest.fixture(scope="module")
+def toutes(serveur):
+    """Les offres inventées de Toutes les offres : une ligne à voir, les deux réponses hors
+    d'ordre, un intitulé long, une candidature sans dossier (que son test envoie), et trois
+    offres d'un même employeur, une refusée, une mise de côté et une en cours."""
+    from veille import db
+
+    ligne, perimee, a_jour, longue = _inventer(
+        ["Offre inventée de Toutes les offres", "Offre inventée A, la réponse périmée",
+         "Offre inventée B, la réponse à jour", LONG], "plus/toutes", "nouveau")
+    (sans_dossier,) = _inventer(["Candidature inventée sans dossier"], "plus/sans-dossier",
+                                "interessante")
+    refusee, de_cote, en_cours = _inventer(
+        ["Offre inventée du rappel, refusée", "Offre inventée du rappel, mise de côté",
+         "Offre inventée du rappel, en cours"], "plus/rappel", "nouveau")
+    db.changer_statut(refusee, "refus")
+    db.changer_statut(de_cote, "differee", motif=MOTIF_DE_COTE)
+    with db.connexion() as cx:
+        cx.execute("UPDATE offres SET employeur = ? WHERE id IN (?, ?, ?)",
+                   (EMPLOYEUR_RAPPEL, refusee, de_cote, en_cours))
+    return {"ligne": ligne, "perimee": perimee, "a_jour": a_jour, "longue": longue,
+            "sans_dossier": sans_dossier, "refusee": refusee, "de_cote": de_cote,
+            "en_cours": en_cours}
 
 
 @pytest.fixture
@@ -215,9 +251,51 @@ def _ouvertes(page) -> list[bool]:
     return page.locator("#contenu-bilan details[data-liste]").evaluate_all("ds => ds.map(d => d.open)")
 
 
-def _laisser_passer(page) -> None:
+def _laisser_passer(page, ms: int = 150) -> None:
     """Laisse finir ce que les réponses reçues déclenchent : une absence ne s'attend pas."""
-    page.evaluate("() => new Promise(r => setTimeout(r, 150))")
+    page.evaluate("ms => new Promise(r => setTimeout(r, ms))", ms)
+
+
+def _parametres(url: str) -> dict[str, list[str]] | None:
+    """Les paramètres d'une demande de Toutes les offres, ou None pour une autre adresse."""
+    morceaux = urlsplit(url)
+    return parse_qs(morceaux.query) if morceaux.path == "/api/offres" else None
+
+
+def _demande_offres(condition=lambda parametres: True):
+    """Reconnaît une demande (ou sa réponse) de Toutes les offres dont les paramètres
+    remplissent `condition`."""
+    def voir(r) -> bool:
+        parametres = _parametres(r.url)
+        return parametres is not None and condition(parametres)
+    return voir
+
+
+def _ouvrir_toutes(page, url: str) -> None:
+    _ouvrir_plus(page, url)
+    with page.expect_response(_demande_offres()):
+        page.locator('.lien-plus[data-vue="offres"]:not([data-chercher])').click()
+    expect(page.locator("#vue-offres")).to_be_visible()
+    expect(page.locator("#resume-offres")).not_to_be_empty()
+
+
+def _chercher(page, texte: str):
+    """Tape une recherche d'un coup, et rend la réponse qui la suit, le délai passé."""
+    with page.expect_response(_demande_offres(lambda p: p.get("recherche") == [texte])) as reponse:
+        page.locator("#f-recherche").fill(texte)
+    return reponse.value
+
+
+def _lignes_toutes(page):
+    return page.locator("#liste-offres .ligne-offre")
+
+
+def _ligne_toutes(page, offre_id: int):
+    return page.locator(f'#liste-offres .ligne-offre[data-id="{offre_id}"]')
+
+
+def _ids_toutes(page) -> list[int]:
+    return _lignes_toutes(page).evaluate_all("es => es.map(e => Number(e.dataset.id))")
 
 
 def _cibles_du_doigt(page, vue: str) -> None:
@@ -281,6 +359,292 @@ def test_une_panne_des_pastilles_ne_dit_rien(telephone, serveur, console_attendu
     for pastille in ("#pastille-plus", "#pastille-criteres", "#pastille-bilan"):
         expect(telephone.locator(pastille)).to_be_empty()
     expect(telephone.locator("#messages")).to_be_empty()
+
+
+# ---------------------------------------------------------------------------
+# Toutes les offres et ses trois filtres (décisions 2 à 6)
+# ---------------------------------------------------------------------------
+
+
+def test_chercher_une_offre_ouvre_la_recherche(telephone, serveur):
+    """« Chercher une offre » ouvre Toutes les offres, le curseur dans la recherche (décision 5)."""
+    _ouvrir_plus(telephone, serveur)
+    telephone.get_by_role("button", name="Chercher une offre").click()
+    expect(telephone.locator("#vue-offres")).to_be_visible()
+    expect(telephone.locator("#f-recherche")).to_be_focused()
+    assert telephone.evaluate("document.activeElement.id") == "f-recherche"
+
+
+def test_toutes_les_offres_n_a_que_trois_filtres_et_la_bascule(telephone, serveur):
+    _ouvrir_toutes(telephone, serveur)
+    champs = telephone.locator("#vue-offres").locator("input, select, textarea").evaluate_all(
+        "es => es.map(e => e.id)")
+    assert champs == ["f-recherche", "f-etat", "f-famille"]
+    recherche = telephone.locator("#f-recherche")
+    expect(recherche).to_have_attribute("type", "search")
+    expect(recherche).to_have_attribute("aria-label", "Chercher une offre")
+    # L'exemple a un atout mis en avant : la bascule se voit.
+    expect(telephone.locator("#btn-atout")).to_be_visible()
+    for selecteur in RETIRES:
+        expect(telephone.locator(selecteur)).to_have_count(0)
+
+
+def test_les_options_d_etat_sont_les_cinq_et_les_mises_de_cote(telephone, serveur):
+    from veille import etats
+
+    _ouvrir_toutes(telephone, serveur)
+    options = telephone.locator("#f-etat option")
+    assert options.evaluate_all("os => os.map(o => o.value)") == ["", *etats.ETATS_FILTRABLES]
+    assert [t.strip() for t in options.all_text_contents()] == [
+        "En cours", "À voir", "Je postule", "Envoyée", "Entretien", "Close", "Mises de côté"]
+
+
+def test_le_filtre_d_etat_part_au_serveur(telephone, serveur, plus):
+    _ouvrir_toutes(telephone, serveur)
+    with telephone.expect_response(_demande_offres(lambda p: p.get("etat") == ["close"])) as rep:
+        telephone.locator("#f-etat").select_option("close")
+    assert not PARAMETRES_RETIRES & set(_parametres(rep.value.url))
+    # Une close du Bilan dans la liste : la liste est celle de la réponse.
+    expect(_ligne_toutes(telephone, plus["ecartee"])).to_be_visible()
+    etats_lus = _lignes_toutes(telephone).locator(".etat-ligne").all_text_contents()
+    assert etats_lus
+    assert {e.strip() for e in etats_lus} == {"Close"}
+
+
+def test_une_ligne_porte_titre_employeur_score_et_etat_et_ouvre_la_fiche(telephone, serveur,
+                                                                         toutes):
+    from veille import db
+
+    offre_id = toutes["ligne"]
+    offre = db.lire_offre(offre_id)
+    _ouvrir_toutes(telephone, serveur)
+    _chercher(telephone, offre["titre"])
+    ligne = _ligne_toutes(telephone, offre_id)
+    expect(ligne.locator(".offre-titre")).to_have_text(offre["titre"])
+    expect(ligne).to_contain_text(offre["employeur"])
+    expect(ligne.locator(".score")).to_have_text(f"{offre['score']:g}")
+    expect(ligne.locator(".etat-ligne")).to_have_text("À voir")
+
+    ligne.click()
+    fiche = _fiche(telephone, offre_id)
+    expect(fiche).to_be_visible()
+    expect(fiche.locator(".etat-fiche")).to_have_text("À voir")
+
+
+def test_la_recherche_n_envoie_qu_une_requete_par_pause(telephone, serveur):
+    """Le délai de la recherche (280 ms de calme) : une frappe rapide n'envoie qu'une demande."""
+    _ouvrir_toutes(telephone, serveur)
+    recherches: list = []
+
+    def noter(requete) -> None:
+        parametres = _parametres(requete.url)
+        if parametres is not None:
+            recherches.append(parametres.get("recherche"))
+
+    telephone.on("request", noter)
+    with telephone.expect_request(_demande_offres(lambda p: p.get("recherche") == ["abc"])):
+        telephone.locator("#f-recherche").press_sequentially("abc", delay=40)
+    _laisser_passer(telephone, 600)
+    assert ["a"] not in recherches
+    assert ["ab"] not in recherches
+    assert recherches.count(["abc"]) == 1
+
+
+def test_une_reponse_perimee_ne_remplace_pas_la_liste(telephone, serveur, toutes):
+    """Point d'attention 3 : la réponse à « ab », arrivée après celle à « abc », ne remplace
+    pas la liste."""
+    perimee = _offres("a_voir", [toutes["perimee"]])
+    a_jour = _offres("a_voir", [toutes["a_jour"]])
+    retenues: list = []
+
+    def repondre(route) -> None:
+        recherche = _parametres(route.request.url).get("recherche")
+        if recherche == ["ab"]:
+            retenues.append(route)
+        elif recherche == ["abc"]:
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(a_jour))
+        else:
+            route.continue_()
+
+    telephone.route(TOUTES, repondre)
+    _ouvrir_toutes(telephone, serveur)
+    champ = telephone.locator("#f-recherche")
+    with telephone.expect_request(_demande_offres(lambda p: p.get("recherche") == ["ab"])):
+        champ.fill("ab")
+    with telephone.expect_response(_demande_offres(lambda p: p.get("recherche") == ["abc"])):
+        champ.fill("abc")
+    expect(_ligne_toutes(telephone, toutes["a_jour"])).to_be_visible()
+    assert len(retenues) == 1
+
+    with telephone.expect_response(_demande_offres(lambda p: p.get("recherche") == ["ab"])):
+        retenues[0].fulfill(status=200, content_type="application/json",
+                            body=json.dumps(perimee))
+    _laisser_passer(telephone)
+    assert _ids_toutes(telephone) == [toutes["a_jour"]]
+
+
+def test_les_filtres_actifs_se_disent_et_s_effacent(telephone, serveur, toutes):
+    _servir(telephone, TOUTES, _offres("a_voir", [toutes["ligne"]]))
+    _ouvrir_toutes(telephone, serveur)
+    famille = telephone.locator("#f-famille option").nth(1)
+    cle, libelle = famille.get_attribute("value"), famille.text_content().strip()
+    _chercher(telephone, "recherche inventée")
+    with telephone.expect_response(_demande_offres(lambda p: p.get("etat") == ["close"])):
+        telephone.locator("#f-etat").select_option("close")
+    with telephone.expect_response(_demande_offres(lambda p: p.get("famille") == [cle])):
+        telephone.locator("#f-famille").select_option(cle)
+    resume = telephone.locator("#resume-offres")
+    expect(resume).to_contain_text(
+        f"Avec recherche : recherche inventée, état : Close et famille : {libelle}.")
+
+    with telephone.expect_request(_demande_offres()) as demande:
+        resume.get_by_role("button", name="Effacer les filtres").click()
+    assert _parametres(demande.value.url) == {}
+    for champ in ("#f-recherche", "#f-etat", "#f-famille"):
+        expect(telephone.locator(champ)).to_have_value("")
+    expect(resume).not_to_contain_text("Avec")
+    expect(resume.get_by_role("button", name="Effacer les filtres")).to_have_count(0)
+
+
+def test_une_recherche_sans_etat_porte_sur_toutes_les_offres(telephone, serveur, toutes):
+    """Point d'attention 6 : un recruteur rappelle pour une offre refusée ; sa recherche la
+    trouve sans qu'on choisisse d'état (réponse 21)."""
+    _ouvrir_toutes(telephone, serveur)
+    parametres = _parametres(_chercher(telephone, EMPLOYEUR_RAPPEL).url)
+    assert parametres.get("inclure_ecartees") == ["true"]
+    assert "etat" not in parametres
+    expect(_lignes_toutes(telephone)).to_have_count(3)
+    for cle in ("refusee", "de_cote", "en_cours"):
+        expect(_ligne_toutes(telephone, toutes[cle])).to_be_visible()
+    expect(telephone.locator("#resume-offres")).to_contain_text(PORTEE)
+
+
+def test_une_recherche_avec_un_etat_reste_dans_cet_etat(telephone, serveur, toutes):
+    _ouvrir_toutes(telephone, serveur)
+    _chercher(telephone, EMPLOYEUR_RAPPEL)
+    expect(_lignes_toutes(telephone)).to_have_count(3)
+    with telephone.expect_response(_demande_offres(lambda p: p.get("etat") == ["close"])) as rep:
+        telephone.locator("#f-etat").select_option("close")
+    assert _parametres(rep.value.url) == {"recherche": [EMPLOYEUR_RAPPEL], "etat": ["close"]}
+    expect(_lignes_toutes(telephone)).to_have_count(1)
+    expect(_ligne_toutes(telephone, toutes["refusee"])).to_be_visible()
+    expect(telephone.locator("#resume-offres")).not_to_contain_text(PORTEE)
+
+    # La recherche effacée, puis l'état : la liste « En cours », sans `inclure_ecartees`.
+    with telephone.expect_request(_demande_offres(lambda p: "recherche" not in p)) as demande:
+        telephone.locator("#f-recherche").fill("")
+    assert _parametres(demande.value.url) == {"etat": ["close"]}
+    with telephone.expect_request(_demande_offres(lambda p: "etat" not in p)) as demande:
+        telephone.locator("#f-etat").select_option("")
+    assert _parametres(demande.value.url) == {}
+
+
+def test_une_liste_plafonnee_le_dit_dans_le_resume(telephone, serveur, toutes):
+    _servir(telephone, TOUTES, _offres("a_voir", [toutes["ligne"], toutes["a_jour"]], total=250))
+    _ouvrir_toutes(telephone, serveur)
+    resume = telephone.locator("#resume-offres")
+    expect(resume).to_contain_text("250 offre(s), dont 2 au-dessus du seuil de")
+    expect(resume).to_contain_text("Les 2 premières, par score.")
+
+
+def test_sans_filtre_une_liste_vide_dit_ou_sont_les_closes(telephone, serveur):
+    _servir(telephone, TOUTES, _offres("a_voir"))
+    _ouvrir_toutes(telephone, serveur)
+    resume = telephone.locator("#resume-offres")
+    expect(resume).to_have_text(
+        "Aucune offre en cours. Les closes et les mises de côté se voient par le filtre d'état.")
+    expect(_lignes_toutes(telephone)).to_have_count(0)
+
+    with telephone.expect_response(_demande_offres(lambda p: p.get("etat") == ["close"])):
+        telephone.locator("#f-etat").select_option("close")
+    expect(resume).to_contain_text("Aucune offre avec état : Close.")
+    expect(resume.get_by_role("button", name="Effacer les filtres")).to_be_visible()
+
+
+def test_la_fiche_je_postule_sans_dossier_dit_je_l_ai_envoyee(telephone, serveur, toutes):
+    """Point d'attention 7 : une candidature faite sans dossier, par un formulaire en ligne,
+    se dit envoyée depuis la fiche « Je postule » (décision 20)."""
+    from veille import db
+
+    offre_id = toutes["sans_dossier"]
+    _ouvrir(telephone, serveur)
+    telephone.evaluate("id => ouvrirFiche(id)", offre_id)
+    fiche = _fiche(telephone, offre_id)
+    expect(fiche.locator(".etat-fiche")).to_have_text("Je postule")
+    assert fiche.locator(".ligne-actions [data-action]").evaluate_all(
+        "es => es.map(e => [e.dataset.action, e.textContent.trim(), e.classList.contains('discret')])"
+    ) == [["preparer", "Préparer ma candidature", False], ["envoyee", "Je l'ai envoyée", True]]
+
+    fiche.locator('[data-action="envoyee"]').click()
+    fenetre = telephone.locator("#fenetre")
+    expect(fenetre.locator("[data-canal]")).to_have_count(6)
+    with telephone.expect_response(lambda r: r.request.method == "POST"
+                                   and r.url.endswith(f"/api/offres/{offre_id}/statut")):
+        fenetre.get_by_role("button", name="LinkedIn", exact=True).click()
+    offre = db.lire_offre(offre_id)
+    assert offre["statut"] == "candidature_envoyee"
+    assert offre["canal_candidature"] == "LinkedIn"
+
+
+def test_la_bascule_de_l_atout_filtre_sur_l_atout_mis_en_avant(telephone, serveur):
+    _ouvrir_toutes(telephone, serveur)
+    atout = telephone.evaluate("() => JSON.parse(document.body.dataset.atout)")
+    bascule = telephone.locator("#btn-atout")
+    resume = telephone.locator("#resume-offres")
+    expect(bascule).to_have_attribute("aria-pressed", "false")
+    with telephone.expect_request(_demande_offres(lambda p: p.get("atout") == [atout["cle"]])):
+        bascule.click()
+    expect(bascule).to_have_attribute("aria-pressed", "true")
+    expect(resume).to_contain_text(f"atout : {atout['libelle']}")
+
+    with telephone.expect_request(_demande_offres(lambda p: "atout" not in p)):
+        bascule.click()
+    expect(bascule).to_have_attribute("aria-pressed", "false")
+    expect(resume).not_to_contain_text("atout :")
+
+
+@pytest.mark.parametrize("mis_en_avant", [True, False], ids=["mis_en_avant", "atout_invente"])
+def test_un_lien_d_atout_reste_valide(telephone, serveur, mis_en_avant):
+    """Point d'attention 4 : un ancien lien `?atout=` filtre Toutes les offres. L'atout mis en
+    avant se nomme par son libellé, la bascule enfoncée ; un autre, par sa clé (décision 3)."""
+    _ouvrir(telephone, serveur)
+    atout = telephone.evaluate("() => JSON.parse(document.body.dataset.atout)")
+    cle, nom = (atout["cle"], atout["libelle"]) if mis_en_avant else ("atout_invente",) * 2
+    with telephone.expect_request(_demande_offres(lambda p: p.get("atout") == [cle])):
+        telephone.goto(f"{serveur}/?atout={cle}")
+    expect(telephone.locator("#vue-offres")).to_be_visible()
+    resume = telephone.locator("#resume-offres")
+    bascule = telephone.locator("#btn-atout")
+    expect(resume).to_contain_text(f"atout : {nom}")
+    expect(bascule).to_have_attribute("aria-pressed", "true" if mis_en_avant else "false")
+
+    with telephone.expect_request(_demande_offres(lambda p: "atout" not in p)):
+        resume.get_by_role("button", name="Effacer les filtres").click()
+    expect(resume).not_to_contain_text("atout :")
+    expect(bascule).to_have_attribute("aria-pressed", "false")
+
+
+def test_un_lien_d_etat_ouvre_toutes_les_offres_filtree(telephone, serveur):
+    with telephone.expect_request(_demande_offres(lambda p: p.get("etat") == ["mise_de_cote"])):
+        telephone.goto(f"{serveur}/?filtre=differee")
+    expect(telephone.locator("#vue-offres")).to_be_visible()
+    expect(telephone.locator("#f-etat")).to_have_value("mise_de_cote")
+    expect(telephone.locator("#resume-offres")).to_contain_text("état : Mises de côté")
+
+
+def test_toutes_les_offres_se_touche_du_doigt_et_tient_dans_l_ecran(telephone, serveur, toutes):
+    _servir(telephone, TOUTES, _offres("a_voir", [toutes["longue"], toutes["ligne"]]))
+    _ouvrir_toutes(telephone, serveur)
+    expect(_ligne_toutes(telephone, toutes["longue"])).to_contain_text(LONG)
+    # Les lignes, la bascule et « ‹ Plus » ; puis les trois champs.
+    _cibles_du_doigt(telephone, "#vue-offres")
+    assert _lignes_toutes(telephone).count() == 2
+    champs = telephone.locator("#vue-offres").locator("input, select").evaluate_all(
+        "es => es.map(e => [e.id, e.getBoundingClientRect().height])")
+    assert [nom for nom, _ in champs] == ["f-recherche", "f-etat", "f-famille"]
+    for nom, hauteur in champs:
+        assert hauteur >= DOIGT, (nom, hauteur)
+    _tient_dans_l_ecran(telephone)
 
 
 # ---------------------------------------------------------------------------

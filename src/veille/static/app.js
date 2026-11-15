@@ -221,65 +221,126 @@ async function constater(id, enLigne) {
 }
 
 // ---------------------------------------------------------------------------
-// Chargement des listes
+// Toutes les offres (ADR-0003, § 6 ; décisions 2 à 6 du plan du lot 3)
+//
+// Trois filtres toujours visibles, la recherche, l'état et la famille, puis la bascule de
+// l'atout mis en avant. Chaque offre est une ligne qui ouvre sa fiche (`ligneOffre`). Sans
+// état, la liste montre les offres en cours ; une recherche sans état porte sur toutes les
+// offres, closes et mises de côté comprises. Le résumé dit le vrai nombre (`total`), nomme
+// les filtres actifs, et « Effacer les filtres » les retire, liste vide ou non.
 // ---------------------------------------------------------------------------
 
 let offresCourantes = [];
+// L'atout filtré : celui de la bascule, ou celui d'un ancien lien d'entrée (`?atout=`).
+let atoutFiltre = '';
+// Le numéro de la dernière demande : une réponse plus ancienne arrive trop tard (point
+// d'attention 3 du plan du lot 3), elle ne remplace pas la liste.
+let numeroOffres = 0;
+// La recherche attend 280 ms de calme : une frappe rapide n'envoie qu'une demande.
+let minuteurRecherche;
+
+const PORTEE_RECHERCHE = 'La recherche porte sur toutes les offres, closes et mises de côté comprises.';
+
+// Les filtres actifs, nommés comme le résumé les dit. L'atout mis en avant se nomme par son
+// libellé ; un autre, que la page ne connaît pas, par sa clé (décision 3).
+function filtresActifs() {
+  const actifs = [];
+  const recherche = $('#f-recherche').value.trim();
+  if (recherche) actifs.push({ cle: 'recherche', libelle: 'Recherche', valeur: recherche });
+  for (const [id, cle, libelle] of [['#f-etat', 'etat', 'État'], ['#f-famille', 'famille', 'Famille']]) {
+    const champ = $(id);
+    if (champ.value) {
+      actifs.push({ cle, libelle, valeur: champ.options[champ.selectedIndex].textContent.trim() });
+    }
+  }
+  if (atoutFiltre) {
+    actifs.push({ cle: 'atout', libelle: 'Atout',
+                  valeur: ATOUT && atoutFiltre === ATOUT.cle ? ATOUT.libelle : atoutFiltre });
+  }
+  return actifs;
+}
+
+// Ce que la liste demande. L'état part au serveur, qui le traduit en statuts (`etats.py`) ;
+// `inclure_ecartees` ne part que pour une recherche sans état (décision 4).
+function parametresOffres() {
+  const p = new URLSearchParams();
+  const recherche = $('#f-recherche').value.trim();
+  const etat = $('#f-etat').value;
+  if (recherche) p.set('recherche', recherche);
+  if (etat) p.set('etat', etat);
+  else if (recherche) p.set('inclure_ecartees', 'true');
+  if ($('#f-famille').value) p.set('famille', $('#f-famille').value);
+  if (atoutFiltre) p.set('atout', atoutFiltre);
+  return p;
+}
+
+// Les trois champs et l'atout, vidés, sans recharger la liste.
+function viderFiltres() {
+  clearTimeout(minuteurRecherche);
+  $('#f-recherche').value = '';
+  $('#f-etat').value = '';
+  $('#f-famille').value = '';
+  atoutFiltre = '';
+}
+
+function effacerFiltres() {
+  viderFiltres();
+  chargerOffres();
+}
+
+// « a », « a et b », « a, b et c ».
+function enumerer(textes) {
+  return textes.length < 2 ? textes.join('')
+    : `${textes.slice(0, -1).join(', ')} et ${textes[textes.length - 1]}`;
+}
+
+// Le résumé : le vrai nombre, le plafond s'il est atteint, la portée d'une recherche sans
+// état, puis les filtres actifs et « Effacer les filtres ». Une liste vide se dit ici aussi :
+// jamais une base qui paraît vide quand un filtre la restreint.
+function resumeOffres(d, actifs, p) {
+  const nommes = enumerer(actifs.map(a =>
+    `<b>${echapper(a.libelle.toLowerCase())} : ${echapper(a.valeur)}</b>`));
+  const portee = p.has('inclure_ecartees') ? ` ${PORTEE_RECHERCHE}` : '';
+  const effacer = actifs.length
+    ? ' <button class="discret" data-effacer-filtres>Effacer les filtres</button>' : '';
+  if (!d.offres.length) {
+    return actifs.length ? `Aucune offre avec ${nommes}.${portee}${effacer}`
+      : "Aucune offre en cours. Les closes et les mises de côté se voient par le filtre d'état.";
+  }
+  const total = Number(d.total ?? d.offres.length);
+  const bonnes = d.offres.filter(o => o.score >= SEUIL).length;
+  let html = `${total} offre(s), dont ${bonnes} au-dessus du seuil de ${SEUIL}.`;
+  // Plafonnée (200 lignes, `app.py`), la liste le dit : ses lignes viennent par score.
+  if (total > d.offres.length) html += ` Les ${d.offres.length} premières, par score.`;
+  return html + portee + (actifs.length ? ` Avec ${nommes}.` : '') + effacer;
+}
+
+function marquerBascule() {
+  $('#btn-atout').setAttribute('aria-pressed', String(Boolean(ATOUT) && atoutFiltre === ATOUT.cle));
+}
 
 async function chargerOffres() {
-  const p = new URLSearchParams();
-  const r = $('#f-recherche').value.trim();
-  if (r) p.set('recherche', r);
-  for (const [id, cle] of [['#f-statut', 'statut'], ['#f-zone', 'zone'],
-                           ['#f-famille', 'famille'], ['#f-atout', 'atout']]) {
-    if ($(id).value) p.set(cle, $(id).value);
-  }
-  if (aDocumenter) p.set('a_documenter', 'true');
-  if ($('#f-verification').value) p.set('verification', $('#f-verification').value);
-  if ($('#f-tri').value) p.set('tri', $('#f-tri').value);
-  if ($('#f-ecartees').checked) p.set('inclure_ecartees', 'true');
-
+  clearTimeout(minuteurRecherche);
+  const numero = ++numeroOffres;
+  const p = parametresOffres();
+  const actifs = filtresActifs();
+  marquerBascule();
   try {
     const d = await api('/api/offres?' + p);
+    // Une demande plus récente est partie : c'est sa réponse qui dira la liste.
+    if (numero !== numeroOffres) return;
     offresCourantes = d.offres;
-    // Le compte vient AVEC la liste : le bouton dit toujours la verite, sans
-    // requete supplementaire.
-    const badge = $('#compte-documenter');
-    badge.textContent = d.a_documenter ? String(d.a_documenter) : '';
-    badge.classList.toggle('visible', Boolean(d.a_documenter));
-    const actifs = filtresActifs();
-
-    let vide;
-    if (aDocumenter && !d.offres.length) {
-      vide = `<p class="resume">Rien à documenter : toutes tes offres au-dessus du
-        seuil ont assez d'information pour un dossier. Reclique sur
-        <b>À documenter</b> pour revoir la liste complète.</p>`;
-    } else if (actifs.length) {
-      // Ne jamais laisser croire que la base est vide alors qu'un filtre la
-      // restreint : c'est le piege classique d'un panneau replie.
-      vide = `<p class="resume">Aucune offre avec
-        ${actifs.map(a => `<b>${echapper(a.libelle.toLowerCase())} : ${echapper(a.valeur)}</b>`).join(' et ')}.
-        <button class="discret" id="tout-effacer">Effacer les filtres</button></p>`;
-    } else {
-      vide = `<p class="resume">Aucune offre en base. La collecte n'a encore rien trouve :
-        lance <code>veille collecter</code> sur le serveur, ou verifie que tes alertes mail
-        arrivent bien dans le libelle configure.</p>`;
-    }
-    $('#liste-offres').innerHTML = d.offres.map(carteOffre).join('') || vide;
-    const bouton = $('#tout-effacer');
-    if (bouton) bouton.onclick = () => {
-      CHAMPS_FILTRES.forEach(c => { $(c.id).value = ''; });
-      $('#f-ecartees').checked = false;
-      synchroniserFiltres();
-      chargerOffres();
-    };
-
-    const bonnes = d.offres.filter(o => o.score >= SEUIL).length;
-    $('#resume-offres').textContent =
-      `${d.offres.length} offre(s) affichee(s), dont ${bonnes} au-dessus du seuil de ${SEUIL}.`
-      + (actifs.length ? ` ${actifs.length} filtre(s) actif(s).` : '');
-  } catch (e) { message(e.message, true); }
+    // `ligneOffre(o)`, pas `map(ligneOffre)` : l'indice deviendrait sa précision.
+    $('#liste-offres').innerHTML = d.offres.map(o => ligneOffre(o)).join('');
+    $('#resume-offres').innerHTML = resumeOffres(d, actifs, p);
+  } catch (e) {
+    if (numero === numeroOffres) message(e.message, true);
+  }
 }
+
+// ---------------------------------------------------------------------------
+// Chargement des listes
+// ---------------------------------------------------------------------------
 
 function tableau(titre, lignes, colonnes) {
   if (!lignes.length) return '';
@@ -815,7 +876,7 @@ function carteAVoir(o) {
 }
 
 // Les offres que la file ne montre pas, au-dessus du seuil au-delà des premières, ou
-// dessous : « Toutes les offres », filtrée sur les nouvelles.
+// dessous : « Toutes les offres », filtrée sur l'état « À voir ».
 function liensVersToutes(d) {
   const textes = [];
   if (d.a_voir_restantes) {
@@ -860,10 +921,12 @@ async function chargerAFaire() {
       }
     }
     cible.innerHTML = html;
+    // L'état « À voir », les autres filtres vidés : il ramène aussi les « Plus tard » et les
+    // offres au-dessus du seuil (décision 3 du plan du lot 3, réponse 25).
     $$('[data-vers-toutes]', cible).forEach(b => {
       b.onclick = () => {
-        $('#f-statut').value = 'nouveau';
-        synchroniserFiltres();
+        viderFiltres();
+        $('#f-etat').value = 'a_voir';
         afficherVue('offres');
       };
     });
@@ -974,8 +1037,12 @@ function actionsDeFiche(o) {
     case 'je_postule':
       // Sans dossier, la préparation ; avec, l'envoi, et « Dossier prêt », qui porte les pièces,
       // le destinataire et l'affinement (décision 12 du plan du lot 2). Les deux passent par
-      // la même route : un dossier existant est rendu, jamais refait.
-      if (!o.dossier_chemin) return '<button data-action="preparer">Préparer ma candidature</button>';
+      // la même route : un dossier existant est rendu, jamais refait. Une candidature faite
+      // sans dossier (un formulaire en ligne) se dit envoyée d'ici (décision 20 du plan du lot 3).
+      if (!o.dossier_chemin) {
+        return `<button data-action="preparer">Préparer ma candidature</button>
+          <button class="discret" data-action="envoyee">Je l'ai envoyée</button>`;
+      }
       return `<button data-action="envoyee">Je l'ai envoyée</button>
         <button class="discret" data-action="preparer">Dossier prêt ›</button>`;
     case 'envoyee':
@@ -2284,127 +2351,35 @@ function afficherVue(nom) {
 // Tout `[data-vue]` mène à son écran : les onglets, les lignes de « Plus », « ‹ Plus ».
 document.addEventListener('click', ev => {
   const lien = ev.target.closest('[data-vue]');
-  if (lien) afficherVue(lien.dataset.vue);
+  if (!lien) return;
+  afficherVue(lien.dataset.vue);
+  // « Chercher une offre » : Toutes les offres, le curseur dans la recherche (décision 5).
+  if (lien.hasAttribute('data-chercher')) $('#f-recherche').focus();
 });
 
 // ---------------------------------------------------------------------------
-// Filtres : repliés par défaut sur téléphone
-//
-// Contrainte de conception, pas cosmétique : la console est consultée
-// principalement depuis un téléphone. Les offres passent devant, toujours. Les
-// réglages restent à un geste, et les filtres actifs restent visibles sous
-// forme de puces — sinon une liste courte paraît vide sans qu'on comprenne
-// qu'un filtre la restreint.
+// Toutes les offres : les gestes de ses trois filtres et de sa bascule
 // ---------------------------------------------------------------------------
 
-const CHAMPS_FILTRES = [
-  { id: '#f-recherche', cle: 'recherche', libelle: 'Recherche' },
-  { id: '#f-statut', cle: 'statut', libelle: 'Statut' },
-  { id: '#f-zone', cle: 'zone', libelle: 'Zone' },
-  { id: '#f-famille', cle: 'famille', libelle: 'Famille' },
-  { id: '#f-atout', cle: 'atout', libelle: 'Atout' },
-];
-
-const surTelephone = () => window.matchMedia('(max-width: 640px)').matches;
-
-function libelleValeur(champ) {
-  const el = $(champ.id);
-  if (el.tagName === 'SELECT') {
-    return el.options[el.selectedIndex]?.textContent.trim() || el.value;
-  }
-  return el.value.trim();
-}
-
-function filtresActifs() {
-  const actifs = CHAMPS_FILTRES
-    .filter(c => $(c.id).value.trim())
-    .map(c => ({ ...c, valeur: libelleValeur(c) }));
-  if ($('#f-ecartees').checked) {
-    actifs.push({ id: '#f-ecartees', cle: 'ecartees', libelle: 'Écartées', valeur: 'incluses' });
-  }
-  return actifs;
-}
-
-function effacerFiltre(id) {
-  const el = $(id);
-  if (el.type === 'checkbox') el.checked = false;
-  else el.value = '';
-  synchroniserFiltres();
-  chargerOffres();
-}
-
-function synchroniserFiltres() {
-  const actifs = filtresActifs();
-
-  $('#compte-filtres').textContent = actifs.length || '';
-  // Les libellés complets de la configuration débordent sur deux lignes au
-  // téléphone : on tronque,
-  // le libellé entier reste en infobulle.
-  const court = t => (t.length > 26 ? t.slice(0, 25).trimEnd() + '…' : t);
-  $('#puces-filtres').innerHTML = actifs.map(a =>
-    `<span class="puce" title="${echapper(a.libelle)} : ${echapper(a.valeur)}">${echapper(court(a.valeur))}
-       <button data-effacer="${a.id}" aria-label="Retirer le filtre ${echapper(a.libelle)}">×</button>
-     </span>`).join('');
-
-  const atoutActif = !!ATOUT && $('#f-atout').value === ATOUT.cle;
-  $('#btn-atout').setAttribute('aria-pressed', String(atoutActif));
-}
-
-$('#puces-filtres').addEventListener('click', ev => {
-  const b = ev.target.closest('[data-effacer]');
-  if (b) effacerFiltre(b.dataset.effacer);
-});
-
-$('#btn-filtres').onclick = () => {
-  const panneau = $('#panneau-filtres');
-  const ouvert = !panneau.hidden;
-  panneau.hidden = ouvert;
-  $('#btn-filtres').setAttribute('aria-expanded', String(!ouvert));
+$('#f-recherche').oninput = () => {
+  clearTimeout(minuteurRecherche);
+  minuteurRecherche = setTimeout(chargerOffres, 280);
 };
+$('#f-etat').onchange = () => chargerOffres();
+$('#f-famille').onchange = () => chargerOffres();
 
-// « À documenter » : score élevé, dossier trop mince. C'est la file de travail
-// la plus rentable — dix minutes chacune et elles deviennent candidatables —
-// donc elle est accessible en un geste, pas au fond du panneau des filtres.
-let aDocumenter = false;
-$('#btn-documenter').onclick = () => {
-  aDocumenter = !aDocumenter;
-  $('#btn-documenter').setAttribute('aria-pressed', String(aDocumenter));
-  chargerOffres();
-};
-
-// Accès en un geste à l'atout mis en avant par la configuration : son avantage
-// le plus rare, donc le filtre le plus utile au quotidien.
+// L'atout mis en avant par la configuration, en un geste : son avantage le plus rare. Touchée
+// pendant le filtre d'un autre atout (un ancien lien), la bascule le remplace.
 $('#btn-atout').onclick = () => {
   if (!ATOUT) return;
-  const champ = $('#f-atout');
-  champ.value = champ.value === ATOUT.cle ? '' : ATOUT.cle;
-  synchroniserFiltres();
+  atoutFiltre = atoutFiltre === ATOUT.cle ? '' : ATOUT.cle;
   chargerOffres();
 };
 
-let minuteur;
-$('#f-recherche').oninput = () => {
-  synchroniserFiltres();
-  clearTimeout(minuteur);
-  minuteur = setTimeout(chargerOffres, 280);
-};
-['#f-statut', '#f-zone', '#f-famille', '#f-atout', '#f-verification', '#f-tri', '#f-ecartees'].forEach(s => {
-  $(s).onchange = () => { synchroniserFiltres(); chargerOffres(); };
+// « Effacer les filtres » vit dans le résumé, que chaque réponse réécrit.
+$('#resume-offres').addEventListener('click', ev => {
+  if (ev.target.closest('[data-effacer-filtres]')) effacerFiltres();
 });
-
-// Replié sur téléphone, ouvert sur ordinateur où la place ne manque pas.
-$('#panneau-filtres').hidden = surTelephone();
-$('#btn-filtres').setAttribute('aria-expanded', String(!surTelephone()));
-
-$('#btn-rescorer').onclick = async ev => {
-  ev.target.disabled = true;
-  try {
-    const d = await api('/api/rescorer', { method: 'POST' });
-    message(`${d.offres_recalculees} offre(s) recalculee(s).`);
-    chargerOffres();
-  } catch (e) { message(e.message, true); }
-  finally { ev.target.disabled = false; }
-};
 
 // ---------------------------------------------------------------------------
 // Notifications push
@@ -2449,15 +2424,11 @@ if ('serviceWorker' in navigator && window.isSecureContext) {
 
 // ---------------------------------------------------------------------------
 
-// La notification ouvre `/?filtre=nouveau` : la file, qu'elle annonce. Un autre filtre, ou
-// un atout, mène à « Toutes les offres », filtrée comme avant.
-const params = new URLSearchParams(location.search);
-const filtreDemande = params.get('filtre');
-const atoutDemande = params.get('atout');
-const versOffres = Boolean((filtreDemande && filtreDemande !== 'nouveau') || atoutDemande);
-if (versOffres) {
-  if (filtreDemande) $('#f-statut').value = filtreDemande;
-  if (atoutDemande) $('#f-atout').value = atoutDemande;
-}
-synchroniserFiltres();
-afficherVue(versOffres ? 'offres' : 'a-faire');
+// La notification ouvre `/?filtre=nouveau` : la file, qu'elle annonce. Un ancien lien d'entrée
+// mène à « Toutes les offres » (décision 3 du plan du lot 3) : `?filtre=<statut>`, que le
+// serveur traduit en état (`data-etat-demande`, le JS ne traduit aucun statut), ou `?atout=`.
+const etatDemande = document.body.dataset.etatDemande || '';
+const atoutDemande = new URLSearchParams(location.search).get('atout') || '';
+if (etatDemande) $('#f-etat').value = etatDemande;
+atoutFiltre = atoutDemande;
+afficherVue(etatDemande || atoutDemande ? 'offres' : 'a-faire');

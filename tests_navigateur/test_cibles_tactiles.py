@@ -57,8 +57,8 @@ def telephone(navigateur, offres):
     page.goto(f"{offres}/")
     # La console s'ouvre sur « À faire » : la liste des offres est sous « Plus ».
     page.click('.onglet[data-vue="plus"]')
-    page.click('.lien-plus[data-vue="offres"]')
-    page.wait_for_selector("#liste-offres .offre")
+    page.click('.lien-plus[data-vue="offres"]:not([data-chercher])')
+    page.wait_for_selector("#liste-offres .ligne-offre")
     yield page
     assert erreurs == []
     contexte.close()
@@ -77,48 +77,37 @@ def test_les_onglets_ne_glissent_pas_sous_la_barre(telephone):
     assert abs(onglets["top"] - barre["bottom"]) < 1
 
 
-def test_les_boutons_d_une_offre_se_touchent_du_doigt(telephone):
-    # `#liste-offres` : les cartes de « À faire », cachées, mesureraient 0 px.
+def test_les_lignes_des_offres_se_touchent_du_doigt(telephone):
+    # `#liste-offres` : les lignes du Bilan, cachées, mesureraient 0 px.
     hauteurs = telephone.eval_on_selector_all(
-        "#liste-offres .offre .actions button",
+        "#liste-offres .ligne-offre",
         "bs => bs.map(b => b.getBoundingClientRect().height)")
     assert hauteurs
     assert min(hauteurs) >= DOIGT
 
 
 def test_les_boutons_de_la_barre_se_touchent_du_doigt(telephone):
-    for selecteur in ("#btn-filtres", "#btn-push", "form[action='/deconnexion'] button"):
+    for selecteur in ("#btn-push", "form[action='/deconnexion'] button"):
         assert _boite(telephone, selecteur)["height"] >= DOIGT, selecteur
 
 
-def test_pourquoi_ce_score_s_ouvre_du_doigt_sans_deplacer_la_carte(telephone):
-    """La zone s'étend par une marge négative : la carte garde sa hauteur."""
-    resume = _boite(telephone, ".offre details.explication summary")
-    assert resume["height"] >= 40
-
-
 def test_les_filtres_se_touchent_du_doigt(telephone):
-    """La case des écartées, et la croix qui retire un filtre depuis la barre compacte."""
-    telephone.click("#btn-filtres")
-    assert _boite(telephone, "label.case")["height"] >= DOIGT
-
-    telephone.select_option("#f-zone", index=1)
-    telephone.wait_for_selector(".puce button")
-    croix = _boite(telephone, ".puce button")
-    milieu_x = croix["x"] + croix["width"] / 2
-    milieu_y = croix["y"] + croix["height"] / 2
-    # La zone tapable fait 40 x 30 px autour de la croix : ses quatre coins la touchent.
-    for dx, dy in ((-18, -13), (18, -13), (-18, 13), (18, 13)):
-        touche = telephone.evaluate(
-            "([x, y]) => !!document.elementFromPoint(x, y)?.closest('.puce button')",
-            [milieu_x + dx, milieu_y + dy])
-        assert touche, (dx, dy)
+    """Les trois champs de Toutes les offres, et la bascule de l'atout mis en avant."""
+    for selecteur in ("#f-recherche", "#f-etat", "#f-famille", "#btn-atout"):
+        assert _boite(telephone, selecteur)["height"] >= DOIGT, selecteur
 
 
-def test_le_panneau_des_filtres_tient_dans_l_ecran(telephone):
-    """Un libellé de zone long ne fait pas défiler la page de côté : un sélecteur ne
-    descendait pas sous la largeur de sa plus longue option."""
-    telephone.click("#btn-filtres")
+def test_les_filtres_tiennent_dans_l_ecran(telephone):
+    """La famille au libellé le plus long, choisie, ne fait pas défiler la page de côté : un
+    sélecteur ne descendait pas sous la largeur de sa plus longue option. Les libellés de
+    l'exemple tiennent dans l'écran ; ceux d'une instance, non lus ici, peuvent ne pas tenir :
+    une famille inventée, plus large que l'écran, en tient lieu."""
+    telephone.eval_on_selector("#f-famille", """s => s.add(new Option(
+        'Famille inventée au libellé bien plus large que l’écran du téléphone, sans fin', 'inventee'))""")
+    valeur = telephone.eval_on_selector("#f-famille", """s => [...s.options].reduce(
+        (a, o) => (o.textContent.trim().length > a.textContent.trim().length ? o : a)).value""")
+    assert valeur == "inventee"
+    telephone.select_option("#f-famille", valeur)
     largeur = telephone.evaluate("document.documentElement.scrollWidth")
     assert largeur <= TELEPHONE["viewport"]["width"]
 
@@ -138,7 +127,6 @@ def test_un_lien_de_telechargement_se_touche_du_doigt(telephone):
 def test_les_compteurs_et_les_titres_ont_leurs_finitions(telephone):
     """Des chiffres de largeur égale dans les compteurs ; des titres équilibrés."""
     style = "([s, p]) => getComputedStyle(document.querySelector(s))[p]"
-    assert "tabular-nums" in telephone.evaluate(style, ["#compte-filtres", "fontVariantNumeric"])
     assert "tabular-nums" in telephone.evaluate(style, ["#pastille-plus", "fontVariantNumeric"])
     assert "balance" in telephone.evaluate(style, [".offre-titre", "textWrap"])
     assert "pretty" in telephone.evaluate(style, ["#resume-offres", "textWrap"])
