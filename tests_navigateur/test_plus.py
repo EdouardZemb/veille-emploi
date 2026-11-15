@@ -1549,12 +1549,16 @@ def test_un_abonnement_a_la_cle_illisible_est_renvoye_tel_quel(telephone, serveu
 
 def test_reglages_se_touche_du_doigt_et_tient_dans_l_ecran(telephone, serveur, cles_push):
     """Mesuré aussi sous une police large : celle du runner Linux de la CI est plus large que
-    celles de Windows, et une vue qui déborde de côté y décale les clics."""
+    celles de Windows, et une vue qui déborde de côté y décale les clics. La police large se pose
+    au rechargement, qui garde Réglages (décision 15). Rouvrir `/` ne la reposerait pas sur
+    « À faire » : Chromium garde `history.state` d'une navigation vers l'adresse courante."""
     simuler_push(telephone, "granted", cles_push.publique)
+    _ouvrir_reglages(telephone, serveur)
     for police_large in (False, True):
         if police_large:
             telephone.add_init_script(POLICE_LARGE)
-        _ouvrir_reglages(telephone, serveur)
+            telephone.reload()
+            expect(telephone.locator("#vue-reglages")).to_be_visible()
         expect(_bouton_push(telephone)).to_have_text(ESSAYER)
         expect(telephone.locator("#liste-appareils .ligne-appareil").first).to_be_visible()
         expect(telephone.locator("#liste-passkeys")).not_to_be_empty()

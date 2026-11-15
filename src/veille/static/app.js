@@ -544,7 +544,7 @@ function demanderCanal(id) {
       ${['site employeur', 'LinkedIn', 'mail direct', 'cabinet', 'cooptation', 'autre']
         .map(c => `<button class="discret" data-canal="${c}">${c}</button>`).join('')}
     </div>`;
-  $('#fenetre').showModal();
+  ouvrirFenetre();
   $$('#fenetre-contenu [data-canal]').forEach(b => {
     b.onclick = async () => {
       $('#fenetre').close();
@@ -728,7 +728,7 @@ function demanderNon(id, titre) {
       <button class="discret" id="btn-annuler-non">Annuler</button>
     </div>`;
   const fenetre = $('#fenetre');
-  if (!fenetre.open) fenetre.showModal();
+  ouvrirFenetre();
   remplirMotifs(id);
   $('#btn-annuler-non').onclick = () => fenetre.close();
   $('#btn-ecarter-non').onclick = ev => {
@@ -883,7 +883,7 @@ async function ouvrirFiche(id) {
     ? $$('details[open]', avant).map(d => d.dataset.repli) : [];
   contenu.innerHTML = contenuFiche(o);
   $$('details[data-repli]', contenu).forEach(d => { d.open = ouverts.includes(d.dataset.repli); });
-  if (!fenetre.open) fenetre.showModal();
+  ouvrirFenetre();
 }
 
 // Le statut, puis la fiche sur le nouvel état ; `changerStatut` recharge la vue de derrière.
@@ -960,9 +960,8 @@ function afficherEtape(id, r, options) {
 // sinon la position de l'écran d'avant, comme après « Enregistrer et régénérer » touché en bas.
 function montrerEtape(html) {
   $('#fenetre-contenu').innerHTML = `<div class="etape">${html}</div>`;
-  const fenetre = $('#fenetre');
-  if (!fenetre.open) fenetre.showModal();
-  fenetre.scrollTop = 0;
+  ouvrirFenetre();
+  $('#fenetre').scrollTop = 0;
 }
 
 // Les avertissements de l'étape, dans l'ordre de la route : l'alerte éliminatoire d'abord.
@@ -1429,7 +1428,7 @@ async function ouvrirEntretien(id) {
       }
     }
     $('#fenetre-contenu').innerHTML = html;
-    $('#fenetre').showModal();
+    ouvrirFenetre();
   } catch (e) { message(e.message, true); }
 }
 
@@ -1456,7 +1455,7 @@ async function ouvrirDetail(id) {
       <ul class="fichiers">${evts || '<li>aucun</li>'}</ul>
       <h3>Texte enregistré</h3>
       <p class="resume">${echapper((o.description || '(rien)').slice(0, 1200))}</p>`;
-    $('#fenetre').showModal();
+    ouvrirFenetre();
     brancherVerification(id);
     brancherDestinataire(id);
     brancherExigences(id);
@@ -1542,7 +1541,8 @@ document.addEventListener('click', ev => {
 // Onglets, filtres
 // ---------------------------------------------------------------------------
 
-let vueCourante = 'offres';
+// La vue montrée : celle de l'entrée courante de l'historique. « À faire » est la première.
+let vueCourante = 'a-faire';
 
 // ---------------------------------------------------------------------------
 // Le Bilan (ADR-0003, § 6 ; décisions 7 et 8 du plan du lot 3)
@@ -2051,7 +2051,7 @@ async function ouvrirRelance(id) {
     }
     if (!r.texte) {
       $('#fenetre-contenu').innerHTML = html;
-      $('#fenetre').showModal();
+      ouvrirFenetre();
       return;
     }
     html += `<p class="resume">Assemblé depuis <b>${echapper(r.gabarit)}</b> et
@@ -2066,7 +2066,7 @@ async function ouvrirRelance(id) {
         <button class="discret" id="btn-relance-envoyee">Je l'ai envoyée</button>
       </div>`;
     $('#fenetre-contenu').innerHTML = html;
-    $('#fenetre').showModal();
+    ouvrirFenetre();
 
     $('#btn-copier-relance').onclick = async () => {
       try {
@@ -2108,9 +2108,16 @@ const ONGLET_DE_VUE = {
   offres: 'plus', criteres: 'plus', bilan: 'plus', documents: 'plus', reglages: 'plus',
 };
 
-function afficherVue(nom) {
+// La vue `nom`, rechargée, ouverte par le haut. Quand elle change, elle entre dans l'historique,
+// au-dessus de celle d'avant ; `historique` faux, elle n'y entre pas : revenue par le retour, ou
+// montrée par une page rechargée.
+function afficherVue(nom, { historique = true } = {}) {
   const vue = $(`#vue-${nom}`);
   if (!vue) return;
+  if (historique && nom !== vueCourante) {
+    const ici = history.state || {};
+    history.pushState({ vue: nom, precedente: vueCourante, profondeur: (ici.profondeur || 0) + 1 }, '');
+  }
   vueCourante = nom;
   const onglet = ONGLET_DE_VUE[nom] || nom;
   $$('.onglet').forEach(o => o.classList.toggle('actif', o.dataset.vue === onglet));
@@ -2121,13 +2128,80 @@ function afficherVue(nom) {
   rafraichir();
 }
 
-// Tout `[data-vue]` mène à son écran : les onglets, les lignes de « Plus », « ‹ Plus ».
+// ---------------------------------------------------------------------------
+// Le retour d'Android (E10 ; décision 15 du plan du lot 3)
+//
+// Une entrée d'historique par changement de vue, `{vue, precedente, profondeur}`, et une par
+// ouverture de la fenêtre : la même, marquée `fenetre`. Ce que la fenêtre montre ensuite (la
+// fiche, puis « Non », une étape, « Dossier prêt », le mot de relance, le canal, le détail) n'en
+// ajoute pas : le retour la ferme, quoi qu'elle montre, sans revenir à la fiche. Sans fenêtre, il
+// revient à la vue d'avant, rechargée ; depuis « À faire », la première entrée, il quitte
+// l'application.
+// ---------------------------------------------------------------------------
+
+// Vrai entre le retour que lance la fermeture de la fenêtre et son `popstate`.
+let retourDeFermeture = false;
+// « Chercher une offre » rejointe par le retour : le curseur va dans la recherche à son arrivée.
+let curseurApresRetour = false;
+
+// Seule à ouvrir la fenêtre. Fermée, elle entre dans l'historique, puis s'ouvre ; déjà ouverte,
+// elle n'y entre pas une seconde fois, et l'appelant ne fait qu'en remplacer le contenu.
+function ouvrirFenetre() {
+  const fenetre = $('#fenetre');
+  if (fenetre.open) return;
+  history.pushState({ ...history.state, fenetre: true }, '');
+  fenetre.showModal();
+}
+
+// Fermée sans traverser l'historique (« Fermer », Échap, un geste qui la ferme, ou le retour
+// d'Android quand Chrome la ferme lui-même, par `cancel` puis `close`), la fenêtre retire son
+// entrée par un retour. Fermée par le retour, rien à retirer : `close` part après le `popstate`,
+// et l'entrée courante est déjà celle de la vue.
+$('#fenetre').addEventListener('close', () => {
+  if (!history.state?.fenetre) return;
+  retourDeFermeture = true;
+  history.back();
+});
+
+// Le retour, et les vues qu'`allerA` rejoint par lui. Celui que lance la fermeture ne touche à
+// rien ; mais si la fenêtre s'est rouverte avant qu'il n'arrive, il a pu atterrir sur l'entrée
+// de la vue, la fenêtre ouverte : elle y repose la sienne. Un autre ferme la fenêtre ouverte, et
+// montre la vue de l'entrée si elle diffère ; la vue sous une fenêtre fermée ne se recharge pas.
+window.addEventListener('popstate', ev => {
+  const fenetre = $('#fenetre');
+  const entree = ev.state || {};
+  if (retourDeFermeture) {
+    retourDeFermeture = false;
+    if (fenetre.open && !entree.fenetre) history.pushState({ ...ev.state, fenetre: true }, '');
+    return;
+  }
+  if (fenetre.open) fenetre.close();
+  if (entree.vue && entree.vue !== vueCourante) afficherVue(entree.vue, { historique: false });
+  if (curseurApresRetour && vueCourante === 'offres') $('#f-recherche').focus();
+  curseurApresRetour = false;
+});
+
+// Le geste de tout `[data-vue]` : les onglets, les lignes de « Plus », « ‹ Plus ». L'onglet
+// « À faire » revient à la première entrée : le retour depuis lui quitte toujours l'application.
+// La vue ouverte juste avant se rejoint par le retour, sans entrée de plus. Une autre entre dans
+// l'historique. `chercher` : « Chercher une offre », le curseur dans la recherche (décision 5),
+// posé une fois la vue montrée.
+function allerA(nom, { chercher = false } = {}) {
+  const ici = history.state || {};
+  if (nom === 'a-faire' && ici.profondeur > 0) {
+    history.go(-ici.profondeur);
+  } else if (nom !== vueCourante && ici.precedente === nom) {
+    curseurApresRetour = chercher;
+    history.back();
+  } else {
+    afficherVue(nom);
+    if (chercher) $('#f-recherche').focus();
+  }
+}
+
 document.addEventListener('click', ev => {
   const lien = ev.target.closest('[data-vue]');
-  if (!lien) return;
-  afficherVue(lien.dataset.vue);
-  // « Chercher une offre » : Toutes les offres, le curseur dans la recherche (décision 5).
-  if (lien.hasAttribute('data-chercher')) $('#f-recherche').focus();
+  if (lien) allerA(lien.dataset.vue, { chercher: lien.hasAttribute('data-chercher') });
 });
 
 // ---------------------------------------------------------------------------
@@ -2390,11 +2464,22 @@ synchroniserPush();
 
 // ---------------------------------------------------------------------------
 
-// La notification ouvre `/?filtre=nouveau` : la file, qu'elle annonce. Un ancien lien d'entrée
-// mène à « Toutes les offres » (décision 3 du plan du lot 3) : `?filtre=<statut>`, que le
-// serveur traduit en état (`data-etat-demande`, le JS ne traduit aucun statut), ou `?atout=`.
-const etatDemande = document.body.dataset.etatDemande || '';
-const atoutDemande = new URLSearchParams(location.search).get('atout') || '';
-if (etatDemande) $('#f-etat').value = etatDemande;
-atoutFiltre = atoutDemande;
-afficherVue(etatDemande || atoutDemande ? 'offres' : 'a-faire');
+// L'entrée dans la console (décision 15). Une entrée qui porte déjà sa vue, celle d'une page
+// rechargée, la montre, sans fenêtre ; si elle porte aussi la fenêtre, un retour retire cette
+// entrée morte, et son `popstate`, sur la même vue, ne la recharge pas. Sinon, « À faire » est la
+// première entrée, à l'adresse `/`. La notification ouvre `/?filtre=nouveau` : la file, qu'elle
+// annonce. Un ancien lien d'entrée ouvre « Toutes les offres », posée au-dessus d'« À faire »
+// (décision 3 du plan du lot 3) : `?filtre=<statut>`, que le serveur traduit en état
+// (`data-etat-demande`, le JS ne traduit aucun statut), ou `?atout=`.
+const entreeChargee = history.state;
+if (entreeChargee && entreeChargee.vue) {
+  afficherVue(entreeChargee.vue, { historique: false });
+  if (entreeChargee.fenetre) history.back();
+} else {
+  const etatDemande = document.body.dataset.etatDemande || '';
+  const atoutDemande = new URLSearchParams(location.search).get('atout') || '';
+  history.replaceState({ vue: 'a-faire', precedente: null, profondeur: 0 }, '', '/');
+  if (etatDemande) $('#f-etat').value = etatDemande;
+  atoutFiltre = atoutDemande;
+  afficherVue(etatDemande || atoutDemande ? 'offres' : 'a-faire');
+}
