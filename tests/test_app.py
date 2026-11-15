@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from veille import auth, db
+from veille import auth, db, dossier
 from veille.app import app
 from veille.models import Offre
 from veille.scoring import scorer
@@ -214,27 +214,46 @@ def test_statut_inconnu_refuse(connecte):
 # --------------------------------------------------------------------------
 
 
-def test_generation_du_dossier(connecte):
+def _offre_avec_dossier(connecte) -> int:
+    """La première offre, remise en « nouveau », dont « Préparer ma candidature » fait le dossier
+    (`forcer` : l'annonce inventée est mince)."""
     oid = connecte.get("/api/offres?inclure_ecartees=true").json()["offres"][0]["id"]
-    d = connecte.post(f"/api/offres/{oid}/dossier").json()
-    assert "fiche-offre.md" in d["fichiers"]
+    db.changer_statut(oid, "nouveau")
+    etape = connecte.post(f"/api/offres/{oid}/preparer", json={"forcer": True}).json()
+    assert etape["etape"] == "pret"
+    return oid
+
+
+def test_la_preparation_rend_un_dossier_provisoire_et_son_paquet(connecte):
+    oid = connecte.get("/api/offres?inclure_ecartees=true").json()["offres"][0]["id"]
+    db.changer_statut(oid, "nouveau")
+    d = connecte.post(f"/api/offres/{oid}/preparer", json={"forcer": True}).json()
+    assert d["etape"] == "pret"
     assert d["kit_provisoire"] is True
-    assert any("provisoire" in a.lower() for a in d["avertissements"])
+    assert dossier.AVERTISSEMENT_KIT_PROVISOIRE not in d["avertissements"]
     archive = connecte.get(f"/api/offres/{oid}/dossier/archive")
     assert archive.status_code == 200
     assert archive.content[:2] == b"PK"
 
 
-def test_dossier_refuse_de_sortir_de_son_repertoire(connecte):
+def test_generer_dit_le_kit_provisoire_par_sa_phrase(connecte):
+    """La phrase garde son texte : `generer` la met en tête, et c'est elle que la préparation retire."""
     oid = connecte.get("/api/offres?inclure_ecartees=true").json()["offres"][0]["id"]
-    connecte.post(f"/api/offres/{oid}/dossier")
+    resultat = dossier.generer(db.lire_offre(oid))
+    assert resultat.kit_provisoire is True
+    assert resultat.avertissements[0] == dossier.AVERTISSEMENT_KIT_PROVISOIRE
+    assert dossier.AVERTISSEMENT_KIT_PROVISOIRE.startswith("Kit de candidature provisoire : ")
+    assert dossier.AVERTISSEMENT_KIT_PROVISOIRE.endswith("Pointe VEILLE_KIT sur le vrai kit des qu'il est livre.")
+
+
+def test_dossier_refuse_de_sortir_de_son_repertoire(connecte):
+    oid = _offre_avec_dossier(connecte)
     r = connecte.get(f"/api/offres/{oid}/dossier/..%2F..%2F..%2Fetc%2Fpasswd")
     assert r.status_code == 404
 
 
 def test_un_dossier_d_une_autre_arborescence_s_ouvre_par_son_nom(connecte):
-    oid = connecte.get("/api/offres?inclure_ecartees=true").json()["offres"][0]["id"]
-    connecte.post(f"/api/offres/{oid}/dossier")
+    oid = _offre_avec_dossier(connecte)
     nom = Path(db.lire_offre(oid)["dossier_chemin"]).name
     db.maj_champs(oid, dossier_chemin="/ailleurs/donnees/dossiers/" + nom)
     archive = connecte.get(f"/api/offres/{oid}/dossier/archive")

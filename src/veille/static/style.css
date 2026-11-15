@@ -93,11 +93,6 @@ button:disabled{opacity:.5;cursor:default}
 .etiquette{background:var(--fond3);color:var(--doux);border-radius:6px;padding:2px 8px;font-size:.76rem}
 .etiquette.alerte{background:rgba(240,180,41,.16);color:var(--moyen)}
 .etiquette.grave{background:rgba(239,100,97,.16);color:var(--mauvais)}
-.etiquette.atout{background:rgba(91,157,255,.13);color:var(--accent)}
-.etiquette.atout-fort{
-  background:linear-gradient(90deg,rgba(61,220,151,.22),rgba(91,157,255,.22));
-  color:var(--bon);font-weight:650;border:1px solid rgba(61,220,151,.35);
-}
 
 .actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:11px}
 .actions button{padding:7px 11px;font-size:.86rem}
@@ -349,27 +344,6 @@ b.monte{color:var(--bon)} b.descend{color:var(--mauvais)}
 .citation{
   color:var(--doux);font-style:italic;display:inline-block;margin-top:3px;
   background:var(--fond3);padding:5px 9px;border-radius:6px;line-height:1.45;
-}
-
-/* ---------- deux axes, deux repères ----------
-   Le score de correspondance et la complétude ne doivent jamais se ressembler :
-   couleurs et formes distinctes, et jamais côte à côte dans un même nombre. */
-.reperes{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 2px}
-.verif,.completude{border-radius:6px;padding:2px 8px;font-size:.74rem;white-space:nowrap}
-.verif{background:var(--fond3);color:var(--doux)}
-.verif.jamais{background:rgba(240,180,41,.16);color:var(--moyen)}
-.verif.non-verifiable{background:rgba(239,100,97,.14);color:var(--mauvais)}
-.verif.ancienne{background:rgba(240,180,41,.10);color:var(--moyen)}
-.verif.par-edouard{background:rgba(61,220,151,.14);color:var(--bon)}
-/* La complétude est encadrée, jamais pleine : on ne la confond pas avec un score. */
-.completude{background:transparent;border:1px solid var(--fond3);color:var(--doux)}
-.completude.solide{border-color:var(--bon);color:var(--bon)}
-.completude.correct{border-color:var(--accent);color:var(--accent)}
-.completude.mince{border-color:var(--moyen);color:var(--moyen)}
-.completude.insuffisant{border-color:var(--mauvais);color:var(--mauvais)}
-@media (max-width:640px){
-  .reperes{gap:5px}
-  .verif,.completude{font-size:.72rem}
 }
 
 /* ---------- champs de saisie du destinataire ---------- */

@@ -603,7 +603,6 @@ def test_la_fiche_ne_montre_que_les_actions_de_son_etat(telephone, parcours, fic
     expect(fiche.locator('[data-action="relance"]')).to_have_count(1)
     expect(fiche.locator('[data-action="reponse"]')).to_have_count(3)
     expect(fiche.locator('[data-action="postuler"]')).to_have_count(0)
-    expect(fiche.locator('[data-action="dossier"]')).to_have_count(0)
     statuts = fiche.locator('[data-action="reponse"]').evaluate_all(
         "bs => bs.map(b => b.dataset.statut)")
     assert statuts == ["entretien", "refus", "accepte"]
@@ -1324,6 +1323,9 @@ def test_dossier_pret_se_touche_du_doigt_et_tient_dans_l_ecran(telephone, parcou
     fenetre = telephone.locator("#fenetre")
     expect(_titre(telephone)).to_have_text("Dossier prêt")
     expect(fenetre).to_contain_text("Ton kit de candidature n'est pas branché")
+    # Le bloc est seul à dire le kit provisoire : il reprend le remède (décision 16).
+    for remede in ("VEILLE_KIT", "/donnees/kit", "gabarits/"):
+        expect(fenetre).to_contain_text(remede)
 
     def mesurer(attendus: tuple[str, ...]) -> None:
         mesures = _cibles(telephone)

@@ -85,127 +85,6 @@ function listeContributions(o) {
   }).join('');
 }
 
-function carteOffre(o) {
-  const n = niveau(o.score);
-  const meta = [o.employeur, o.lieu, o.type_contrat, o.date_publication, o.source]
-    .filter(Boolean).map(x => `<span>${echapper(x)}</span>`).join('');
-
-  const etiquettes = [etiquetteSalaire(o)];
-  // L'atout mis en avant (choisi dans la configuration) passe en premier.
-  if (ATOUT && (o.atouts || []).includes(ATOUT.cle)) {
-    etiquettes.unshift(`<span class="etiquette atout-fort" title="${echapper(ATOUT.titre)}">${echapper(ATOUT.libelle)}</span>`);
-  }
-  (o.atouts || []).filter(a => !ATOUT || a !== ATOUT.cle).forEach(a => {
-    etiquettes.push(`<span class="etiquette atout">${echapper(a.replace(/_/g, ' '))}</span>`);
-  });
-  if (o.donnees_partielles) {
-    etiquettes.push('<span class="etiquette alerte" title="Le mail ne contenait qu\'un extrait : le score ne porte que sur l\'intitule et le lieu">donnees partielles</span>');
-  }
-  if (o.statut && o.statut !== 'nouveau') {
-    etiquettes.push(`<span class="etiquette">${echapper(o.statut.replace(/_/g, ' '))}</span>`);
-  }
-  if (o.motif_ecartement) {
-    etiquettes.push(`<span class="etiquette grave">${echapper(o.motif_ecartement)}</span>`);
-  }
-  if (o.date_relance_due) {
-    etiquettes.push(`<span class="etiquette">relance le ${echapper(o.date_relance_due)}</span>`);
-  }
-
-  const contribs = listeContributions(o);
-
-  const titre = o.url
-    ? `<a href="${echapper(o.url)}" target="_blank" rel="noopener noreferrer">${echapper(o.titre)}</a>`
-    : echapper(o.titre);
-
-  return `
-  <article class="offre ${n}" data-id="${o.id}">
-    <div class="offre-haut">
-      <div>
-        <p class="offre-titre">${titre}</p>
-        <div class="meta">${meta}</div>
-      </div>
-      <span class="score ${n}">${o.score}</span>
-    </div>
-    <div class="reperes">${pastilleVerification(o)}${pastilleCompletude(o.completude)}</div>
-    <div class="etiquettes">${etiquettes.join('')}</div>
-    <details class="explication">
-      <summary>Pourquoi ce score</summary>
-      <ul class="contribs">${contribs || '<li>aucune contribution</li>'}</ul>
-    </details>
-    <div class="actions">
-      <button data-action="dossier">Generer le dossier</button>
-      <button class="discret" data-action="statut" data-statut="interessante">Interessante</button>
-      <button class="discret" data-action="statut" data-statut="a_traiter">A traiter</button>
-      <button class="discret" data-action="envoyee">Candidature envoyee</button>
-      <button class="discret" data-action="relance">Mot de relance</button>
-      <button class="discret" data-action="ecarter">Ecarter</button>
-      <button class="discret" data-action="entretien">Préparer l'entretien</button>
-      <button class="discret" data-action="detail">${o.donnees_partielles ? `Lire l'annonce` : 'Detail'}</button>
-      <button class="discret obsolete" data-action="obsolete" title="Tu as ouvert l'annonce et elle n'y est plus">Obsolète</button>
-    </div>
-  </article>`;
-}
-
-// ---------------------------------------------------------------------------
-// Fraîcheur de vérification : trois états, pas un seul indicateur
-//
-//   • vérifiée automatiquement — on a pu sonder le site
-//   • vérifiée par toi         — tu as regardé, ça vaut preuve
-//   • jamais vérifiée          — dont « non vérifiable », site qui l'interdit
-//
-// Ces trois choses ne veulent pas dire la même chose et ne doivent pas se
-// ressembler. Une annonce jamais vue et une annonce vue ce matin non plus :
-// d'où l'âge en clair, et pas une date enfouie dans le détail.
-// ---------------------------------------------------------------------------
-
-function ageEnJours(horodatage) {
-  if (!horodatage) return null;
-  const t = Date.parse(horodatage);
-  if (Number.isNaN(t)) return null;
-  return Math.floor((Date.now() - t) / 86400000);
-}
-
-function etatVerification(o) {
-  if (o.verdict_verification === 'interdite') {
-    return { cle: 'non-verifiable', texte: 'non vérifiable', titre:
-      "Ce site interdit la lecture automatisée : seule ta vérification compte." };
-  }
-  if (!o.verifiee_le) {
-    return { cle: 'jamais', texte: 'jamais vérifiée', titre:
-      "Cette annonce n'a jamais été contrôlée." };
-  }
-  const j = ageEnJours(o.verifiee_le);
-  const quand = j === 0 ? "aujourd'hui" : j === 1 ? 'hier' : `il y a ${j} j`;
-  const qui = o.verifiee_par === 'edouard' ? 'par toi' : 'auto';
-  const vieille = j !== null && j >= 7;
-  return {
-    cle: qui === 'par toi' ? 'par-edouard' : (vieille ? 'ancienne' : 'auto'),
-    texte: `vérifiée ${quand} · ${qui}`,
-    titre: o.motif_verification || '',
-  };
-}
-
-function pastilleVerification(o) {
-  const e = etatVerification(o);
-  return `<span class="verif ${e.cle}" title="${echapper(e.titre)}">${echapper(e.texte)}</span>`;
-}
-
-// ---------------------------------------------------------------------------
-// Complétude — DEUXIÈME axe, jamais mélangé au score de correspondance
-//
-// Le score dit si l'offre lui va. La complétude dit si on en sait assez pour
-// écrire une candidature qui tienne. Une offre à 87 mal documentée et une
-// offre à 25 bien documentée doivent rester lisibles séparément : aucune
-// moyenne des deux n'existe nulle part.
-// ---------------------------------------------------------------------------
-
-function pastilleCompletude(c) {
-  if (!c) return '';
-  return `<span class="completude ${echapper(c.niveau)}"
-    title="Information disponible sur le poste — sans rapport avec le score de correspondance">
-    dossier ${c.score}/100 · ${echapper(c.niveau)}</span>`;
-}
-
 // ---------------------------------------------------------------------------
 // Le geste manuel : un clic depuis la liste, réversible d'un autre clic
 // ---------------------------------------------------------------------------
@@ -230,7 +109,6 @@ async function constater(id, enLigne) {
 // les filtres actifs, et « Effacer les filtres » les retire, liste vide ou non.
 // ---------------------------------------------------------------------------
 
-let offresCourantes = [];
 // L'atout filtré : celui de la bascule, ou celui d'un ancien lien d'entrée (`?atout=`).
 let atoutFiltre = '';
 // Le numéro de la dernière demande : une réponse plus ancienne arrive trop tard (point
@@ -329,7 +207,6 @@ async function chargerOffres() {
     const d = await api('/api/offres?' + p);
     // Une demande plus récente est partie : c'est sa réponse qui dira la liste.
     if (numero !== numeroOffres) return;
-    offresCourantes = d.offres;
     // `ligneOffre(o)`, pas `map(ligneOffre)` : l'indice deviendrait sa précision.
     $('#liste-offres').innerHTML = d.offres.map(o => ligneOffre(o)).join('');
     $('#resume-offres').innerHTML = resumeOffres(d, actifs, p);
@@ -656,113 +533,6 @@ async function changerStatut(id, statut, motif, canal) {
   });
   message('Statut mis a jour.');
   rafraichir();
-}
-
-function afficherDossier(id, d) {
-  const avert = d.avertissements.map(a => `<p class="avert">${echapper(a)}</p>`).join('');
-  const fichiers = d.fichiers.map(f =>
-    `<li><a href="/api/offres/${id}/dossier/${encodeURIComponent(f)}" download>${echapper(f)}</a></li>`).join('');
-  const c = d.completude;
-  // Quand le kit n'est pas branche, la lettre n'est qu'un squelette et aucun CV
-  // n'est joint. Le dire FRANCHEMENT et en premier : sans ca, il voit un
-  // resultat creux et conclut que « la generation ne fonctionne pas ».
-  const provisoire = d.kit_provisoire ? `
-    <p class="avert grave"><b>⚠ Ton kit de candidature n'est pas branché</b><br>
-      Ce dossier contient un <b>squelette</b> de lettre — aucune phrase écrite — et
-      <b>aucun CV</b>. Ce n'est pas une panne : la console n'a rien à joindre.
-      Les pièces sont sur ton PC, pas sur le serveur.</p>` : '';
-
-  $('#fenetre-contenu').innerHTML = `
-    <h2>Dossier genere</h2>
-    ${provisoire}
-    <p class="resume">${echapper(d.dossier)}</p>
-    ${c ? `<p class="resume"><span class="completude ${echapper(c.niveau)}">dossier ${c.score}/100 · ${echapper(c.niveau)}</span></p>` : ''}
-    ${d.gabarit_lettre ? `<p class="resume">Lettre construite depuis le gabarit <code>${echapper(d.gabarit_lettre)}</code>.</p>` : ''}
-    ${avert}
-    <ul class="fichiers">${fichiers}</ul>
-    <p><a href="${d.archive}" download><b>Télécharger le paquet d'envoi (.zip)</b></a>
-       &nbsp;·&nbsp;
-       <a class="discret" href="${d.archive_complete}" download>dossier complet, avec ta fiche de préparation</a></p>
-    <div id="zone-affinement"></div>`;
-  $('#fenetre').showModal();
-  blocAffinement(id).then(h => { $('#zone-affinement').innerHTML = h; brancherAffinement(id); });
-}
-
-// Ce qui manque, nommé, avec l'action qui le comble. « Information
-// insuffisante » sans dire laquelle ne sert à rien.
-function afficherCompletudeInsuffisante(id, c, bouton) {
-  const manques = c.manques.map(m =>
-    `<li class="contre"><span class="pts moins">-${m.points}</span>
-      <span><b>${echapper(m.libelle)}</b><br>
-      <span class="citation">${echapper(m.quoi_faire)}</span></span></li>`).join('');
-  $('#fenetre-contenu').innerHTML = `
-    <h2>Information trop mince pour un dossier sérieux</h2>
-    <p class="avert grave"><b>Dossier ${c.score}/100 — ${echapper(c.niveau)}</b><br>
-      Le seuil est à ${c.seuil}. Une lettre écrite là-dessus sera générique, et
-      ça se verra. Ce chiffre n'a <b>rien à voir</b> avec le score de
-      correspondance : il dit ce qu'on <i>sait</i>, pas si le poste te va.</p>
-    <p class="resume"><b>Ce qui manque, par ordre d'importance</b></p>
-    <ul class="preuves">${manques}</ul>
-    ${c.acquis.length ? `<p class="resume"><b>Déjà acquis</b> : ${echapper(c.acquis.join(', '))}.</p>` : ''}
-    <div class="actions">
-      <button id="btn-completer">Compléter l'annonce d'abord</button>
-      <button class="discret" id="btn-forcer">Générer quand même</button>
-    </div>`;
-  $('#fenetre').showModal();
-  $('#btn-completer').onclick = () => { $('#fenetre').close(); ouvrirDetail(id); };
-  $('#btn-forcer').onclick = async () => {
-    $('#fenetre').close();
-    try {
-      const d = await api(`/api/offres/${id}/dossier?forcer=true`, { method: 'POST' });
-      afficherDossier(id, d);
-      // La vue de derrière dit encore « Dossier à préparer » : elle se recharge.
-      rafraichir();
-    } catch (e) { message(e.message, true); }
-  };
-}
-
-async function genererDossier(id, bouton) {
-  // Le libellé revient tel qu'il était. Seuls les anciens écrans gardent ce geste, jusqu'au
-  // lot 3 : la fiche passe par la préparation (`preparerCandidature`).
-  const libelle = bouton.textContent;
-  bouton.disabled = true;
-  bouton.textContent = 'Generation...';
-  try {
-    const d = await api(`/api/offres/${id}/dossier`, { method: 'POST' });
-    if (d.ok === false && d.raison === 'completude_insuffisante') {
-      afficherCompletudeInsuffisante(id, d.completude, bouton);
-      return;
-    }
-    afficherDossier(id, d);
-    // La vue de derrière dit encore « Dossier à préparer » : elle se recharge.
-    rafraichir();
-  } catch (e) {
-    message(e.message, true);
-  } finally {
-    bouton.disabled = false;
-    bouton.textContent = libelle;
-  }
-}
-
-function demanderMotif(id) {
-  $('#fenetre-contenu').innerHTML = `
-    <h2>Ecarter cette offre</h2>
-    <p class="resume">Le motif est obligatoire : c'est lui qui dira, au bout d'une trentaine
-    d'offres, ce que le scoring rate. Une offre ecartee ne remontera jamais.</p>
-    <textarea id="motif" placeholder="Ex : trop junior / stack sans rapport / employeur deja contacte"></textarea>
-    <div class="actions">
-      <button id="valider-motif">Ecarter</button>
-      <button class="discret" id="annuler-motif">Annuler</button>
-    </div>`;
-  $('#fenetre').showModal();
-  $('#annuler-motif').onclick = () => $('#fenetre').close();
-  $('#valider-motif').onclick = async () => {
-    const motif = $('#motif').value.trim();
-    if (!motif) { message('Un motif est necessaire.', true); return; }
-    $('#fenetre').close();
-    try { await changerStatut(id, 'ecartee', motif); }
-    catch (e) { message(e.message, true); }
-  };
 }
 
 function demanderCanal(id) {
@@ -1319,10 +1089,14 @@ function afficherDossierPret(id, r) {
     ? `<a href="/api/offres/${Number(id)}/dossier/archive" download>Tout en un zip</a>`
     : '<button class="discret" id="btn-regenerer">Régénérer le dossier</button>';
   // Quand le kit n'est pas branché, la lettre n'est qu'un squelette et aucun CV n'est joint :
-  // le dire d'abord, sans quoi un dossier creux passe pour une panne.
+  // le dire d'abord, sans quoi un dossier creux passe pour une panne. Ce bloc est seul à le dire
+  // (l'étape ne reprend pas la phrase de `dossier.generer`) : il porte aussi le remède.
   const provisoire = r.kit_provisoire ? `<p class="avert grave"><b>⚠ Ton kit de candidature n'est pas branché</b><br>
-      Ce dossier contient un <b>squelette</b> de lettre et <b>aucun CV</b> : la console n'a rien
-      à joindre. Ce n'est pas une panne.</p>` : '';
+      Ce dossier contient un <b>squelette</b> de lettre et <b>aucun CV</b> : les pièces viennent du
+      dossier <code>gabarits/</code> de la configuration de l'instance, pas de ton CV maître. Ce
+      n'est pas une panne. Copie le vrai kit dans le dossier que désigne <code>VEILLE_KIT</code>
+      (<code>/donnees/kit</code> en conteneur) dès qu'il est livré (<code>docs/CANDIDATURE.md</code>,
+      « Copier ton kit sur le serveur »).</p>` : '';
   montrerEtape(`${avertissementsEtape(r)}
     <h2>Dossier prêt</h2>
     ${provisoire}
@@ -1746,14 +1520,10 @@ document.addEventListener('click', ev => {
   const a = bouton.dataset.action;
   // Un geste fait depuis la fiche la rouvre sur le nouvel état.
   const dansFiche = offre.classList.contains('fiche');
-  if (a === 'dossier') genererDossier(id, bouton);
-  else if (a === 'statut') changerStatut(id, bouton.dataset.statut).catch(e => message(e.message, true));
-  else if (a === 'ecarter') demanderMotif(id);
-  else if (a === 'envoyee') demanderCanal(id);
+  if (a === 'envoyee') demanderCanal(id);
   else if (a === 'relance') ouvrirRelance(id);
   else if (a === 'entretien') ouvrirEntretien(id);
   else if (a === 'detail') ouvrirDetail(id);
-  else if (a === 'obsolete') constater(id, false).catch(e => message(e.message, true));
   // « Je postule » lance la préparation ; la fiche « Je postule » la reprend (« Préparer ma
   // candidature », « Dossier prêt › »).
   else if (a === 'postuler' || a === 'preparer') preparerCandidature(id, bouton);

@@ -69,7 +69,8 @@ class Etape:
 
     `url` porte toujours le lien de l'annonce. `mince` porte la complétude et ses manques les
     plus lourds ; `pret`, le dossier, et au seul passage qui génère, la complétude, `genere`,
-    `kit_provisoire` et les avertissements de la génération. `avertissements` commence par
+    `kit_provisoire` et les avertissements de la génération, sans la phrase du kit provisoire,
+    que dit `kit_provisoire`. `avertissements` commence par
     l'alerte éliminatoire du texte enregistré par ce passage, s'il en porte une, et une étape
     `pret` le finit par ceux du dossier."""
 
@@ -157,9 +158,14 @@ def preparer(
         offre_id, "dossier_regenere" if regenerer else "dossier_genere", resultat.gabarit_lettre,
     )
     pret = dossier_pret(db.lire_offre(offre_id))
+    # Le bloc de « Dossier prêt » dit le kit provisoire : la phrase de `generer` ne se redit pas.
+    generes = [
+        a for a in resultat.avertissements
+        if not (resultat.kit_provisoire and a == dossier.AVERTISSEMENT_KIT_PROVISOIRE)
+    ]
     return Etape(
         "pret", url=lien, completude=bilan.as_dict(), dossier=pret, genere=True,
-        avertissements=[*alertes, *resultat.avertissements, *pret["avertissements"]],
+        avertissements=[*alertes, *generes, *pret["avertissements"]],
         kit_provisoire=resultat.kit_provisoire,
     )
 

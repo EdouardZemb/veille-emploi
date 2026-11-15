@@ -516,28 +516,6 @@ def test_les_trois_etats_sont_distinguables(client, monkeypatch):
     assert db.lire_offre(main)["verifiee_par"] == "edouard"
 
 
-def test_on_peut_isoler_ce_qui_na_jamais_ete_verifie(client, monkeypatch):
-    _servir(monkeypatch, Reponse(code=200, texte=PAGE_VIVANTE))
-    vu = _offre(url="https://jobs.ch/en/vacancies/detail/vu")
-    verification.verifier_offre(vu, maintenant=MAINTENANT)
-    jamais = _offre(url="https://jobs.ch/en/vacancies/detail/pas-vu")
-
-    ids = [o["id"] for o in
-           client.get("/api/offres?verification=jamais&limite=500").json()["offres"]]
-    assert jamais in ids and vu not in ids
-
-
-def test_le_tri_par_verification_met_les_jamais_vues_en_tete(client, monkeypatch):
-    _servir(monkeypatch, Reponse(code=200, texte=PAGE_VIVANTE))
-    vu = _offre(url="https://jobs.ch/en/vacancies/detail/deja-vu")
-    verification.verifier_offre(vu, maintenant=MAINTENANT)
-    jamais = _offre(url="https://jobs.ch/en/vacancies/detail/jamais-vu")
-
-    ids = [o["id"] for o in
-           client.get("/api/offres?tri=verification&limite=500").json()["offres"]]
-    assert ids.index(jamais) < ids.index(vu)
-
-
 def test_verifier_une_offre_interdite_le_dit_sans_requete(client, monkeypatch):
     def interdit(*a, **k):
         raise AssertionError("aucune requete ne doit partir")

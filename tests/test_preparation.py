@@ -833,6 +833,48 @@ def test_la_note_porte_les_quatre_champs_et_rien_d_autre(tmp_path):
     assert dossier.lire_note_destinataire(tmp_path) == DESTINATAIRE_VIDE
 
 
+def _generer_avec(monkeypatch, voisins, *, kit_provisoire, avertissements) -> None:
+    """Le faux `generer` des voisins, dont le résultat porte ces `avertissements`."""
+    def generer(offre):
+        resultat = voisins.faux_generer(offre)
+        return dataclasses.replace(
+            resultat, kit_provisoire=kit_provisoire, avertissements=list(avertissements),
+        )
+
+    monkeypatch.setattr(preparation.dossier, "generer", generer)
+
+
+def test_le_kit_provisoire_ne_se_dit_qu_une_fois(voisins, monkeypatch):
+    """Le bloc de « Dossier prêt » dit le kit provisoire : l'étape ne reprend pas la phrase de
+    `generer`, mais garde les autres avertissements."""
+    _generer_avec(
+        monkeypatch, voisins, kit_provisoire=True,
+        avertissements=[dossier.AVERTISSEMENT_KIT_PROVISOIRE, "avertissement inventé"],
+    )
+    e = preparation.preparer(_offre())
+    assert e.etape == "pret"
+    assert e.avertissements == ["avertissement inventé"]
+    assert e.kit_provisoire is True
+
+
+def test_sans_kit_provisoire_les_avertissements_restent_entiers(voisins, monkeypatch):
+    _generer_avec(
+        monkeypatch, voisins, kit_provisoire=False, avertissements=["a inventé", "b inventé"],
+    )
+    e = preparation.preparer(_offre())
+    assert e.avertissements == ["a inventé", "b inventé"]
+    assert e.kit_provisoire is False
+
+
+def test_la_phrase_du_kit_n_est_retiree_que_si_le_kit_est_provisoire(voisins, monkeypatch):
+    _generer_avec(
+        monkeypatch, voisins, kit_provisoire=False,
+        avertissements=[dossier.AVERTISSEMENT_KIT_PROVISOIRE, "avertissement inventé"],
+    )
+    e = preparation.preparer(_offre())
+    assert e.avertissements == [dossier.AVERTISSEMENT_KIT_PROVISOIRE, "avertissement inventé"]
+
+
 @pytest.mark.filterwarnings("ignore:Duplicate name")
 def test_l_ecart_du_destinataire_suit_l_alerte_puis_les_doublons(voisins):
     """L'ordre R5 : l'alerte éliminatoire, puis la génération, puis `dossier_pret`, qui dit les

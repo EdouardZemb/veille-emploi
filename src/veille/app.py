@@ -450,12 +450,9 @@ def console(request: Request):
         request,
         "index.html",
         {
-            "statuts": STATUTS,
             "v_css": empreinte_statique("style.css"),
             "v_js": empreinte_statique("app.js"),
             "familles": {k: v.get("libelle", k) for k, v in criteres.familles.items()},
-            "zones": {k: v.get("libelle", k) for k, v in criteres.zones.items()},
-            "atouts": {k: v.get("libelle", k) for k, v in criteres.atouts.items()},
             "seuil_interessant": reglages.lire_seuil(),
             "cle_vapid": cles.publique if cles else "",
             "atout_mis_en_avant": _atout_mis_en_avant(criteres),
@@ -479,9 +476,6 @@ def api_offres(
     source: str | None = None,
     recherche: str | None = None,
     inclure_ecartees: bool = False,
-    verification: str | None = None,
-    tri: str | None = None,
-    a_documenter: bool = False,
     limite: int = 200,
     etat: str | None = None,
 ):
@@ -505,32 +499,15 @@ def api_offres(
         source=source,
         recherche=recherche,
         inclure_ecartees=inclure_ecartees,
-        verification=verification,
     )
-    offres = db.lister_offres(tri=tri, limite=limite, **filtres)
+    offres = db.lister_offres(limite=limite, **filtres)
     total = db.compter_offres(**filtres)
     # La complétude voyage AVEC l'offre, mais dans sa propre clé : les deux axes
     # ne se rencontrent jamais dans un meme nombre.
     for o in offres:
         o["completude"] = _completude.evaluer(o).as_dict()
-
-    # « A documenter » : fort potentiel, information trop mince. C'est le
-    # croisement des DEUX axes — et il ne peut se calculer qu'ici, une fois la
-    # complétude attachee. Le compte voyage avec la liste pour que le bouton
-    # puisse l'afficher sans une requete de plus.
-    seuil_score = reglages.lire_seuil()
-
-    def a_travailler(o):
-        return (o["score"] >= seuil_score
-                and not o["completude"]["suffisant_pour_dossier"]
-                and o["statut"] not in ("ecartee", "differee"))
-
-    for o in offres:
         o["etat"] = etats.etat_de(o)
-    compte = sum(1 for o in offres if a_travailler(o))
-    if a_documenter:
-        offres = [o for o in offres if a_travailler(o)]
-    return {"offres": offres, "a_documenter": compte, "total": total}
+    return {"offres": offres, "total": total}
 
 
 @app.get("/api/affinement", dependencies=[Depends(auth.exiger_session)])
@@ -816,45 +793,6 @@ def api_entretien(offre_id: int):
         prep, offre, fichier.read_text(encoding="utf-8") if fichier else "")
     corps["dossier_genere"] = bool(pieces)
     return corps
-
-
-@app.post("/api/offres/{offre_id}/dossier", dependencies=[Depends(auth.exiger_session)])
-def api_dossier(offre_id: int, forcer: bool = False):
-    """Genere le dossier — en prevenant AVANT si l'information est trop mince.
-
-    Sans ce garde-fou, il peut sortir une lettre depuis un extrait de trois
-    lignes : le resultat est creux et rien ne l'avertit. On refuse d'abord, en
-    disant ce qui manque et comment le combler, et `forcer=true` passe outre si
-    c'est son choix.
-    """
-    from . import completude
-
-    refus = _refus_sans_configuration_hors_conteneur()
-    if refus is not None:
-        return refus
-    offre = db.lire_offre(offre_id)
-    if not offre:
-        raise HTTPException(404, "offre inconnue")
-
-    bilan = completude.evaluer(offre)
-    if not bilan.suffisant_pour_dossier and not forcer:
-        return {"ok": False, "raison": "completude_insuffisante", "completude": bilan.as_dict()}
-
-    resultat = dossier.generer(offre)
-    db.maj_champs(offre_id, dossier_chemin=str(resultat.chemin))
-    db.journaliser(offre_id, "dossier_genere", resultat.gabarit_lettre)
-    return {
-        "ok": True,
-        "dossier": resultat.chemin.name,
-        "fichiers": resultat.fichiers,
-        "gabarit_lettre": resultat.gabarit_lettre,
-        "kit_provisoire": resultat.kit_provisoire,
-        "avertissements": resultat.avertissements,
-        "archive": f"/api/offres/{offre_id}/dossier/archive",
-        "completude": bilan.as_dict(),
-        "pieces_envoi": resultat.pieces_envoi,
-        "archive_complete": f"/api/offres/{offre_id}/dossier/archive?complet=true",
-    }
 
 
 class DemandePreparation(BaseModel):
@@ -1318,11 +1256,6 @@ def api_collecter_maintenant():
 @app.get("/api/entonnoir", dependencies=[Depends(auth.exiger_session)])
 def api_entonnoir():
     return db.entonnoir()
-
-
-@app.get("/api/relances", dependencies=[Depends(auth.exiger_session)])
-def api_relances():
-    return {"relances": db.relances_dues()}
 
 
 @app.get("/api/a-faire", dependencies=[Depends(auth.exiger_session)])

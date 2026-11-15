@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import inspect
 import uuid
 from datetime import date, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 
+from veille import app as app_module
 from veille import db, reglages
 from veille.app import app
 from veille.models import Offre
@@ -268,3 +270,43 @@ def test_le_lien_d_entree_porte_l_etat_demande(connecte):
     ):
         page = connecte.get(adresse).text
         assert f'data-etat-demande="{attendu}"' in page, adresse
+
+
+def test_les_routes_retirees_n_existent_plus(connecte):
+    """« Générer le dossier » (`POST /api/offres/{id}/dossier`) et la liste des relances ont
+    quitté l'API : la préparation et « Candidatures » les remplacent."""
+    chemins = {(m, r.path) for r in app.routes for m in getattr(r, "methods", ())}
+    assert ("POST", "/api/offres/{offre_id}/dossier") not in chemins
+    assert not any(chemin.endswith("/api/relances") for _, chemin in chemins)
+    offre_id = _offre()
+    assert connecte.post(f"/api/offres/{offre_id}/dossier").status_code != 200
+    assert connecte.get("/api/relances").status_code != 200
+
+
+def test_les_parametres_retires_ne_sont_plus_lus():
+    """Un paramètre inconnu est ignoré sans erreur : seule la signature prouve qu'il est parti."""
+    lus = set(inspect.signature(app_module.api_offres).parameters)
+    assert not lus & {"verification", "tri", "a_documenter"}
+    lus = set(inspect.signature(db.lister_offres).parameters)
+    assert not lus & {"verification", "tri"}
+    lus = set(inspect.signature(db.compter_offres).parameters)
+    assert "verification" not in lus
+
+
+def test_la_liste_ne_porte_plus_le_compte_a_documenter(connecte):
+    _offre()
+    assert set(connecte.get("/api/offres").json()) == {"offres", "total"}
+
+
+def test_la_liste_est_triee_par_score_puis_par_collecte_recente(connecte):
+    """Seul ordre de la liste, depuis que `tri` est parti : le score, puis la collecte la plus
+    récente."""
+    faible = _offre(score=50)
+    ancienne = _offre(score=80)
+    recente = _offre(score=80)
+    with db.connexion() as cx:
+        for offre_id, jour in ((faible, "2026-03-01"), (ancienne, "2026-01-01"),
+                               (recente, "2026-02-01")):
+            cx.execute("UPDATE offres SET date_collecte = ? WHERE id = ?", (jour, offre_id))
+    ids = [o["id"] for o in connecte.get("/api/offres").json()["offres"]]
+    assert ids == [recente, ancienne, faible]

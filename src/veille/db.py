@@ -529,7 +529,6 @@ def _clauses_offres(
     recherche: str | None,
     inclure_ecartees: bool,
     inclure_archivees: bool,
-    verification: str | None,
 ) -> tuple[str, list[Any]]:
     """La clause WHERE et ses parametres, partages par la liste et son compte."""
     clauses: list[str] = []
@@ -566,23 +565,6 @@ def _clauses_offres(
         clauses.append("(titre LIKE ? OR employeur LIKE ? OR lieu LIKE ?)")
         params += [f"%{recherche}%"] * 3
 
-    # Filtrer par FRAICHEUR de verification : « jamais vue » et « vue ce matin »
-    # ne doivent pas se ressembler, et il doit pouvoir isoler les unes des autres.
-    if verification == "jamais":
-        clauses.append("verifiee_le IS NULL")
-    elif verification == "non_verifiable":
-        clauses.append("verdict_verification = 'interdite'")
-    elif verification == "par_edouard":
-        clauses.append("verifiee_par = 'edouard'")
-    elif verification == "ancienne":
-        limite_age = (datetime.now() - timedelta(days=7)).isoformat(timespec="seconds")
-        clauses.append("(verifiee_le IS NULL OR verifiee_le < ?)")
-        params.append(limite_age)
-    elif verification == "recente":
-        limite_age = (datetime.now() - timedelta(days=2)).isoformat(timespec="seconds")
-        clauses.append("verifiee_le >= ?")
-        params.append(limite_age)
-
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     return where, params
 
@@ -596,26 +578,16 @@ def lister_offres(
     recherche: str | None = None,
     inclure_ecartees: bool = False,
     inclure_archivees: bool = False,
-    verification: str | None = None,
-    tri: str | None = None,
     limite: int = 200,
     statuts: Sequence[str] | None = None,
 ) -> list[dict[str, Any]]:
     where, params = _clauses_offres(
         statut, statuts, zone, famille, atout, source, recherche,
-        inclure_ecartees, inclure_archivees, verification,
+        inclure_ecartees, inclure_archivees,
     )
-    ordres = {
-        "score": "score DESC, date_collecte DESC",
-        # NULLS FIRST : une offre jamais verifiee est la plus urgente a regarder.
-        "verification": "verifiee_le IS NOT NULL, verifiee_le ASC, score DESC",
-        "recente": "date_collecte DESC, score DESC",
-    }
-    ordre = ordres.get(tri or "score", ordres["score"])
-
     with connexion() as cx:
         rows = cx.execute(
-            f"SELECT * FROM offres {where} ORDER BY {ordre} LIMIT ?",
+            f"SELECT * FROM offres {where} ORDER BY score DESC, date_collecte DESC LIMIT ?",
             (*params, limite),
         ).fetchall()
     return [_ligne_en_dict(r) for r in rows]
@@ -630,13 +602,12 @@ def compter_offres(
     recherche: str | None = None,
     inclure_ecartees: bool = False,
     inclure_archivees: bool = False,
-    verification: str | None = None,
     statuts: Sequence[str] | None = None,
 ) -> int:
     """Le nombre d'offres qui repondent aux filtres de `lister_offres`, sans sa limite."""
     where, params = _clauses_offres(
         statut, statuts, zone, famille, atout, source, recherche,
-        inclure_ecartees, inclure_archivees, verification,
+        inclure_ecartees, inclure_archivees,
     )
     with connexion() as cx:
         return cx.execute(f"SELECT COUNT(*) FROM offres {where}", params).fetchone()[0]
