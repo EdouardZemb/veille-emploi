@@ -102,16 +102,27 @@ def generer_vapid(sujet: str | None = None) -> ClesVapid:
 # --------------------------------------------------------------------------
 
 
+AUCUN_APPAREIL = (
+    "Aucun appareil n'est abonné aux notifications : elles ne partent plus que par ce mail. "
+    "Pour les rétablir, ouvre la console sur ton téléphone : si Plus › Réglages › Notifications "
+    "ne dit pas « Cet appareil reçoit les notifications », touche « Activer les notifications » ; "
+    "s'il dit qu'il les reçoit, touche « Envoyer une notification d'essai »."
+)
+
+
 def envoyer_push(titre: str, corps: str, url: str = "/") -> tuple[int, int]:
     """Envoie a tous les abonnements. Rend (reussites, echecs)."""
     cles = charger_vapid()
     if not cles:
-        log.warning("push impossible : pas de cles VAPID (lance `veille init-push`)")
+        log.warning(
+            "push impossible : pas de cle VAPID "
+            "(elle nait au demarrage de la console, ou par `veille init` sans conteneur)"
+        )
         return 0, 0
 
     abonnements = db.lister_abonnements()
     if not abonnements:
-        log.info("push : aucun appareil abonne")
+        log.warning("push : aucun appareil abonne")
         return 0, 0
 
     try:
@@ -147,8 +158,8 @@ def envoyer_push(titre: str, corps: str, url: str = "/") -> tuple[int, int]:
                 pass
             if statut in (404, 410):
                 db.supprimer_abonnement(ab["endpoint"])
-                log.info(
-                    "abonnement push expire (HTTP %s), retire : %s | %s",
+                log.warning(
+                    "abonnement push retire (HTTP %s) : %s | %s",
                     statut, ab["endpoint"][:60], corps,
                 )
             else:
@@ -266,17 +277,26 @@ def prevenir_nouvelles_offres(nouvelles: list[dict[str, Any]], base_url: str = "
         db.marquer_etat_collecte("notification", resultat=f"push vers {ok} appareil(s)")
         return
 
+    # Relu apres le push : un abonnement retire a l'instant ne compte plus.
+    aucun_appareil = not db.lister_abonnements()
     lignes = [
         f"- [{o['score']:g}] {o['titre']} | {o.get('employeur') or '?'} | {o.get('lieu') or '?'}"
         f"\n  {o.get('url') or 'lien indisponible'}"
         for o in sorted(dignes, key=lambda x: -x.get("score", 0))
     ]
-    remis = envoyer_mail(
-        f"[Veille emploi] {titre}",
-        "\n".join(lignes) + (f"\n\nConsole : {base_url}" if base_url else ""),
-    )
+    texte = "\n".join(lignes)
+    if aucun_appareil:
+        texte += f"\n\n{AUCUN_APPAREIL}"
+    if base_url:
+        texte += f"\n\nConsole : {base_url}"
+    remis = envoyer_mail(f"[Veille emploi] {titre}", texte)
     if remis:
-        db.marquer_etat_collecte("notification", resultat="repli mail (aucun appareil joignable)")
+        db.marquer_etat_collecte(
+            "notification",
+            resultat="repli mail (aucun appareil abonné)"
+            if aucun_appareil
+            else "repli mail (aucun appareil joignable)",
+        )
     else:
         # Les deux canaux sont tombes : il faut que ca se voie dans `veille etat`,
         # pas seulement dans un journal que personne ne lit.

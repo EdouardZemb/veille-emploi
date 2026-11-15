@@ -189,3 +189,42 @@ def test_sans_cles_vapid_on_echoue_proprement(monkeypatch, tmp_path, service_pus
     monkeypatch.setattr(notifications, "CHEMIN_VAPID", tmp_path / "absent.json")
     assert notifications.envoyer_push("Titre", "Corps") == (0, 0)
     assert service_push.recues == [], "aucune requete ne doit partir sans cles"
+
+
+# --------------------------------------------------------------------------
+# Ce que le journal dit (AM-3) : une perte d'abonnement doit se voir
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("code", [404, 410])
+def test_le_retrait_d_un_abonnement_s_ecrit_en_avertissement(service_push, caplog, code):
+    """Un INFO se perd dans le bruit, et le journal part avec le conteneur."""
+    _abonnement_factice(service_push)
+    service_push.code_reponse = code
+    with caplog.at_level("DEBUG", logger="veille.notifications"):
+        notifications.envoyer_push("Titre", "Corps")
+    retraits = [r for r in caplog.records if "retire" in r.getMessage()]
+    assert len(retraits) == 1
+    assert retraits[0].levelname == "WARNING"
+    assert str(code) in retraits[0].getMessage()
+    assert not [r for r in caplog.records if r.levelname == "INFO" and "abonnement" in r.getMessage()]
+
+
+def test_sans_abonne_le_journal_avertit(caplog):
+    with caplog.at_level("DEBUG", logger="veille.notifications"):
+        assert notifications.envoyer_push("Titre", "Corps") == (0, 0)
+    ecrits = [r for r in caplog.records if "aucun appareil abonne" in r.getMessage()]
+    assert len(ecrits) == 1
+    assert ecrits[0].levelname == "WARNING"
+
+
+def test_sans_cles_vapid_le_journal_dit_ou_elles_naissent(monkeypatch, tmp_path, caplog):
+    monkeypatch.setattr(notifications, "CHEMIN_VAPID", tmp_path / "absent.json")
+    with caplog.at_level("DEBUG", logger="veille.notifications"):
+        assert notifications.envoyer_push("Titre", "Corps") == (0, 0)
+    ecrits = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(ecrits) == 1
+    message = ecrits[0].getMessage()
+    assert "nait au demarrage de la console" in message
+    assert "veille init" in message
+    assert "init-push" not in message

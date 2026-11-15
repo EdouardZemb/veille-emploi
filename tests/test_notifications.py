@@ -215,3 +215,74 @@ def test_un_vapid_json_existant_garde_son_sujet(monkeypatch, tmp_path):
     assert notifications.charger_vapid().sujet == "mailto:proprietaire@exemple.invalid"
     assert chemin.read_bytes() == octets
     assert chemin.stat().st_mtime_ns == mtime
+
+
+# --------------------------------------------------------------------------
+# Le mail de repli dit qu'aucun appareil n'est abonne (AM-3)
+# --------------------------------------------------------------------------
+
+
+def _vider_les_abonnements():
+    for a in db.lister_abonnements():
+        db.supprimer_abonnement(a["endpoint"])
+
+
+def _ligne_notification() -> str:
+    with db.connexion() as cx:
+        return cx.execute(
+            "SELECT dernier_resultat FROM etat_collecte WHERE source = 'notification'"
+        ).fetchone()["dernier_resultat"]
+
+
+def _repli(monkeypatch, push, base_url="https://console.exemple.invalid") -> str:
+    """Joue un repli mail et rend le corps du mail capte."""
+    corps_mail = []
+    monkeypatch.setattr(notifications, "envoyer_push", push)
+    monkeypatch.setattr(
+        notifications, "envoyer_mail", lambda sujet, corps: corps_mail.append(corps) or True
+    )
+    notifications.prevenir_nouvelles_offres([_offre(80)], base_url=base_url)
+    assert len(corps_mail) == 1
+    return corps_mail[0]
+
+
+def test_sans_appareil_abonne_le_mail_le_dit_avec_le_geste(monkeypatch):
+    _vider_les_abonnements()
+    corps = _repli(monkeypatch, lambda *a, **k: (0, 0))
+    assert notifications.AUCUN_APPAREIL in corps
+    assert (
+        corps.index("Test Engineer")
+        < corps.index(notifications.AUCUN_APPAREIL)
+        < corps.index("Console : https://console.exemple.invalid")
+    )
+    assert _ligne_notification() == "repli mail (aucun appareil abonné)"
+
+
+def test_un_appareil_injoignable_ne_dit_pas_qu_aucun_n_est_abonne(monkeypatch):
+    _vider_les_abonnements()
+    db.enregistrer_abonnement("https://push.exemple.invalid/a", "cle-p256dh", "cle-auth")
+    corps = _repli(monkeypatch, lambda *a, **k: (0, 1))
+    assert notifications.AUCUN_APPAREIL not in corps
+    assert _ligne_notification() == "repli mail (aucun appareil joignable)"
+
+
+def test_le_dernier_abonnement_retire_se_dit_dans_le_mail(monkeypatch):
+    _vider_les_abonnements()
+    db.enregistrer_abonnement("https://push.exemple.invalid/a", "cle-p256dh", "cle-auth")
+
+    def push_qui_retire(*a, **k):
+        db.supprimer_abonnement("https://push.exemple.invalid/a")
+        return 0, 1
+
+    corps = _repli(monkeypatch, push_qui_retire)
+    assert notifications.AUCUN_APPAREIL in corps
+
+
+def test_le_geste_nomme_ce_que_reglages_affiche():
+    for libelle in (
+        "Plus › Réglages › Notifications",
+        "« Cet appareil reçoit les notifications »",
+        "« Activer les notifications »",
+        "« Envoyer une notification d'essai »",
+    ):
+        assert libelle in notifications.AUCUN_APPAREIL
