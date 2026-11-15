@@ -1570,8 +1570,15 @@ function derniereVisiteArchive() {
   catch { return ''; }
 }
 
-function marquerArchiveVue() {
-  try { localStorage.setItem(CLE_VISITE_ARCHIVE, new Date().toISOString()); }
+// La visite est le `archivee_le` de la plus récente archivée montrée (la liste vient par date
+// décroissante), jamais l'heure du téléphone : `archivee_le` est à l'heure locale du serveur, et
+// les deux horloges ne se comparent pas. Une archivée arrivée après la liste montrée reste
+// nouvelle. Sans archivée montrée, la visite enregistrée ne change pas ; une ancienne, en UTC, se
+// relit telle quelle.
+function marquerArchiveVue(archivees) {
+  const plusRecente = archivees.length ? archivees[0].archivee_le : '';
+  if (!plusRecente) return;
+  try { localStorage.setItem(CLE_VISITE_ARCHIVE, String(plusRecente)); }
   catch { /* navigation privée : la pastille reste, ce n'est pas grave */ }
 }
 
@@ -1645,12 +1652,13 @@ async function chargerBilan() {
       ${listeBilan('mises-de-cote', deCote.total,
         deCote.offres.map(o => ligneOffre(o, o.motif_ecartement || '')), ouvertes)}
     </div>`;
-    // Déplier les archivées vaut visite. `toggle` part aussi pour une liste rouverte par ce
-    // rechargement : elle est sous les yeux, la visite se marque de nouveau.
+    // Déplier les archivées vaut visite, jusqu'à la plus récente de celles montrées. `toggle`
+    // part aussi pour une liste rouverte par ce rechargement : elle est sous les yeux, la visite
+    // se marque de nouveau.
     const archivees = $('details[data-liste="archivees"]', cible);
     archivees.addEventListener('toggle', () => {
       if (!archivees.open) return;
-      marquerArchiveVue();
+      marquerArchiveVue(archive.offres);
       compterPastilles();
     });
   } catch (err) {
@@ -1951,9 +1959,15 @@ async function chargerCriteres() {
   const cible = $('#contenu-criteres');
   try {
     const d = await api('/api/classement');
+    // Le nombre que compte la pastille, dit en clair : le titre compte aussi les offres sans
+    // aucune proposition.
+    const n = d.propositions.length;
+    const aValider = n ? `<p class="resume compte-propositions">${echapper(n)} proposition${n > 1 ? 's' : ''}
+      à valider</p>` : '';
 
     let html = `<div class="bloc">
       <h2>Offres sans famille — ${echapper(d.sans_famille)}</h2>
+      ${aValider}
       <p class="resume">Une famille est proposée quand l'intitulé recoupe les
         motifs de <b>criteres.yaml</b>. Les mots qui la justifient sont affichés :
         si tu ne les reconnais pas, ne coche pas. Le barème ne change pas :
@@ -2153,14 +2167,25 @@ let retourEnCours = false;
 // Le filet du drapeau : un retour sans entrée à ce pas (la première oubliée, Chrome n'en gardant
 // qu'une cinquantaine) ne donne aucun `popstate`. Un retour dans la page arrive en quelques
 // millisecondes ; passé une seconde, il n'arrivera plus, et les onglets répondent de nouveau.
+// `siPerdu` part alors : le repli de l'appelant.
 let filetDuRetour;
 const DELAI_DU_FILET_MS = 1000;
 
-function reculer(pas) {
+function reculer(pas, siPerdu) {
   retourEnCours = true;
   clearTimeout(filetDuRetour);
-  filetDuRetour = setTimeout(() => { retourEnCours = false; }, DELAI_DU_FILET_MS);
+  filetDuRetour = setTimeout(() => {
+    retourEnCours = false;
+    if (siPerdu) siPerdu();
+  }, DELAI_DU_FILET_MS);
   history.go(-pas);
+}
+
+// Le repli de l'onglet « À faire » quand la première entrée est oubliée : l'entrée courante
+// devient la première, à l'adresse `/`, et « À faire » se montre, comme avant le lot 3.
+function revenirAuDebut() {
+  history.replaceState({ vue: 'a-faire', precedente: null, profondeur: 0 }, '', '/');
+  afficherVue('a-faire', { historique: false });
 }
 
 // Seule à ouvrir la fenêtre. Fermée, elle entre dans l'historique, puis s'ouvre ; déjà ouverte,
@@ -2206,12 +2231,15 @@ window.addEventListener('popstate', ev => {
 // « À faire » revient à la première entrée : le retour depuis lui quitte toujours l'application.
 // La vue ouverte juste avant se rejoint par le retour, sans entrée de plus. Une autre entre dans
 // l'historique. `chercher` : « Chercher une offre », le curseur dans la recherche (décision 5),
-// posé une fois la vue montrée. Pendant un retour en cours, rien.
+// posé une fois la vue montrée, et les filtres vidés avant d'y aller, par une entrée comme par le
+// retour : un état posé plus tôt (un lien d'entrée, « Voir les N sous le seuil », un choix) ne
+// cache pas une offre close à la recherche (point d'attention 6). Pendant un retour en cours, rien.
 function allerA(nom, { chercher = false } = {}) {
   if (retourEnCours) return;
+  if (chercher) viderFiltres();
   const ici = history.state || {};
   if (nom === 'a-faire' && ici.profondeur > 0) {
-    reculer(ici.profondeur);
+    reculer(ici.profondeur, revenirAuDebut);
   } else if (nom !== vueCourante && ici.precedente === nom) {
     curseurApresRetour = chercher;
     reculer(1);
@@ -2298,9 +2326,18 @@ function avecCode(texte) {
   return echapper(texte).replace(/`([^`]+)`/g, '<code>$1</code>');
 }
 
-// La cause d'un échec, sans point final : la phrase « en erreur » met le sien.
+// L'échec d'un `fetch` : une TypeError, au message du navigateur (« Failed to fetch » sous Chrome,
+// « NetworkError… » sous Firefox, « Load failed » sous Safari).
+const ECHEC_RESEAU = /failed to fetch|networkerror|load failed/i;
+
+// La cause d'un échec, en français et sans point final : la phrase « en erreur » met le sien.
+// L'échec d'un `fetch` se traduit ; une erreur sans message est une cause inconnue.
 function causeDe(erreur) {
-  return String((erreur && erreur.message) || erreur || '').replace(/[\s.]+$/, '') || 'cause inconnue';
+  if (erreur instanceof TypeError && ECHEC_RESEAU.test(erreur.message)) {
+    return "la console n'a pas pu être jointe";
+  }
+  const texte = erreur && typeof erreur === 'object' ? erreur.message : erreur;
+  return String(texte || '').replace(/[\s.]+$/, '') || 'cause inconnue';
 }
 
 // Le cas d'`etatPush`, dans Réglages : sa phrase, et le bouton qui va avec. Le bouton essaie

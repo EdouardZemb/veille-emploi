@@ -15,6 +15,7 @@ from __future__ import annotations
 import base64
 import json
 import re
+from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, quote, urlsplit
 
 import pytest
@@ -22,7 +23,7 @@ from playwright.sync_api import expect
 
 from .test_cibles_tactiles import DOIGT, TELEPHONE
 # `console_attendue` est une fixture : importée, elle sert à la fixture `telephone` d'ici.
-from .test_parcours_candidature import LONG, _inventer, _ouvrir, console_attendue
+from .test_parcours_candidature import LONG, VIDE, _inventer, _ouvrir, console_attendue
 
 # La dernière visite des archivées, dans le stockage local : la même clé qu'avant le lot.
 CLE_VISITE = "veille:archive-vue-le"
@@ -57,6 +58,7 @@ VALIDER = re.compile(r"/api/classement/valider$")
 ARCHIVE = re.compile(r"/api/archive(\?.*)?$")
 ENTONNOIR = re.compile(r"/api/entonnoir$")
 RESCORER = re.compile(r"/api/rescorer$")
+A_FAIRE = re.compile(r"/api/a-faire$")
 # Toutes les offres demande toujours `/api/offres?…`, sans paramètre compris ; une fiche, jamais.
 TOUTES = re.compile(r"/api/offres\?")
 
@@ -532,6 +534,38 @@ def test_une_recherche_sans_etat_porte_sur_toutes_les_offres(telephone, serveur,
     expect(telephone.locator("#resume-offres")).to_contain_text(PORTEE)
 
 
+@pytest.mark.parametrize("chemin", ["lien_d_etat", "lien_puis_candidatures", "sous_le_seuil"])
+def test_chercher_une_offre_ne_garde_pas_l_etat_d_avant(telephone, serveur, toutes, chemin):
+    """Point d'attention 6 : un état posé plus tôt, par un lien d'entrée ou par « Voir les N sous
+    le seuil », ne reste pas dans « Chercher une offre » : la recherche trouve l'offre refusée
+    sans qu'on choisisse d'état. Toutes les offres rejointe par le retour (la vue d'avant), ou
+    par une entrée de plus (`lien_puis_candidatures`)."""
+    if chemin == "sous_le_seuil":
+        _servir(telephone, A_FAIRE, {**VIDE, "sous_le_seuil": 3})
+        _ouvrir(telephone, serveur)
+        telephone.get_by_role("button", name="Voir les 3 sous le seuil ›").click()
+    else:
+        telephone.goto(f"{serveur}/?filtre=interessante")
+    expect(telephone.locator("#vue-offres")).to_be_visible()
+    expect(telephone.locator("#f-etat")).not_to_have_value("")
+    if chemin == "lien_puis_candidatures":
+        telephone.locator('.onglet[data-vue="candidatures"]').click()
+        expect(telephone.locator("#vue-candidatures")).to_be_visible()
+        _onglet_plus(telephone).click()
+    else:
+        telephone.locator("#vue-offres .retour-plus").click()
+    expect(telephone.locator("#vue-plus")).to_be_visible()
+
+    telephone.get_by_role("button", name="Chercher une offre").click()
+    expect(telephone.locator("#vue-offres")).to_be_visible()
+    expect(telephone.locator("#f-recherche")).to_be_focused()
+    expect(telephone.locator("#f-etat")).to_have_value("")
+    parametres = _parametres(_chercher(telephone, EMPLOYEUR_RAPPEL).url)
+    assert parametres.get("inclure_ecartees") == ["true"]
+    assert "etat" not in parametres
+    expect(_ligne_toutes(telephone, toutes["refusee"])).to_be_visible()
+
+
 def test_une_recherche_avec_un_etat_reste_dans_cet_etat(telephone, serveur, toutes):
     _ouvrir_toutes(telephone, serveur)
     _chercher(telephone, EMPLOYEUR_RAPPEL)
@@ -711,6 +745,21 @@ def test_valider_un_classement_recalcule_les_pastilles(telephone, serveur):
                                      for p in propositions]}]
 
 
+@pytest.mark.parametrize("nombre", [1, 3])
+def test_mes_criteres_dit_le_nombre_que_compte_la_pastille(telephone, serveur, nombre):
+    """La pastille compte les propositions ; Mes critères dit ce nombre en clair, sous son titre,
+    qui compte aussi les offres sans aucune proposition."""
+    _servir(telephone, CLASSEMENT, _classement(_propositions(nombre), (SANS_PROPOSITION,)))
+    _ouvrir_criteres(telephone, serveur)
+    pastille = telephone.locator("#pastille-criteres")
+    expect(pastille).to_have_text(str(nombre))
+    pluriel = "s" if nombre > 1 else ""
+    expect(telephone.locator("#contenu-criteres .compte-propositions")).to_have_text(
+        f"{pastille.text_content()} proposition{pluriel} à valider")
+    expect(telephone.locator("#contenu-criteres h2").first).to_have_text(
+        f"Offres sans famille — {nombre + 1}")
+
+
 # ---------------------------------------------------------------------------
 # Le Bilan (décisions 7 et 8)
 # ---------------------------------------------------------------------------
@@ -873,6 +922,48 @@ def test_deplier_les_archivees_eteint_la_pastille_du_bilan(telephone, serveur, p
     assert "depuis=" not in requete.value.url
 
 
+def test_deplier_les_archivees_eteint_la_pastille_sous_l_heure_du_serveur(telephone, serveur):
+    """`archivee_le` est à l'heure locale du serveur (Paris dans le conteneur), pas en UTC. La
+    visite est le `archivee_le` de la plus récente archivée montrée : les deux horloges ne se
+    comparent jamais. La vraie route, sans simulation : une archivée inventée, archivée une heure
+    en avant de l'UTC, comme Paris en hiver. Puis « ‹ Plus » recompte (`rafraichir()`), et la
+    pastille reste éteinte."""
+    from veille import db
+
+    (offre_id,) = _inventer(["Archivée inventée à l'heure du serveur"], "plus/heure-serveur",
+                            "ecartee")
+    db.archiver(offre_id, MOTIF_ARCHIVE)
+    heure_du_serveur = (datetime.now(timezone.utc) + timedelta(hours=1)).replace(tzinfo=None)
+    with db.connexion() as cx:
+        cx.execute("UPDATE offres SET archivee_le = ? WHERE id = ?",
+                   (heure_du_serveur.isoformat(timespec="seconds"), offre_id))
+    pastille = telephone.locator("#pastille-bilan")
+    _ouvrir_bilan(telephone, serveur)
+    expect(pastille).not_to_be_empty()
+
+    _deplier(telephone, "archivees")
+    telephone.wait_for_function(f"() => localStorage.getItem('{CLE_VISITE}') !== null")
+    expect(pastille).to_be_empty()
+
+    with telephone.expect_response(lambda r: "/api/archive?" in r.url and "limite=1" in r.url):
+        telephone.locator("#vue-bilan .retour-plus").click()
+    expect(telephone.locator("#vue-plus")).to_be_visible()
+    _laisser_passer(telephone)
+    expect(pastille).to_be_empty()
+
+
+def test_deplier_des_archivees_vides_garde_la_visite(telephone, serveur):
+    """Sans archivée montrée, le dépliage ne change pas la visite enregistrée."""
+    visite = "2026-10-01T08:00:00.000Z"
+    telephone.add_init_script(
+        f"try {{ localStorage.setItem('{CLE_VISITE}', '{visite}'); }} catch (e) {{}}")
+    _servir(telephone, ARCHIVE, _archive(nouvelles=0))
+    _ouvrir_bilan(telephone, serveur)
+    _deplier(telephone, "archivees")
+    _laisser_passer(telephone)
+    assert telephone.evaluate(f"() => localStorage.getItem('{CLE_VISITE}')") == visite
+
+
 def test_la_derniere_visite_d_avant_le_lot_est_reprise(telephone, serveur):
     """La pastille d'un téléphone ne repart pas de zéro : la clé d'avant le lot est relue."""
     visite = "2026-10-01T08:00:00.000Z"
@@ -953,6 +1044,8 @@ REPARATION = ("Le premier essai n'était pas parti : l'abonnement de cet apparei
               "refait, et la notification d'essai est partie.")
 TOUJOURS_PAS = "la notification d'essai n'est pas partie, même avec un nouvel abonnement"
 SANS_SERVICE_WORKER = "le service worker de la console ne s'est pas enregistré"
+# L'échec d'un `fetch` (« Failed to fetch » sous Chrome), en français.
+CAUSE_RESEAU = "la console n'a pas pu être jointe"
 ACTIVER = "Activer les notifications"
 ESSAYER = "Envoyer une notification d'essai"
 # Les réponses de `api_push_test`, à ses clés.
@@ -1398,15 +1491,23 @@ def test_sans_push_reglages_dit_indisponible(telephone, serveur, cles_push):
     assert requetes == []
 
 
-@pytest.mark.parametrize("panne", ["renvoi_500", "subscribe_rejete", "register_rejete"])
+@pytest.mark.parametrize("panne", ["renvoi_500", "renvoi_coupe", "subscribe_rejete",
+                                   "register_rejete"])
 def test_un_renvoi_en_echec_se_dit_dans_reglages(telephone, serveur, cles_push, console_attendue,
                                                  panne):
-    """Un renvoi refusé par le serveur, un refus du service push, un enregistrement impossible :
-    Réglages le dit en erreur, avec sa cause, et propose de réessayer."""
+    """Un renvoi refusé par le serveur ou coupé (la console hors ligne), un refus du service push,
+    un enregistrement impossible : Réglages le dit en erreur, avec sa cause, en français, et
+    propose de réessayer."""
     if panne == "renvoi_500":
         console_attendue.append("500")
         simuler_push(telephone, "granted", cles_push.publique, renvoi=500)
         cause = PANNE_RENVOI
+    elif panne == "renvoi_coupe":
+        console_attendue.append("net::ERR_FAILED")
+        simuler_push(telephone, "granted", cles_push.publique)
+        # Posée après celle de `simuler_push`, cette route passe avant elle.
+        telephone.route(ABONNEMENT_PUSH, lambda route: route.abort())
+        cause = CAUSE_RESEAU
     elif panne == "subscribe_rejete":
         simuler_push(telephone, "granted", None, subscribe_rejete=True)
         cause = REFUS_PUSH
@@ -1416,7 +1517,18 @@ def test_un_renvoi_en_echec_se_dit_dans_reglages(telephone, serveur, cles_push, 
         cause = SANS_SERVICE_WORKER
     _ouvrir_reglages(telephone, serveur)
     expect(_etat_push(telephone)).to_have_text(_en_erreur(cause))
+    expect(_etat_push(telephone)).not_to_contain_text("Failed to fetch")
     expect(_bouton_push(telephone)).to_have_text(ACTIVER)
+
+
+def test_la_cause_d_un_echec_se_dit_en_francais(telephone, serveur):
+    """L'échec d'un `fetch` se dit « la console n'a pas pu être jointe » ; une erreur sans message,
+    « cause inconnue » ; une autre garde son message, sans point final."""
+    _ouvrir(telephone, serveur)
+    assert telephone.evaluate("() => causeDe(new TypeError('Failed to fetch'))") == CAUSE_RESEAU
+    assert telephone.evaluate("() => causeDe(new Error())") == "cause inconnue"
+    assert telephone.evaluate("() => causeDe(new TypeError())") == "cause inconnue"
+    assert telephone.evaluate("() => causeDe(new TypeError('x inventé.'))") == "x inventé"
 
 
 def test_activer_les_notifications_abonne_puis_envoie_un_essai(telephone, serveur, cles_push):

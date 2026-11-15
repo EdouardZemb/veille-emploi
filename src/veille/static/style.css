@@ -67,7 +67,7 @@ button.discret:hover{background:var(--trait)}
 button:disabled{opacity:.5;cursor:default}
 .resume{color:var(--doux);font-size:.88rem;margin:6px 0 12px}
 
-/* ---------- cartes d'offre ---------- */
+/* ---------- offres : fiches et lignes ---------- */
 .liste{display:flex;flex-direction:column;gap:10px}
 .offre{
   background:var(--fond2);border:1px solid var(--trait);border-left:4px solid var(--trait);

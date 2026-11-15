@@ -431,7 +431,8 @@ def _atout_mis_en_avant(criteres) -> dict[str, str] | None:
                 "cle": cle,
                 "libelle": str(info.get("libelle") or atout.get("libelle") or cle),
                 "titre": str(info.get("titre") or ""),
-                # le bouton de filtre de la barre : son texte, sinon celui de l'etiquette
+                # la bascule de l'atout, en tete de Toutes les offres : son texte, sinon
+                # celui de l'etiquette
                 "bouton": str(info.get("bouton") or info.get("libelle") or atout.get("libelle") or cle),
                 "bouton_titre": str(info.get("bouton_titre") or info.get("titre") or ""),
             }

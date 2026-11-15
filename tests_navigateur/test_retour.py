@@ -467,7 +467,8 @@ def test_un_onglet_touche_pendant_le_retour_de_la_fermeture_attend(telephone, se
 def test_un_retour_qui_ne_mene_nulle_part_ne_fige_pas_les_onglets(telephone, serveur):
     """Un retour sans entrée à ce pas ne donne aucun `popstate` : la première entrée oubliée
     (Chrome ne garde qu'une cinquantaine d'entrées), l'onglet « À faire » ne mène nulle part. Le
-    retour en cours n'attend pas sans fin : les onglets répondent de nouveau."""
+    retour en cours n'attend pas sans fin : le filet passé, l'entrée courante devient la première,
+    « À faire » se montre, et les onglets répondent de nouveau."""
     _ouvrir(telephone, serveur)
     telephone.locator('.onglet[data-vue="candidatures"]').click()
     _sur(telephone, "candidatures")
@@ -475,6 +476,10 @@ def test_un_retour_qui_ne_mene_nulle_part_ne_fige_pas_les_onglets(telephone, ser
     telephone.evaluate("() => history.replaceState({ ...history.state, profondeur: 99 }, '')")
     telephone.locator('.onglet[data-vue="a-faire"]').click()
     telephone.wait_for_function("() => !retourEnCours", timeout=GARDE_MS)
+    _sur(telephone, "a-faire")
+    assert telephone.evaluate("() => history.state") == {
+        "vue": "a-faire", "precedente": None, "profondeur": 0}
+    assert urlsplit(telephone.url).path == "/"
 
     telephone.locator('.onglet[data-vue="plus"]').click()
     _sur(telephone, "plus")

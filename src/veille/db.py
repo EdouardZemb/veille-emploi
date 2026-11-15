@@ -545,7 +545,7 @@ def _clauses_offres(
         params.append(statut)
     elif statuts is None and not inclure_ecartees:
         # Ni une offre ecartee, ni une offre mise en attente, ne remontent
-        # dans le flux courant. Elles restent accessibles par le filtre statut.
+        # dans le flux courant. Elles restent accessibles par le filtre d'etat de Toutes les offres.
         clauses.append("statut NOT IN ('ecartee','differee')")
     if zone:
         clauses.append("zone = ?")
