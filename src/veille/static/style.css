@@ -325,6 +325,13 @@ dialog textarea#texte-annonce{min-height:150px;font-family:inherit}
   /* La marge est sur le lien, pas sur la ligne : c'est le lien qu'on touche. */
   .fichiers .fichier{padding:0 0 10px}
   .fichier a{flex-basis:100%;padding-block:11px}
+  /* Les tableaux du Bilan tiennent dans l'écran, même sous une police large (DejaVu Sans du
+     runner Linux, Verdana) : des cellules serrées, un corps un peu plus petit. Les en-têtes ne se
+     coupent pas : ils donnent sa largeur minimale à une colonne de nombres. */
+  #contenu-bilan table{font-size:.8rem}
+  #contenu-bilan th,#contenu-bilan td{padding:6px 4px}
+  #contenu-bilan th:first-child,#contenu-bilan td:first-child{padding-left:0}
+  #contenu-bilan th:last-child,#contenu-bilan td:last-child{padding-right:0}
 }
 
 /* Sans mouvement demandé : l'appui et les messages changent d'état sans transition. */

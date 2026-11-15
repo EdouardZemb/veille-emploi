@@ -308,7 +308,18 @@ def _cibles_du_doigt(page, vue: str) -> None:
 
 
 def _tient_dans_l_ecran(page) -> None:
-    assert page.evaluate("document.documentElement.scrollWidth") <= TELEPHONE["viewport"]["width"]
+    largeur = page.evaluate("document.documentElement.scrollWidth")
+    assert largeur <= TELEPHONE["viewport"]["width"], largeur
+
+
+# Une police large, posée dès le chargement : Verdana sous Windows, DejaVu Sans (ou la police sans
+# empattement par défaut) sous le runner Linux de la CI, dont les polices sont plus larges que
+# celles de Windows.
+POLICE_LARGE = """document.addEventListener('DOMContentLoaded', () => {
+    const style = document.createElement('style');
+    style.textContent = '*{font-family:Verdana,"DejaVu Sans",sans-serif !important}';
+    document.head.append(style);
+});"""
 
 
 # ---------------------------------------------------------------------------
@@ -882,10 +893,42 @@ def test_mes_criteres_et_le_bilan_se_touchent_du_doigt_et_tiennent_dans_l_ecran(
 
     telephone.locator("#vue-criteres .retour-plus").click()
     telephone.locator('.lien-plus[data-vue="bilan"]').click()
-    expect(_liste(telephone, "closes")).to_be_visible()
+    expect(_liste(telephone, "mises-de-cote")).to_be_visible()
+    # Mesurée avant les dépliages : une régression de largeur se dit comme telle, et non comme un
+    # clic qui expire sur un résumé décalé.
+    _tient_dans_l_ecran(telephone)
     for nom in ("archivees", "closes", "mises-de-cote"):
         _deplier(telephone, nom)
     expect(_ligne(telephone, "closes", plus["longue"])).to_contain_text(LONG)
     expect(_liste(telephone, "archivees").locator("article.offre.archivee").first).to_be_visible()
     _cibles_du_doigt(telephone, "#vue-bilan")
+    _tient_dans_l_ecran(telephone)
+
+
+def test_le_bilan_tient_dans_l_ecran_sous_une_police_large(telephone, serveur, plus):
+    """Sous la police du runner Linux, plus large que celles de Windows, le tableau « Rendement des
+    sources » faisait défiler le Bilan de côté (405 px pour 390), et un clic sur le dernier résumé
+    tombait une ligne trop haut. Verdana, sous Windows, en est proche."""
+    telephone.add_init_script(POLICE_LARGE)
+    _servir(telephone, ENTONNOIR, _entonnoir())
+    _servir(telephone, _filtre("close"), _offres("close", [plus["longue"], plus["ecartee"]]))
+    _ouvrir_bilan(telephone, serveur)
+    assert "Verdana" in telephone.evaluate(
+        "getComputedStyle(document.querySelector('#contenu-bilan th')).fontFamily")
+    expect(telephone.locator("#contenu-bilan table")).to_have_count(4)
+    _tient_dans_l_ecran(telephone)
+    # Plus strict que la page : un tableau ne déborde pas de son bloc, même quand la marge de la
+    # vue cache le débordement au défilement.
+    for titre, largeur, place in telephone.evaluate("""() =>
+            [...document.querySelectorAll('#contenu-bilan table')].map(t => {
+                const bloc = t.closest('.bloc');
+                const style = getComputedStyle(bloc);
+                return [bloc.querySelector('h2').textContent, t.getBoundingClientRect().width,
+                        bloc.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)];
+            })"""):
+        assert largeur <= place + 0.5, (titre, largeur, place)
+
+    for nom in ("archivees", "closes", "mises-de-cote"):
+        _deplier(telephone, nom)
+    expect(_ligne(telephone, "closes", plus["longue"])).to_contain_text(LONG)
     _tient_dans_l_ecran(telephone)
