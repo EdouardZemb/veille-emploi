@@ -19,9 +19,10 @@
 #                                        (code 1, « No such image », pour un identifiant absent)
 #   ps --all --no-trunc --quiet          l'identifiant de chaque conteneur
 #   container inspect --format '{{.Image}}' <id…>  l'image de chaque conteneur
-#   container inspect --format '{{json .Mounts}}' c0ffee
-#                                        les montages de l'application en service, un tableau JSON
-#                                        par conteneur, comme docker (voir plus bas)
+#   container inspect --format '{{json .Mounts}}' <id>
+#                                        les montages de l'application en service (l'identifiant
+#                                        de app-id), un tableau JSON par conteneur, comme docker
+#                                        (voir plus bas)
 #   image rm <id>                        retire l'image du stock et écrit « Deleted: <id> »
 #   image rm <nom>                       retire ce nom (une étiquette) de l'image et écrit
 #                                        « Untagged: <nom> » ; comme docker, le dernier nom emporte
@@ -36,9 +37,33 @@
 # de $APPELS : un test qui le trouve absent sait qu'aucun retrait interdit n'a été demandé.
 #
 # L'« application en service » est le fichier en-service.env, à côté de $APPELS : la configuration
-# effective du dernier `compose up` réussi, effacée par `compose stop|down`. Comme dans compose,
-# une variable posée dans l'environnement l'emporte sur le --env-file. Le double de curl y lit la
-# version et l'image en service pour répondre à /sante.
+# effective du dernier `compose up` réussi. Comme dans compose, une variable posée dans
+# l'environnement l'emporte sur le --env-file. Le double de curl y lit la version et l'image en
+# service pour répondre à /sante.
+#
+# Le conteneur app a trois états : en service (en-service.env), arrêté (arrete.env, à côté de
+# $APPELS) ou absent. `compose stop` déplace en-service.env vers arrete.env ; `compose start` le
+# recalcule, comme `up`, et retire arrete.env, comme un `up` réussi ; `compose down` retire les
+# deux, et l'identifiant. L'identifiant du conteneur, 64 caractères hexadécimaux, est dans app-id, à
+# côté de $APPELS : le condensé d'un compteur (app-compteur), neuf à chaque `compose up` réussi qui
+# recrée le conteneur, gardé par `start` et par un `up` qui ne le recrée pas
+# (DOUBLE_DOCKER_MONTAGES_GARDES, DOUBLE_DOCKER_MONTAGES_GARDES_AU_UP). Un conteneur posé en service
+# ou arrêté sans `up` (en_service, aide.bash) reçoit le sien avant la réponse à `compose ps`, à
+# `logs` ou à `container inspect`.
+#   compose … ps -q app                  l'identifiant du conteneur app en service
+#   compose … ps --all --quiet app       aussi celui du conteneur arrêté, puis
+#                                        DOUBLE_DOCKER_SECOND_CONTENEUR ; tout autre argument
+#                                        de `compose ps` refuse
+#   logs --timestamps <id>               « <horodatage> journal de <id12> : sortie » sur la sortie
+#                                        standard, « <horodatage> journal de <id12> : erreur » sur
+#                                        la sortie d'erreur (id12 : les 12 premiers caractères) ;
+#                                        code 1 pour un identifiant inconnu
+#   container inspect --format <format de la version> <id>  la valeur de VEILLE_EMPLOI_VERSION du
+#                                        conteneur, celle de son fichier (le second conteneur : celle
+#                                        du conteneur app), une ligne vide sans elle ; le format est
+#                                        FORMAT_VERSION de deployer.sh, qui n'extrait que cette
+#                                        variable. Tout autre format que les trois admis refuse,
+#                                        tout .Config.Env compris
 #
 # Comme compose, qui interpole le fichier à chaque sous-commande, il refuse (code 1) tout appel
 # `compose` sans VEILLE_EMPLOI_URL_PUBLIQUE, ni dans l'environnement ni dans le --env-file : la variable
@@ -59,7 +84,18 @@
 #   DOUBLE_DOCKER_IMAGE_LS_ECHEC     `image ls` échoue (code 1)
 #   DOUBLE_DOCKER_IMAGE_INSPECT_ECHEC  `image inspect --format` échoue (code 1) ; `-f` n'en dépend pas
 #   DOUBLE_DOCKER_PS_ECHEC           `ps` échoue (code 1)
-#   DOUBLE_DOCKER_CONTAINER_INSPECT_ECHEC  `container inspect` échoue (code 1)
+#   DOUBLE_DOCKER_CONTAINER_INSPECT_ECHEC  `container inspect` échoue (code 1) ; l'inspection de la
+#                                    version n'en dépend pas
+#   DOUBLE_DOCKER_INSPECT_VERSION_ECHEC  l'inspection de la version écrit sur la sortie d'erreur une
+#                                    ligne qui porte DOUBLE_DOCKER_SECRET_FACTICE, puis rend 1
+#   DOUBLE_DOCKER_VERSION            réponse de l'inspection de la version, à la place de celle du
+#                                    fichier du conteneur (vide comprise, dès qu'elle est posée)
+#   DOUBLE_DOCKER_SECRET_FACTICE     chaque `compose up` écrit SECRET_FACTICE=<valeur> dans le
+#                                    fichier du conteneur, à côté de sa version
+#   DOUBLE_DOCKER_SECOND_CONTENEUR   un second conteneur du service app, cet identifiant tel quel :
+#                                    `compose ps --all --quiet app` le liste après le conteneur app,
+#                                    et `logs` et l'inspection de la version lui répondent
+#   DOUBLE_DOCKER_LOGS_ECHEC         `logs --timestamps` écrit sa ligne de sortie, puis rend 1
 #   DOUBLE_DOCKER_IMAGE_RM_ECHEC     identifiants ou noms (séparés par des espaces) dont `image rm`
 #                                    échoue (code 1), sans refus noté
 #   DOUBLE_DOCKER_SAUVEGARDE_CODE    code de `compose exec … <sauvegarder> <dossier>` (défaut 0)
@@ -76,6 +112,10 @@
 #                                    qui garde les dates de /donnees (cp -a, rsync -a)
 #   DOUBLE_DOCKER_SAUVEGARDE_ATTENTE  `<sauvegarder>` dure autant de secondes avant de répondre
 #   DOUBLE_DOCKER_UP_ECHEC           images (séparées par des espaces) dont le `compose up` échoue
+#                                    avant de remplacer le conteneur, comme une création que refuse
+#                                    le démon : l'ancien conteneur reste en service, avec son
+#                                    identifiant (aucun au premier déploiement). Un conteneur
+#                                    remplacé puis « unhealthy » passe par DOUBLE_CURL_SANTE_KO
 #   DOUBLE_DOCKER_SECRETS            noms de variables (séparés par des espaces) : `compose up` écrit
 #                                    dans secrets-recus, à côté de $APPELS, ceux que son
 #                                    environnement porte, non vides, un par ligne ; jamais une valeur
@@ -145,10 +185,15 @@
 ARGUMENTS="$*"
 DOSSIER="$(dirname "$APPELS")"
 EN_SERVICE="$DOSSIER/en-service.env"
+ARRETE="$DOSSIER/arrete.env"
+APP_ID="$DOSSIER/app-id"
 STOCK_IMAGES="$DOSSIER/images"
 STOCK_CONTENEURS="$DOSSIER/conteneurs"
 # Le format de `image inspect` du ménage : identifiant, date de création, noms, empreintes.
 FORMAT_IMAGES='{{.Id}}|{{.Created}}|{{range .RepoTags}}{{.}} {{end}}|{{range .RepoDigests}}{{.}} {{end}}'
+# Le format de l'inspection de la version, celui de deployer.sh : la seule variable
+# VEILLE_EMPLOI_VERSION de l'environnement du conteneur.
+FORMAT_VERSION='{{range .Config.Env}}{{if eq (index (split . "=") 0) "VEILLE_EMPLOI_VERSION"}}{{index (split . "=") 1}}{{end}}{{end}}'
 
 refuser() {
   echo "double docker : $*" >&2
@@ -169,6 +214,43 @@ refuser_retrait() {
 for argument in "$@"; do
   [ "$argument" != --config ] || refuser "--config interdit"
 done
+
+# nouvel_identifiant : app-id ← un identifiant neuf pour le conteneur app, le condensé (sha256sum,
+# 64 caractères hexadécimaux) d'un compteur tenu dans app-compteur.
+nouvel_identifiant() {
+  local n
+  n="$(cat "$DOSSIER/app-compteur" 2>/dev/null || echo 0)"
+  n=$((n + 1))
+  echo "$n" >"$DOSSIER/app-compteur"
+  printf 'conteneur app %s\n' "$n" | sha256sum | cut -d ' ' -f 1 >"$APP_ID"
+}
+
+# identifiant_paresseux : un conteneur app en service ou arrêté qui n'a pas d'identifiant, posé sans
+# `up` par un test, en reçoit un.
+identifiant_paresseux() {
+  if [ ! -f "$APP_ID" ] && { [ -f "$EN_SERVICE" ] || [ -f "$ARRETE" ]; }; then
+    nouvel_identifiant
+  fi
+}
+
+# fichier_du_conteneur : le fichier du conteneur app, en service ou arrêté ; échec s'il est absent.
+fichier_du_conteneur() {
+  if [ -f "$EN_SERVICE" ]; then
+    printf '%s\n' "$EN_SERVICE"
+  elif [ -f "$ARRETE" ]; then
+    printf '%s\n' "$ARRETE"
+  else
+    return 1
+  fi
+}
+
+# conteneur_connu <id> : le conteneur app, en service ou arrêté, ou le second conteneur.
+conteneur_connu() {
+  if [ -n "${DOUBLE_DOCKER_SECOND_CONTENEUR:-}" ] && [ "$1" = "$DOUBLE_DOCKER_SECOND_CONTENEUR" ]; then
+    return 0
+  fi
+  fichier_du_conteneur >/dev/null && [ -f "$APP_ID" ] && [ "$1" = "$(cat "$APP_ID")" ]
+}
 
 # Le label de révision d'une image : les 40 premiers caractères hexadécimaux de son condensé (le
 # double de curl le calcule de la même façon).
@@ -387,16 +469,38 @@ case "${1:-}" in
   container)
     { [ "${2:-}" = inspect ] && [ "${3:-}" = --format ] && [ "$#" -ge 5 ]; } \
       || refuser "container : attendu « container inspect --format <format> <id…> »"
+    identifiant_paresseux
+    if [ "$4" = "$FORMAT_VERSION" ]; then
+      # La version d'un conteneur (copier_journaux, deployer.sh) : celle de son fichier, ou
+      # DOUBLE_DOCKER_VERSION ; une ligne vide sans elle, comme docker pour une variable absente.
+      [ "$#" -eq 5 ] || refuser "container inspect : un seul conteneur pour l'inspection de la version"
+      if [ -n "${DOUBLE_DOCKER_INSPECT_VERSION_ECHEC:-}" ]; then
+        echo "Error: template: environnement illisible : SECRET_FACTICE=${DOUBLE_DOCKER_SECRET_FACTICE:-}" >&2
+        exit 1
+      fi
+      conteneur_connu "$5" || {
+        echo "Error: No such container: $5" >&2
+        exit 1
+      }
+      if [ -n "${DOUBLE_DOCKER_VERSION+x}" ]; then
+        printf '%s\n' "$DOUBLE_DOCKER_VERSION"
+      elif fichier="$(fichier_du_conteneur)"; then
+        printf '%s\n' "$(sed -n 's/^VEILLE_EMPLOI_VERSION=//p' "$fichier")"
+      else
+        echo
+      fi
+      exit 0
+    fi
     if [ -n "${DOUBLE_DOCKER_CONTAINER_INSPECT_ECHEC:-}" ]; then
       echo "Error response from daemon: inspection impossible" >&2
       exit 1
     fi
     if [ "$4" = '{{json .Mounts}}' ]; then
-      # Les montages de l'application en service (compose ps -q app : c0ffee) : /donnees, puis ceux
-      # que son `up` a notés (« <point> <true|false> <source> »), en un tableau JSON sur une ligne,
-      # avec les champs de docker que deployer.sh lit.
+      # Les montages de l'application en service (compose ps -q app : l'identifiant de app-id) :
+      # /donnees, puis ceux que son `up` a notés (« <point> <true|false> <source> »), en un tableau
+      # JSON sur une ligne, avec les champs de docker que deployer.sh lit.
       for id in "${@:5}"; do
-        { [ "$id" = c0ffee ] && [ -f "$EN_SERVICE" ]; } || {
+        { [ -f "$EN_SERVICE" ] && [ -f "$APP_ID" ] && [ "$id" = "$(cat "$APP_ID")" ]; } || {
           echo "Error: No such container: $id" >&2
           exit 1
         }
@@ -457,8 +561,22 @@ case "${1:-}" in
     fi
     case "${1:-}" in
       ps)
-        # ps -q app : un identifiant si l'application est en service
-        [ ! -f "$EN_SERVICE" ] || echo c0ffee
+        # ps -q app : l'identifiant du conteneur app en service ; ps --all --quiet app : aussi celui
+        # du conteneur arrêté, puis le second conteneur, tel quel.
+        shift
+        identifiant_paresseux
+        case "$*" in
+          "-q app")
+            [ ! -f "$EN_SERVICE" ] || cat "$APP_ID"
+            ;;
+          "--all --quiet app")
+            if fichier_du_conteneur >/dev/null; then
+              cat "$APP_ID"
+            fi
+            [ -z "${DOUBLE_DOCKER_SECOND_CONTENEUR:-}" ] || printf '%s\n' "$DOUBLE_DOCKER_SECOND_CONTENEUR"
+            ;;
+          *) refuser "compose ps : attendu « ps -q app » ou « ps --all --quiet app »" ;;
+        esac
         ;;
       exec)
         # exec -T app <sauvegarder…> <destination> : la commande de sauvegarde de l'image
@@ -531,7 +649,9 @@ case "${1:-}" in
         # Les montages de l'instance : ceux des fichiers de montage reçus, ou, si le conteneur n'est
         # pas recréé, ceux de l'application en service ; puis ceux qu'ajouterait compose.projet.yml.
         nieme="$(grep -c '^docker compose .* up -d ' "$APPELS" || true)"
+        recree=1
         if { [ -n "${DOUBLE_DOCKER_MONTAGES_GARDES:-}" ]           || [ "${DOUBLE_DOCKER_MONTAGES_GARDES_AU_UP:-}" = "$nieme" ]; } && [ -f "$EN_SERVICE" ]; then
+          recree=0
           grep '^MONTAGE=' "$EN_SERVICE" >>"$effective" || true
         else
           for fichier in "${fichiers_compose[@]}"; do
@@ -566,20 +686,37 @@ case "${1:-}" in
             [ -z "${!cle:-}" ] || printf '%s\n' "$cle"
           done >"$DOSSIER/secrets-recus"
         fi
+        # Le secret factice : l'environnement du conteneur porte, à côté de sa version, une valeur
+        # qu'aucune trace du déploiement ne doit montrer.
+        if [ "$1" = up ] && [ -n "${DOUBLE_DOCKER_SECRET_FACTICE:-}" ]; then
+          printf 'SECRET_FACTICE=%s\n' "$DOUBLE_DOCKER_SECRET_FACTICE" >>"$effective"
+        fi
         case " ${DOUBLE_DOCKER_UP_ECHEC:-} " in
           *" $image "*)
-            echo "dependency failed to start: container app is unhealthy" >&2
+            echo "Error response from daemon: Minimum memory limit allowed is 6MB" >&2
             exit 1
             ;;
         esac
         mv -f "$effective" "$EN_SERVICE"
+        rm -f "$ARRETE"
+        # Un `up` qui recrée le conteneur lui donne un identifiant neuf ; `start`, ou un `up` qui ne
+        # le recrée pas, garde le sien.
+        if [ "$1" = up ] && [ "$recree" -eq 1 ]; then
+          nouvel_identifiant
+        else
+          identifiant_paresseux
+        fi
         ;;
-      stop | down)
-        [ "$1" != stop ] || [ -z "${DOUBLE_DOCKER_STOP_ECHEC:-}" ] || {
+      stop)
+        [ -z "${DOUBLE_DOCKER_STOP_ECHEC:-}" ] || {
           echo "Error response from daemon: cannot stop" >&2
           exit 1
         }
-        rm -f "$EN_SERVICE"
+        # Le conteneur arrêté reste, avec son identifiant et son journal.
+        [ ! -f "$EN_SERVICE" ] || mv -f "$EN_SERVICE" "$ARRETE"
+        ;;
+      down)
+        rm -f "$EN_SERVICE" "$ARRETE" "$APP_ID"
         ;;
       *) refuser "compose : sous-commande inattendue ${1:-}" ;;
     esac
@@ -750,7 +887,21 @@ case "${1:-}" in
     ;;
 
   logs)
-    # logs [--tail <n>] <nom>
+    if [ "${2:-}" = --timestamps ]; then
+      # logs --timestamps <id> : le journal d'un conteneur du service app (copier_journaux), ses
+      # deux sorties.
+      [ "$#" -eq 3 ] || refuser "logs : attendu « logs --timestamps <id> »"
+      identifiant_paresseux
+      conteneur_connu "$3" || {
+        echo "Error response from daemon: No such container: $3" >&2
+        exit 1
+      }
+      echo "2026-11-15T12:00:00.000000000Z journal de ${3:0:12} : sortie"
+      [ -z "${DOUBLE_DOCKER_LOGS_ECHEC:-}" ] || exit 1
+      echo "2026-11-15T12:00:00.000000000Z journal de ${3:0:12} : erreur" >&2
+      exit 0
+    fi
+    # logs [--tail <n>] <nom> : un conteneur jetable
     nom="${!#}"
     [ -f "$DOSSIER/conteneur-$nom.env" ] || {
       echo "Error response from daemon: No such container: $nom" >&2

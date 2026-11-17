@@ -139,8 +139,9 @@ nombre_de_lancements() {
   # aucun compose.env : `dc` échouerait, on ne demande même pas si l'application tourne
   deployer prod "$NOUVELLE" 0.2.0
   [ "$status" -eq 0 ]
-  # le `ps` de compose (l'application tourne-t-elle ?), pas le `docker ps --all` du ménage des images
-  [ "$(appels_de docker | grep -c ' compose .* ps ')" -eq 0 ]
+  # le `ps -q app` de compose (l'application tourne-t-elle ?), pas le `ps --all` de la copie du
+  # journal, ni le `docker ps --all` du ménage des images
+  [ "$(appels_de docker | grep -c ' compose .* ps -q app$')" -eq 0 ]
   [ "$(appels_de docker | grep -c ' exec ')" -eq 0 ]
   [ "$(cat "$ETAT/deploye")" = "$NOUVELLE 0.2.0 -" ]
   [ ! -e "$ETAT/precedent" ]
@@ -1668,7 +1669,7 @@ $(verification contenu "$NOUVELLE" "$vise" "$service")" ]
   [ "$(verifications)" = "$(verification contenu "$NOUVELLE" "$vise" "$service")" ]
   [ "$(appels_de docker | grep -c ' exec -T app ')" -eq 1 ]
   [ "$(nombre_de_lancements)" -eq 1 ]
-  appels_de docker | grep -Fx "docker container inspect --format $FORMAT_MONTAGES c0ffee"
+  appels_de docker | grep -Fx "docker container inspect --format $FORMAT_MONTAGES $(id_en_service)"
   # le conteneur monte le nouvel instantané ; /config, que le projet ne déclare pas, ne l'est pas
   [ "$(montage_de /contenu)" = "false $vise/contenu" ]
   [ -z "$(montage_de /config)" ]
@@ -1705,7 +1706,7 @@ $(verification contenu "$NOUVELLE" "$vise" "$service")" ]
   [ "$status" -eq 0 ]
   # après le `up`, les montages du conteneur de l'application : chaque instantané visé, en lecture
   # seule, sur son point de montage ; et, en prod, une santé qui dit montee
-  [ "$(ligne_de ' up -d ')" -lt "$(ligne_de " container inspect --format $FORMAT_MONTAGES c0ffee")" ]
+  [ "$(ligne_de ' up -d ')" -lt "$(ligne_de " container inspect --format $FORMAT_MONTAGES $(id_en_service)")" ]
   [ "$(montage_de /config)" = "false $service/config" ]
   [ "$(montage_de /contenu)" = "false $service/contenu" ]
   poser_donnees prod
@@ -1759,7 +1760,7 @@ $(verification contenu "$NOUVELLE" "$vise" "$service")" ]
   deployer prod --retour
   [ "$status" -eq 0 ]
   [ -z "$(verifications)" ]
-  aucune_ligne ' container inspect ' "$APPELS"
+  aucune_ligne " container inspect --format $FORMAT_MONTAGES " "$APPELS"
   [ "$(cat "$ETAT/compose.env")" = "$(contenu_compose_env prod "$ANCIENNE" 0.1.0)" ]
   [ -z "$(montage_de /config)" ]
   [ -z "$(montage_de /contenu)" ]
@@ -1816,7 +1817,10 @@ $(verification contenu "$NOUVELLE" "$vise" "$service")" ]
   deployer prod "$NOUVELLE" 0.2.0 --commit-donnees "$COMMIT"
   [ "$status" -eq 1 ]
   [[ "$output" == *"échec du déploiement de 0.2.0 (santé non conforme)"* ]]
-  [ "$(appels_de docker | sed -nE 's/.* (up -d|container inspect) .*/\1/p')" = "up -d
+  # les `up` et les inspections des montages, dans l'ordre ; l'inspection de la version, celle de
+  # la copie du journal, n'est pas la question
+  [ "$(appels_de docker | grep -F -e ' up -d ' -e " container inspect --format $FORMAT_MONTAGES " \
+    | sed -nE 's/.* (up -d|container inspect) .*/\1/p')" = "up -d
 container inspect
 up -d
 container inspect" ]
@@ -2031,7 +2035,7 @@ container inspect" ]
   [ "$(cat "$ETAT/precedent")" = "$ANCIENNE 0.1.0" ]
   [ "$(cat "$ETAT/compose.env")" = "$(contenu_compose_env prod "$NOUVELLE" 0.2.0)" ]
   [ -z "$(verifications)" ]
-  aucune_ligne ' container inspect ' "$APPELS"
+  aucune_ligne " container inspect --format $FORMAT_MONTAGES " "$APPELS"
   [ ! -e "$ETAT/instantanes" ]
   [ "$(signaux)" = "$(signal 'déployé 0.2.0') $HC" ]
   # un échec marque « <image> - »
@@ -2064,7 +2068,8 @@ container inspect" ]
       echo "appel de compose hors de dc : $ligne" >&2
       return 1
     }
-    n=$((n + 1))
+    # le `ps --all` de la copie du journal, avant chaque `up`, passe par dc, sans compter
+    [[ "$ligne" == *' ps --all --quiet app' ]] || n=$((n + 1))
   done < <(appels_de docker | grep '^docker compose ')
   # ps et instantané, lancement de la nouvelle, puis retour à l'ancienne
   [ "$n" -eq 4 ]
@@ -2383,4 +2388,505 @@ stock_a_nettoyer() {
   [ "$status" -eq 64 ]
   [ ! -s "$APPELS" ]
   [ ! -e "$ETAT/compose.env" ]
+}
+
+# --- la copie du journal d'un conteneur avant son remplacement (modele-projet#133) ------------
+#
+# Avant chaque `up`, deployer.sh copie le journal de chaque conteneur app du projet, en service ou
+# arrêté (`compose ps --all --quiet app`), dans $ETAT/journaux/<horodatage>-<version>-<id12>.log :
+# ce que rend `docker logs --timestamps`, ses deux sorties, en 600, dans un dossier en 700. Il garde
+# les 5 copies les plus récentes. Une copie qui échoue est notée au journal, et n'arrête ni le
+# déploiement ni le retour arrière. Le double de docker donne au conteneur app un identifiant neuf
+# à chaque `up` qui le recrée (id_en_service).
+
+@test "journal_copie_avant_le_remplacement" {
+  local id copie
+  deployer prod "$ANCIENNE" 0.1.0
+  [ "$status" -eq 0 ]
+  poser_donnees prod
+  id="$(id_en_service)"
+  : >"$APPELS"
+  deployer prod "$NOUVELLE" 0.2.0
+  [ "$status" -eq 0 ]
+  # une seule copie, celle du conteneur d'avant le second `up`, nommée par l'heure, sa version et
+  # son identifiant
+  copie="$(copies_de_journal prod)"
+  [[ "$copie" =~ ^[0-9]{8}T[0-9]{6}Z-0\.1\.0-[0-9a-f]{12}\.log$ ]]
+  [[ "$copie" == *"-${id:0:12}.log" ]]
+  [ "$(find "$ETAT/journaux" -mindepth 1 | wc -l)" -eq 1 ]
+  # ses deux sorties
+  grep -Fx "2026-11-15T12:00:00.000000000Z journal de ${id:0:12} : sortie" "$ETAT/journaux/$copie"
+  grep -Fx "2026-11-15T12:00:00.000000000Z journal de ${id:0:12} : erreur" "$ETAT/journaux/$copie"
+  [ "$(stat -c %a "$ETAT/journaux")" = 700 ]
+  [ "$(stat -c %a "$ETAT/journaux/$copie")" = 600 ]
+  [[ "$output" == *"journal du conteneur ${id:0:12} (0.1.0) copié : journaux/$copie"* ]]
+  # avant le `up` qui remplace le conteneur
+  [ "$(ligne_de " logs --timestamps $id")" -lt "$(ligne_de ' up -d ')" ]
+}
+
+# Aucun conteneur : rien n'est copié, sans ligne au journal, et journaux/ n'est pas créé.
+@test "journal_aucune_copie_au_premier_deploiement" {
+  deployer prod "$NOUVELLE" 0.2.0
+  [ "$status" -eq 0 ]
+  # la question est posée, et aucun conteneur ne répond
+  appels_de docker | grep -Fx "$(dc_de prod) ps --all --quiet app"
+  aucune_ligne ' logs ' "$APPELS"
+  [ ! -e "$ETAT/journaux" ]
+  [[ "$output" != *"journal du conteneur"* ]]
+  [[ "$output" != *"non copié"* ]]
+}
+
+# Un premier déploiement en échec arrête sa version (`compose stop`) : le conteneur reste, avec son
+# journal, et `compose ps --all` le liste au déploiement suivant.
+@test "journal_copie_d_un_conteneur_arrete" {
+  local id copie
+  export DOUBLE_CURL_SANTE_KO="$NOUVELLE"
+  deployer prod "$NOUVELLE" 0.2.0
+  [ "$status" -eq 1 ]
+  [ -f "$BATS_TEST_TMPDIR/arrete.env" ]
+  [ ! -e "$EN_SERVICE" ]
+  id="$(id_en_service)"
+  unset DOUBLE_CURL_SANTE_KO
+  deployer prod "$SUIVANTE" 0.3.0
+  [ "$status" -eq 0 ]
+  copie="$(copies_de_journal prod)"
+  [[ "$copie" =~ ^[0-9]{8}T[0-9]{6}Z-0\.2\.0-[0-9a-f]{12}\.log$ ]]
+  [[ "$copie" == *"-${id:0:12}.log" ]]
+}
+
+# Un déploiement dont la santé échoue copie l'ancien conteneur avant son `up`, puis celui de la
+# version en échec avant le `up` du retour.
+@test "journal_deux_copies_quand_la_sante_echoue" {
+  local premier copies=()
+  deployer prod "$ANCIENNE" 0.1.0
+  [ "$status" -eq 0 ]
+  poser_donnees prod
+  premier="$(id_en_service)"
+  export DOUBLE_CURL_SANTE_KO="$NOUVELLE"
+  deployer prod "$NOUVELLE" 0.2.0
+  [ "$status" -eq 1 ]
+  mapfile -t copies < <(copies_de_journal prod)
+  [ "${#copies[@]}" -eq 2 ]
+  [[ "${copies[0]}" == *"-0.1.0-${premier:0:12}.log" ]]
+  [[ "${copies[1]}" =~ -0\.2\.0-([0-9a-f]{12})\.log$ ]]
+  [ "${BASH_REMATCH[1]}" != "${premier:0:12}" ]
+}
+
+@test "journal_copie_au_retour_manuel" {
+  local quitte copies=()
+  deux_versions
+  quitte="$(id_en_service)"
+  deployer prod --retour
+  [ "$status" -eq 0 ]
+  mapfile -t copies < <(copies_de_journal prod)
+  [ "${#copies[@]}" -eq 2 ]
+  [[ "${copies[0]}" == *-0.1.0-* ]]
+  [[ "${copies[1]}" == *"-0.2.0-${quitte:0:12}.log" ]]
+  [[ "$output" == *"journal du conteneur ${quitte:0:12} (0.2.0) copié : journaux/${copies[1]}"* ]]
+}
+
+# Un refus avant toute action (ici un commit de données introuvable) ne lance pas `up` : rien n'est
+# copié.
+@test "journal_aucune_copie_sur_un_refus" {
+  deja_en_service "$ANCIENNE" 0.1.0
+  deployer prod "$NOUVELLE" 0.2.0
+  [ "$status" -eq 0 ]
+  [ -n "$(copies_de_journal prod)" ]
+  cp -a "$ETAT/journaux" "$BATS_TEST_TMPDIR/journaux-avant"
+  avec_donnees VERIFIER_CONTENU
+  : >"$APPELS"
+  deployer prod "$SUIVANTE" 0.3.0 --commit-donnees "$(printf 'e%.0s' {1..40})"
+  [ "$status" -eq 64 ]
+  [[ "$output" == *"introuvable"* ]]
+  [ ! -s "$APPELS" ]
+  diff -r "$BATS_TEST_TMPDIR/journaux-avant" "$ETAT/journaux"
+}
+
+# Le staging garde ses copies sous son état, avec sa version, main.
+@test "journal_copie_en_staging" {
+  local etat_staging="$VEILLE_EMPLOI_RACINE_ETAT/staging" copie
+  preparer_secrets_de_test staging JETON=jeton-staging-7 HC_SONDE=https://hc.example/ping/sonde-staging
+  deployer staging "$NOUVELLE" main
+  [ "$status" -eq 0 ]
+  poser_donnees staging
+  deployer staging "$SUIVANTE" main
+  [ "$status" -eq 0 ]
+  copie="$(copies_de_journal staging)"
+  [[ "$copie" =~ ^[0-9]{8}T[0-9]{6}Z-main-[0-9a-f]{12}\.log$ ]]
+  [ -f "$etat_staging/journaux/$copie" ]
+  [ ! -e "$ETAT/journaux" ]
+}
+
+# La version se lit dans l'environnement du conteneur : vide, hors de la forme de MOTIF_VERSION, ou
+# illisible, elle vaut inconnue.
+@test "journal_version_inconnue" {
+  local cas motif='journal du conteneur [0-9a-f]{12} \(inconnue\) copié : journaux/'
+  horloge_qui_avance
+  deja_en_service "$ANCIENNE" 0.1.0
+  for cas in vide 1.0 echec; do
+    case "$cas" in
+      vide) export DOUBLE_DOCKER_VERSION="" ;;
+      1.0) export DOUBLE_DOCKER_VERSION=1.0 ;;
+      echec)
+        unset DOUBLE_DOCKER_VERSION
+        export DOUBLE_DOCKER_INSPECT_VERSION_ECHEC=1
+        ;;
+    esac
+    deployer prod "$NOUVELLE" 0.2.0
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ $motif ]]
+  done
+  [ "$(copies_de_journal prod | wc -l)" -eq 3 ]
+  [ "$(copies_de_journal prod | grep -c -- '-inconnue-')" -eq 3 ]
+}
+
+# Le conteneur porte des secrets dans son environnement : la version s'y lit seule, et la sortie
+# de l'inspection, même en échec, ne va jamais au journal.
+@test "journal_sans_secret" {
+  export DOUBLE_DOCKER_SECRET_FACTICE=secret-factice-133
+  deployer prod "$ANCIENNE" 0.1.0
+  [ "$status" -eq 0 ]
+  poser_donnees prod
+  grep -qFx SECRET_FACTICE=secret-factice-133 "$EN_SERVICE"
+  export DOUBLE_DOCKER_INSPECT_VERSION_ECHEC=1
+  deployer prod "$NOUVELLE" 0.2.0
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"(inconnue) copié : journaux/"* ]]
+  [ -n "$(copies_de_journal prod)" ]
+  [[ "$output" != *secret-factice-133* ]]
+  aucune_ligne secret-factice-133 "$ETAT/journaux"/*
+}
+
+@test "journal_deux_conteneurs" {
+  local second
+  second="5ec0bd$(printf '0%.0s' {1..58})"
+  deja_en_service "$ANCIENNE" 0.1.0
+  export DOUBLE_DOCKER_SECOND_CONTENEUR="$second"
+  deployer prod "$NOUVELLE" 0.2.0
+  [ "$status" -eq 0 ]
+  [ "$(copies_de_journal prod | wc -l)" -eq 2 ]
+  [ "$(copies_de_journal prod | grep -c -- '-0\.1\.0-5ec0bd000000\.log$')" -eq 1 ]
+  grep -Fx "2026-11-15T12:00:00.000000000Z journal de 5ec0bd000000 : sortie" \
+    "$ETAT/journaux/$(copies_de_journal prod | grep -- '-5ec0bd000000\.log$')"
+}
+
+# Deux conteneurs, dont le journal du premier ne se lit pas : son échec est noté, et le second est
+# copié quand même, sans hériter de cet échec. L'échec vient d'abord : c'est l'ordre qui rendrait
+# visible un code d'échec reporté sur la copie suivante.
+@test "journal_deux_conteneurs_le_premier_en_echec" {
+  local second echec copie
+  second="5ec0bd$(printf '0%.0s' {1..58})"
+  deja_en_service "$ANCIENNE" 0.1.0
+  export DOUBLE_DOCKER_SECOND_CONTENEUR="$second"
+  # shellcheck disable=SC2016  # la condition se développe quand le double tourne, pas ici
+  echouer_si docker '[[ "$*" == "logs --timestamps "* && "$*" != *" 5ec0bd"* ]]'
+  deployer prod "$NOUVELLE" 0.2.0
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s\n' "$output" | grep -c ' non copié : docker logs en échec (code 1)$')" -eq 1 ]
+  [[ "$output" == *"journal du conteneur 5ec0bd000000 (0.1.0) copié : journaux/"* ]]
+  echec="$(printf '%s\n' "$output" | grep -n ' non copié : docker logs en échec' | cut -d: -f1)"
+  copie="$(printf '%s\n' "$output" | grep -n 'journal du conteneur 5ec0bd000000 (0.1.0) copié' \
+    | cut -d: -f1)"
+  [ "$echec" -lt "$copie" ]
+  [ "$(copies_de_journal prod | wc -l)" -eq 1 ]
+  [ "$(copies_de_journal prod | grep -c -- '-0\.1\.0-5ec0bd000000\.log$')" -eq 1 ]
+  grep -Fx "2026-11-15T12:00:00.000000000Z journal de 5ec0bd000000 : sortie" \
+    "$ETAT/journaux/$(copies_de_journal prod)"
+}
+
+# Un identifiant qui n'a pas la forme d'un conteneur ne nomme aucun fichier : son nom échapperait au
+# plafond. Le journal ne le cite pas.
+@test "journal_identifiant_illisible" {
+  deja_en_service "$ANCIENNE" 0.1.0
+  export DOUBLE_DOCKER_SECOND_CONTENEUR=pas-hexa
+  deployer prod "$NOUVELLE" 0.2.0
+  [ "$status" -eq 0 ]
+  [ "$(copies_de_journal prod | wc -l)" -eq 1 ]
+  [[ "$output" == *"un conteneur non copié : identifiant illisible"* ]]
+  [[ "$output" != *pas-hexa* ]]
+  [ -z "$(find "$ETAT/journaux" -name '*pas-hexa*')" ]
+  aucune_ligne ' logs --timestamps pas-hexa' "$APPELS"
+}
+
+# Le `up` de 0.2.0 échoue avant de remplacer le conteneur : echouer copie le même conteneur, dans la
+# même seconde (horloge_figee). Le nom est pris : la seconde copie est refusée, sans rien écrire.
+@test "journal_nom_deja_pris" {
+  local id copie
+  horloge_figee
+  deployer prod "$ANCIENNE" 0.1.0
+  [ "$status" -eq 0 ]
+  poser_donnees prod
+  id="$(id_en_service)"
+  export DOUBLE_DOCKER_UP_ECHEC="$NOUVELLE"
+  deployer prod "$NOUVELLE" 0.2.0
+  [ "$status" -eq 1 ]
+  copie="$(jour_de_l_horloge)T120000Z-0.1.0-${id:0:12}.log"
+  [ "$(copies_de_journal prod)" = "$copie" ]
+  [[ "$output" == *"journal du conteneur ${id:0:12} (0.1.0) copié : journaux/$copie"* ]]
+  [[ "$output" == *"journal du conteneur ${id:0:12} non copié : journaux/$copie existe déjà (ou son .partiel)"* ]]
+  # la première copie est intacte : le journal n'a été lu qu'une fois
+  [ "$(appels_de docker | grep -c " logs --timestamps $id$")" -eq 1 ]
+  grep -Fx "2026-11-15T12:00:00.000000000Z journal de ${id:0:12} : erreur" "$ETAT/journaux/$copie"
+  [ -z "$(find "$ETAT/journaux" -name '*.partiel')" ]
+}
+
+# Une redirection suivrait un lien posé au nom du .partiel : la copie est refusée, et ce qu'il
+# désigne n'est pas touché.
+@test "journal_partiel_en_lien_refuse" {
+  local id nom cible="$BATS_TEST_TMPDIR/hors-des-journaux"
+  horloge_figee
+  deployer prod "$ANCIENNE" 0.1.0
+  [ "$status" -eq 0 ]
+  poser_donnees prod
+  id="$(id_en_service)"
+  nom="$(jour_de_l_horloge)T120000Z-0.1.0-${id:0:12}.log"
+  echo "à garder" >"$cible"
+  mkdir -p "$ETAT/journaux"
+  ln -s "$cible" "$ETAT/journaux/$nom.partiel"
+  : >"$APPELS"
+  deployer prod "$NOUVELLE" 0.2.0
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"journal du conteneur ${id:0:12} non copié : journaux/$nom existe déjà (ou son .partiel)"* ]]
+  [ "$(cat "$cible")" = "à garder" ]
+  [ -L "$ETAT/journaux/$nom.partiel" ]
+  [ -z "$(copies_de_journal prod)" ]
+  aucune_ligne ' logs --timestamps ' "$APPELS"
+}
+
+# Un lien pendant au nom du .partiel : `[ -e ]` ne le voit pas, et la redirection créerait ce qu'il
+# désigne, hors de journaux/. La copie est refusée, et rien n'est créé.
+@test "journal_partiel_en_lien_pendant_refuse" {
+  local id nom absent="$BATS_TEST_TMPDIR/absent"
+  horloge_figee
+  deployer prod "$ANCIENNE" 0.1.0
+  [ "$status" -eq 0 ]
+  poser_donnees prod
+  id="$(id_en_service)"
+  nom="$(jour_de_l_horloge)T120000Z-0.1.0-${id:0:12}.log"
+  mkdir -p "$ETAT/journaux"
+  ln -s "$absent" "$ETAT/journaux/$nom.partiel"
+  : >"$APPELS"
+  deployer prod "$NOUVELLE" 0.2.0
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"journal du conteneur ${id:0:12} non copié : journaux/$nom existe déjà (ou son .partiel)"* ]]
+  [ ! -e "$absent" ]
+  [ ! -L "$absent" ]
+  [ -L "$ETAT/journaux/$nom.partiel" ]
+  [ -z "$(copies_de_journal prod)" ]
+  aucune_ligne ' logs --timestamps ' "$APPELS"
+  [[ "$(cat "$ETAT/deploye")" == "$NOUVELLE 0.2.0 "* ]]
+}
+
+# Un lien pendant au nom de la copie : le renommage remplacerait le lien. La copie est refusée, sans
+# .partiel, et le lien reste.
+@test "journal_nom_en_lien_pendant_refuse" {
+  local id nom absent="$BATS_TEST_TMPDIR/absent"
+  horloge_figee
+  deployer prod "$ANCIENNE" 0.1.0
+  [ "$status" -eq 0 ]
+  poser_donnees prod
+  id="$(id_en_service)"
+  nom="$(jour_de_l_horloge)T120000Z-0.1.0-${id:0:12}.log"
+  mkdir -p "$ETAT/journaux"
+  ln -s "$absent" "$ETAT/journaux/$nom"
+  : >"$APPELS"
+  deployer prod "$NOUVELLE" 0.2.0
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"journal du conteneur ${id:0:12} non copié : journaux/$nom existe déjà (ou son .partiel)"* ]]
+  [ ! -e "$absent" ]
+  [ ! -L "$absent" ]
+  [ -L "$ETAT/journaux/$nom" ]
+  [ -z "$(find "$ETAT/journaux" -name '*.partiel')" ]
+  aucune_ligne ' logs --timestamps ' "$APPELS"
+  [[ "$(cat "$ETAT/deploye")" == "$NOUVELLE 0.2.0 "* ]]
+}
+
+# `docker logs` écrit une partie, puis échoue (un disque plein, un démon qui redémarre) : rien n'est
+# publié, le .partiel est retiré, et le déploiement réussit, son code inchangé.
+@test "journal_logs_en_echec" {
+  deja_en_service "$ANCIENNE" 0.1.0
+  export DOUBLE_DOCKER_LOGS_ECHEC=1
+  deployer prod "$NOUVELLE" 0.2.0
+  [ "$status" -eq 0 ]
+  [[ "$output" == *" non copié : docker logs en échec (code 1)"* ]]
+  [ -d "$ETAT/journaux" ]
+  [ -z "$(find "$ETAT/journaux" -mindepth 1)" ]
+  [ "$(cat "$ETAT/deploye")" = "$NOUVELLE 0.2.0 -" ]
+  [ "$(signaux)" = "$(signal 'déployé 0.2.0') $HC" ]
+}
+
+# Un journaux qui est un lien, ou un fichier : la copie est refusée et notée, et le déploiement
+# réussit. Le lien n'est pas suivi.
+@test "journal_dossier_refuse" {
+  local cible="$BATS_TEST_TMPDIR/ailleurs"
+  horloge_qui_avance
+  deja_en_service "$ANCIENNE" 0.1.0
+  mkdir -p "$cible"
+  ln -s "$cible" "$ETAT/journaux"
+  deployer prod "$NOUVELLE" 0.2.0
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"journaux non copiés : $ETAT/journaux n'est pas un dossier"* ]]
+  [ -z "$(find "$cible" -mindepth 1)" ]
+  [ "$(cat "$ETAT/deploye")" = "$NOUVELLE 0.2.0 -" ]
+  rm "$ETAT/journaux"
+  echo "un fichier" >"$ETAT/journaux"
+  deployer prod "$SUIVANTE" 0.3.0
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"journaux non copiés : $ETAT/journaux n'est pas un dossier"* ]]
+  [ "$(cat "$ETAT/journaux")" = "un fichier" ]
+  [ "$(cat "$ETAT/deploye")" = "$SUIVANTE 0.3.0 -" ]
+}
+
+# Le plafond : les 5 copies les plus récentes, d'après leur nom. Il ne compte ni ne retire un lien
+# ou un autre nom ; un .partiel laissé par une copie coupée part, sans compter comme une copie. Le
+# dossier, posé ici en 755, est remis en 700 par la copie.
+@test "journal_plafond" {
+  local j="$ETAT/journaux" id12=0123456789ab n ailleurs="$BATS_TEST_TMPDIR/ailleurs.log"
+  deja_en_service "$ANCIENNE" 0.1.0
+  mkdir -p "$j"
+  chmod 755 "$j"
+  for n in 1 2 3 4 5 6; do
+    echo "copie $n" >"$j/20200101T00000${n}Z-0.1.0-$id12.log"
+  done
+  # datés parmi les plus récents : le .partiel et le lien
+  echo "copie coupée" >"$j/20200101T000009Z-0.1.0-$id12.log.partiel"
+  echo "hors des journaux" >"$ailleurs"
+  ln -s "$ailleurs" "$j/20200101T000008Z-0.1.0-$id12.log"
+  echo "notes" >"$j/notes.txt"
+  deployer prod "$NOUVELLE" 0.2.0
+  [ "$status" -eq 0 ]
+  for n in 1 2; do
+    [ ! -e "$j/20200101T00000${n}Z-0.1.0-$id12.log" ]
+  done
+  for n in 3 4 5 6; do
+    [ "$(cat "$j/20200101T00000${n}Z-0.1.0-$id12.log")" = "copie $n" ]
+  done
+  [ ! -e "$j/20200101T000009Z-0.1.0-$id12.log.partiel" ]
+  [ -L "$j/20200101T000008Z-0.1.0-$id12.log" ]
+  [ "$(cat "$ailleurs")" = "hors des journaux" ]
+  [ "$(cat "$j/notes.txt")" = notes ]
+  # la copie neuve, les quatre posées les plus récentes, le lien et notes.txt
+  [ "$(copies_de_journal prod | grep -vc '^20200101T')" -eq 1 ]
+  [ "$(find "$j" -mindepth 1 -maxdepth 1 | wc -l)" -eq 7 ]
+  [ "$(stat -c %a "$j")" = 700 ]
+}
+
+# Les échecs que les doubles ne savent pas faire, chacun joué sous `set -euo pipefail` : la liste
+# des conteneurs, le dossier, le renommage, un retrait. Aucun n'arrête le déploiement.
+@test "journal_conteneurs_illisibles" {
+  deja_en_service "$ANCIENNE" 0.1.0
+  # shellcheck disable=SC2016  # la condition se développe quand le double tourne, pas ici
+  echouer_si docker '[[ " $* " == *" ps --all --quiet app "* ]]'
+  deployer prod "$NOUVELLE" 0.2.0
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"journaux non copiés : conteneurs illisibles (docker compose ps : code 1)"* ]]
+  [ ! -e "$ETAT/journaux" ]
+  [ "$(cat "$ETAT/deploye")" = "$NOUVELLE 0.2.0 -" ]
+}
+
+@test "journal_dossier_impossible_a_creer" {
+  deja_en_service "$ANCIENNE" 0.1.0
+  # shellcheck disable=SC2016  # la condition se développe quand le double tourne, pas ici
+  echouer_si mkdir '[[ "${!#}" == */journaux ]]'
+  deployer prod "$NOUVELLE" 0.2.0
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"journaux non copiés : $ETAT/journaux impossible à créer"* ]]
+  [ ! -e "$ETAT/journaux" ]
+  aucune_ligne ' logs --timestamps ' "$APPELS"
+  [ "$(cat "$ETAT/deploye")" = "$NOUVELLE 0.2.0 -" ]
+}
+
+@test "journal_copie_qui_ne_prend_pas_son_nom" {
+  local motif='journal du conteneur [0-9a-f]{12} non copié : journaux/[^ ]+\.log\.partiel ne prend pas son nom'
+  deja_en_service "$ANCIENNE" 0.1.0
+  # shellcheck disable=SC2016  # la condition se développe quand le double tourne, pas ici
+  echouer_si mv '[[ "$*" == *.log.partiel* ]]'
+  deployer prod "$NOUVELLE" 0.2.0
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ $motif ]]
+  [ -z "$(find "$ETAT/journaux" -mindepth 1)" ]
+  [ "$(cat "$ETAT/deploye")" = "$NOUVELLE 0.2.0 -" ]
+}
+
+@test "journal_retrait_impossible" {
+  local j="$ETAT/journaux" id12=0123456789ab n
+  local motif='copie de journal non retirée : journaux/[^ ]+\.log\.partiel'
+  horloge_qui_avance
+  deja_en_service "$ANCIENNE" 0.1.0
+  mkdir -p "$j"
+  for n in 1 2 3 4 5; do
+    echo "copie $n" >"$j/20200101T00000${n}Z-0.1.0-$id12.log"
+  done
+  # shellcheck disable=SC2016  # la condition se développe quand le double tourne, pas ici
+  echouer_si rm '[[ "$*" == *"/journaux/20200101T000001Z-"* || "$*" == *.log.partiel* ]]'
+  # le plafond : la plus ancienne ne part pas
+  deployer prod "$NOUVELLE" 0.2.0
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"copie de journal non retirée : journaux/20200101T000001Z-0.1.0-$id12.log"* ]]
+  [ -f "$j/20200101T000001Z-0.1.0-$id12.log" ]
+  # le .partiel d'un docker logs en échec
+  export DOUBLE_DOCKER_LOGS_ECHEC=1
+  deployer prod "$SUIVANTE" 0.3.0
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ $motif ]]
+  [ "$(cat "$ETAT/deploye")" = "$SUIVANTE 0.3.0 -" ]
+}
+
+# Une horloge en échec donnerait un nom sans horodatage, hors de la forme des copies, que le plafond
+# ne retirerait jamais : rien n'est écrit, et le déploiement réussit, son code inchangé. Seul échoue
+# le `date` de la copie, qui suit la liste des conteneurs : celui d'un instantané, qui la précède,
+# garde la vraie horloge.
+@test "journal_nom_hors_de_la_forme" {
+  local motif='[^ ]+ journal du conteneur [0-9a-f]{12} non copié : nom hors de la forme des copies'
+  deja_en_service "$ANCIENNE" 0.1.0
+  # shellcheck disable=SC2016  # la condition se développe quand le double tourne, pas ici
+  echouer_si date '[[ "$*" == "-u +%Y%m%dT%H%M%SZ" ]] && grep -q " ps --all --quiet app$" "$APPELS"'
+  deployer prod "$NOUVELLE" 0.2.0
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s\n' "$output" | grep -Ecx "$motif")" -eq 1 ]
+  [[ "$output" != *" copié : journaux/"* ]]
+  [ -d "$ETAT/journaux" ]
+  [ -z "$(find "$ETAT/journaux" -mindepth 1)" ]
+  [ "$(cat "$ETAT/deploye")" = "$NOUVELLE 0.2.0 -" ]
+  [ "$(signaux)" = "$(signal 'déployé 0.2.0') $HC" ]
+}
+
+# echouer_si refuse un second double sur la même commande : il déplacerait le premier sur la
+# commande d'avant, qui s'appellerait sans fin. Le premier reste en place, et passe la main au
+# double d'avant lui, ici l'horloge figée.
+@test "echouer_si_refuse_un_second_double" {
+  horloge_figee
+  echouer_si date false
+  run echouer_si date false
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"echouer_si : date a déjà son double d'échec ($DOUBLES/date-avant-echouer-si)"* ]]
+  [ "$(timeout 5 date -u +%Y%m%dT%H%M%SZ)" = "$(jour_de_l_horloge)T120000Z" ]
+}
+
+# horloge_figee refuse un double de date déjà posé : elle le prendrait pour la vraie `date`, et
+# s'appellerait sans fin. Le premier reste en place, et les autres appels vont à la vraie `date`.
+@test "horloge_figee_refuse_un_second_double" {
+  horloge_figee
+  run horloge_figee
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"horloge_figee : un double de date est déjà posé ($DOUBLES/date)"* ]]
+  [ "$(timeout 5 date -u +%Y%m%dT%H%M%SZ)" = "$(jour_de_l_horloge)T120000Z" ]
+  [ "$(timeout 5 date -u -d @0 +%Y)" = 1970 ]
+}
+
+# horloge_qui_avance refuse de même un double de date déjà posé, le sien ou l'horloge figée.
+@test "horloge_qui_avance_refuse_un_second_double" {
+  horloge_qui_avance
+  run horloge_qui_avance
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"horloge_qui_avance : un double de date est déjà posé ($DOUBLES/date)"* ]]
+  [ "$(timeout 5 date -u +%Y%m%dT%H%M%SZ)" = "$(jour_de_l_horloge)T000001Z" ]
+  [ "$(timeout 5 date -u -d @0 +%Y)" = 1970 ]
+  rm "$DOUBLES/date"
+  horloge_figee
+  run horloge_qui_avance
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"horloge_qui_avance : un double de date est déjà posé ($DOUBLES/date)"* ]]
+  [ "$(timeout 5 date -u +%Y%m%dT%H%M%SZ)" = "$(jour_de_l_horloge)T120000Z" ]
+  [ "$(timeout 5 date -u -d @0 +%Y)" = 1970 ]
 }
