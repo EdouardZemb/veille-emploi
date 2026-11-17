@@ -198,6 +198,39 @@ creer_double_transparent() {
   creer_double "$nom" "exec '$reel' \"\$@\""
 }
 
+# echouer_si <commande> <condition> : un double de <commande>, en tête du PATH, qui rend 1 quand la
+# condition, du code bash qui lit les arguments de l'appel dans "$@", est vraie, et passe sinon la
+# main à la commande d'avant, $DOUBLES/<commande>-avant-echouer-si : le double déjà posé, qui y est
+# déplacé, ou un relais vers la vraie. Il note ses appels dans $APPELS, comme creer_double : un
+# double déjà posé y note les siens une seconde fois. Il refuse d'être posé deux fois sur la même
+# commande : le second déplacerait le premier sur la commande d'avant, qui s'appellerait sans fin.
+echouer_si() {
+  local nom="${1:?commande}" condition="${2:?condition}" suivante reel
+  suivante="$DOUBLES/$nom-avant-echouer-si"
+  if [ -e "$suivante" ] || [ -L "$suivante" ]; then
+    echo "echouer_si : $nom a déjà son double d'échec ($suivante)" >&2
+    return 1
+  fi
+  if [ -e "$DOUBLES/$nom" ]; then
+    mv "$DOUBLES/$nom" "$suivante"
+  else
+    reel="$(PATH="${PATH//"$DOUBLES":/}" command -v "$nom")" || {
+      echo "commande réelle introuvable : $nom" >&2
+      return 1
+    }
+    cat >"$suivante" <<EOF
+#!/usr/bin/env bash
+exec '$reel' "\$@"
+EOF
+    chmod +x "$suivante"
+  fi
+  creer_double "$nom" "if $condition; then
+  echo '$nom : échec voulu par le test' >&2
+  exit 1
+fi
+exec '$suivante' \"\$@\""
+}
+
 # installer_doubles <nom…> : place en tête du PATH les doubles écrits d'avance dans
 # tests/deploiement/doubles/ (docker, git, curl, rclone). Comme ceux de creer_double, ils notent leurs
 # appels dans $APPELS ; ils se pilotent par des variables DOUBLE_* (voir l'en-tête de chacun).
@@ -236,6 +269,13 @@ en_service() {
   echo "$2 $3" >"$etat/deploye"
 }
 
+# id_en_service : l'identifiant du conteneur app du double de docker, son fichier app-id, dans le
+# dossier de $APPELS. À lire après un appel au double : un conteneur posé sans `up` (en_service)
+# ne reçoit le sien qu'à la première question.
+id_en_service() {
+  cat "$(dirname "$APPELS")/app-id"
+}
+
 # poser_donnees <env> : un fichier dans le dossier de données de cet environnement, comme celui d'une
 # application qui a déjà servi. Avec les sauvegardes, deployer.sh refuse un dossier vide quand une
 # version est déployée : un test qui part de en_service, sans déploiement réel, doit donc le poser.
@@ -243,6 +283,17 @@ poser_donnees() {
   local dossier="$VEILLE_EMPLOI_RACINE_DONNEES/$1/donnees"
   mkdir -p "$dossier"
   echo "données de test" >"$dossier/base"
+}
+
+# --- Copies du journal (déploiement) -----------------------------------------------------------
+
+# copies_de_journal <env> : les noms des copies du journal de cet environnement, les fichiers
+# ordinaires *.log de son dossier journaux/, un par ligne, dans l'ordre des noms ; rien sans lui.
+# Ni un lien, ni un .partiel.
+copies_de_journal() {
+  local dossier="$VEILLE_EMPLOI_RACINE_ETAT/$1/journaux"
+  [ -d "$dossier" ] || return 0
+  find "$dossier" -mindepth 1 -maxdepth 1 -type f -name '*.log' -printf '%f\n' | LC_ALL=C sort
 }
 
 # --- Stock d'images et de conteneurs du double de docker (ménage des images) -----------------
@@ -318,9 +369,9 @@ aucune_ligne() {
   fi
 }
 
-# --- Horloge des instantanés (déploiement, sauvegarde) ----------------------------------------
+# --- Horloges des copies de journal et des instantanés (déploiement, sauvegarde) ---------------
 
-# jour_de_l_horloge : le jour des horodatages de horloge_qui_avance, la veille de la vraie date,
+# jour_de_l_horloge : le jour des horodatages des horloges du banc, la veille de la vraie date,
 # relevé une fois par test : un test qui passe minuit garde son jour. Un jour figé vieillit, et la
 # purge de 30 jours, qui lit la vraie date, finit par retirer les instantanés du test
 # (modele-projet#136).
@@ -330,13 +381,41 @@ jour_de_l_horloge() {
   cat "$fichier"
 }
 
+# horloge_figee : l'horodatage d'une copie de journal, ou d'un instantané, tombe toujours à la même
+# seconde, <jour_de_l_horloge>T120000Z : deux copies du même conteneur, dans un même test, visent le
+# même nom. Les autres appels de `date` sont ceux de la vraie. Elle refuse un double de `date` déjà
+# posé : elle le prendrait pour la vraie `date`, et s'appellerait sans fin.
+horloge_figee() {
+  local reel jour
+  if [ -e "$DOUBLES/date" ]; then
+    echo "horloge_figee : un double de date est déjà posé ($DOUBLES/date)" >&2
+    return 1
+  fi
+  reel="$(command -v date)"
+  jour="$(jour_de_l_horloge)"
+  cat >"$DOUBLES/date" <<EOF
+#!/usr/bin/env bash
+if [ "\$*" = '-u +%Y%m%dT%H%M%SZ' ]; then
+  printf '%sT120000Z\n' '$jour'
+else
+  exec '$reel' "\$@"
+fi
+EOF
+  chmod +x "$DOUBLES/date"
+}
+
 # horloge_qui_avance : l'horodatage d'un instantané (à la seconde) avance à chaque appel. Des
 # déploiements ou des sauvegardes qui se suivent en moins d'une seconde, comme ici avec des doubles,
 # viseraient sinon le même dossier, que la commande de l'image refuse d'écraser. Il tombe la veille
 # de la vraie date (jour_de_l_horloge), le compteur dans les secondes. Les autres appels de `date`
-# sont ceux de la vraie.
+# sont ceux de la vraie. Elle refuse, comme horloge_figee, un double de `date` déjà posé, le sien
+# compris : elle le prendrait pour la vraie `date`, et s'appellerait sans fin.
 horloge_qui_avance() {
   local reel jour
+  if [ -e "$DOUBLES/date" ]; then
+    echo "horloge_qui_avance : un double de date est déjà posé ($DOUBLES/date)" >&2
+    return 1
+  fi
   reel="$(command -v date)"
   jour="$(jour_de_l_horloge)"
   cat >"$DOUBLES/date" <<EOF

@@ -72,7 +72,12 @@
 #      (hors staging, si VERIFIER_CONFIG est déclarée) et VEILLE_EMPLOI_CONTENU=<instantané>/contenu (si
 #      VERIFIER_CONTENU l'est), que `dc` monte en lecture seule (compose.config.yml,
 #      compose.contenu.yml) ;
-#   4. `docker compose up -d --wait --remove-orphans` (un conteneur dont aucun des deux fichiers
+#   4. le journal de chaque conteneur app du projet, en service ou arrêté, copié dans
+#      $VEILLE_EMPLOI_ETAT/journaux/ (copier_journaux : les 5 copies les plus récentes sont gardées,
+#      et une copie qui échoue est notée au journal, sans rien arrêter ; les lignes que le conteneur
+#      écrit entre la copie et son arrêt par compose, le temps de tirer l'image si elle manque puis
+#      jusqu'à 10 s d'arrêt, ne sont pas copiées) ; puis
+#      `docker compose up -d --wait --remove-orphans` (un conteneur dont aucun des deux fichiers
 #      compose ne déclare plus le service est retiré) ; avec un commit de données, les montages du
 #      conteneur app (`docker container inspect`) : sur /config et /contenu, l'instantané visé en
 #      lecture seule s'il les monte, rien sinon (jamais /config en staging), les chemins sous leur
@@ -83,12 +88,14 @@
 #   5. succès : deploye ← "<image> <version> <commit>" (l'ancien dans precedent), donnees ← le chemin
 #      canonique du dossier de données, echec effacé, signal ok ;
 #   6. échec : echec ← "<image> <commit>" d'abord (la sonde ne retentera pas ce couple, même si la
-#      suite est coupée), puis retour à compose.env.precedent, contrôlé comme à l'aller : ses
+#      suite est coupée), puis retour à compose.env.precedent, dont le `up` copie d'abord le journal
+#      de la version en échec (copier_journaux, comme à l'étape 4), contrôlé comme à l'aller : ses
 #      montages (ceux de compose.env.precedent, sauf si ni lui ni le couple en échec n'ont de commit
 #      de données), puis sa santé (statut, version, révision et, aux conditions de l'aller, le champ
 #      configuration : montee s'il monte /config, exemple en staging s'il a un commit de données et
 #      que VERIFIER_CONFIG est déclarée) ; sans version précédente (premier déploiement), la version
-#      en échec est arrêtée. Signal /fail ;
+#      en échec est arrêtée (`compose stop` : le conteneur reste, et le déploiement suivant en copie
+#      le journal). Signal /fail ;
 #   7. succès seulement (un déploiement ou un retour arrière réussi), après le signal ok :
 #      nettoyer-images.sh, sous le même verrou (VEILLE_EMPLOI_VERROU_TENU=1 : il ne l'attend pas), qui
 #      fait le ménage des images, puis celui des instantanés de $VEILLE_EMPLOI_ETAT/instantanes/. Son
@@ -135,6 +142,8 @@
 #   precedent               le contenu précédent de deploye
 #   echec                   "<image@sha256:…> <commit>" du dernier couple en échec
 #   instantanes/<commit>/   l'instantané des données de ce commit, en lecture seule (lib.sh)
+#   journaux/               les copies du journal des conteneurs remplacés (étape 4), en 700 :
+#                           <AAAAMMJJTHHMMSSZ>-<version>-<id>.log, en 600, les 5 plus récentes
 #   donnees                 le chemin canonique (`realpath`) du dossier de données, écrit à chaque
 #                           succès, déploiement ou retour arrière, jamais par un refus ni un
 #                           échec : la référence de la garde (étape 1 bis)
@@ -209,10 +218,128 @@ menage_des_images() {
   return 0
 }
 
-# lancer : `up` du compose.env courant. Les secrets dont compose.projet.yml a besoin viennent de
-# l'environnement (charger_secrets), jamais d'un argument ni d'un fichier. --remove-orphans retire
-# les conteneurs du projet dont aucun des deux fichiers compose ne déclare plus le service.
+# La copie du journal (modele-projet#133). Le compose géré écrit le journal du conteneur app par le
+# pilote json-file, dans des fichiers de Docker qui partent avec le conteneur quand `up` le
+# remplace. Avant chaque `up`, lancer copie donc le journal de chaque conteneur app du projet dans
+# $VEILLE_EMPLOI_ETAT/journaux/, sous le nom <AAAAMMJJTHHMMSSZ>-<version>-<id>.log (l'heure UTC de la
+# copie, la version du conteneur ou inconnue, les 12 premiers caractères de son identifiant), et
+# en garde les JOURNAUX_GARDES plus récentes. MOTIF_COPIE est la forme de ce nom ; un .partiel est
+# ce nom suivi de .partiel. FORMAT_VERSION n'extrait de l'environnement du conteneur que
+# VEILLE_EMPLOI_VERSION : le conteneur porte aussi les secrets que compose.projet.yml lui passe, et
+# rien d'autre n'en est lu.
+JOURNAUX_GARDES=5
+MOTIF_COPIE='^[0-9]{8}T[0-9]{6}Z-(main|[0-9]+\.[0-9]+\.[0-9]+|inconnue)-[0-9a-f]{12}\.log$'
+FORMAT_VERSION='{{range .Config.Env}}{{if eq (index (split . "=") 0) "VEILLE_EMPLOI_VERSION"}}{{index (split . "=") 1}}{{end}}{{end}}'
+
+# version_du_conteneur <id> : la version de ce conteneur, la valeur de VEILLE_EMPLOI_VERSION dans son
+# environnement (FORMAT_VERSION), ou inconnue si elle est vide, ne suit pas MOTIF_VERSION, ou ne se
+# lit pas. La sortie d'erreur de l'inspection va à /dev/null, jamais au journal. Rend toujours 0.
+version_du_conteneur() {
+  local version=""
+  version="$(docker container inspect --format "$FORMAT_VERSION" "$1" 2>/dev/null)" || version=""
+  [[ "$version" =~ $MOTIF_VERSION ]] || version=inconnue
+  printf '%s\n' "$version"
+  return 0
+}
+
+# purger_journaux <dossier> : le plafond des copies, par environnement. Garde les JOURNAUX_GARDES
+# copies les plus récentes, d'après leur nom (l'horodatage, de largeur fixe, en tête, décide de
+# l'ordre), retire les autres, et tout .partiel laissé par une copie coupée. Ne compte et ne retire
+# que les fichiers ordinaires dont le nom suit MOTIF_COPIE, ou ce nom suivi de .partiel : jamais un
+# lien, ni un autre nom, comme purger_par_nom (lib.sh). Un retrait en échec est noté au journal, et
+# n'arrête rien. Ne rend que 0.
+purger_journaux() {
+  local dossier="$1" chemin nom i
+  local -a copies=()
+  for chemin in "$dossier"/*; do
+    { [ ! -L "$chemin" ] && [ -f "$chemin" ]; } || continue
+    nom="${chemin##*/}"
+    if [[ "$nom" =~ $MOTIF_COPIE ]]; then
+      copies+=("$chemin")
+    elif [[ "$nom" == *.partiel ]] && [[ "${nom%.partiel}" =~ $MOTIF_COPIE ]]; then
+      rm -f -- "$chemin" || journal "copie de journal non retirée : journaux/$nom"
+    fi
+  done
+  for ((i = 0; i < ${#copies[@]} - JOURNAUX_GARDES; i++)); do
+    rm -f -- "${copies[i]}" || journal "copie de journal non retirée : journaux/${copies[i]##*/}"
+  done
+  return 0
+}
+
+# copier_journaux : avant le `up` de lancer, le journal de chaque conteneur app du projet, en service
+# ou arrêté (`dc ps --all --quiet app`), copié dans $VEILLE_EMPLOI_ETAT/journaux/ : tout ce que rend
+# `docker logs --timestamps`, sa sortie standard et sa sortie d'erreur, écrit sous umask 077 au nom
+# <fichier>.partiel, renommé après le code 0 ; puis le plafond (purger_journaux). Aucun conteneur :
+# rien, sans ligne au journal. Le dossier est créé s'il manque et remis en 700 à chaque copie ; un
+# journaux qui est un lien, ou qui n'est pas un dossier, fait refuser la copie, comme un nom déjà
+# pris, le fichier ou son .partiel, présent ou en lien (une redirection suivrait le lien). Seul un
+# identifiant de 12 à 64 caractères hexadécimaux se copie, et seul un nom qui suit MOTIF_COPIE
+# s'écrit (une horloge en échec donnerait un nom sans horodatage) : un autre nom échapperait au
+# plafond.
+# lancer est appelé comme condition d'un `if`, où `set -e` est suspendu : chaque étape teste donc
+# son code. Une copie qui échoue est notée au journal, son .partiel retiré, et la suivante est
+# tentée ; `set -u`, lui, reste fatal : chaque variable est posée avant d'être lue. Ne rend que 0,
+# n'atteint jamais arreter, et ne change jamais le code de lancer, celui du `up`.
+copier_journaux() {
+  local dossier="$VEILLE_EMPLOI_ETAT/journaux" sortie="" code=0 id court version fichier chemin
+  local -a ids=()
+  sortie="$(dc ps --all --quiet app)" || code=$?
+  if [ "$code" -ne 0 ]; then
+    journal "journaux non copiés : conteneurs illisibles (docker compose ps : code $code)"
+    return 0
+  fi
+  [ -n "$sortie" ] || return 0
+  mapfile -t ids <<<"$sortie"
+  if [ -L "$dossier" ] || { [ -e "$dossier" ] && [ ! -d "$dossier" ]; }; then
+    journal "journaux non copiés : $dossier n'est pas un dossier"
+    return 0
+  fi
+  if ! mkdir -p -- "$dossier" || ! chmod 700 -- "$dossier"; then
+    journal "journaux non copiés : $dossier impossible à créer"
+    return 0
+  fi
+  for id in "${ids[@]}"; do
+    if ! [[ "$id" =~ ^[0-9a-f]{12,64}$ ]]; then
+      journal "un conteneur non copié : identifiant illisible"
+      continue
+    fi
+    court="${id:0:12}"
+    version="$(version_du_conteneur "$id")"
+    fichier="$(date -u +%Y%m%dT%H%M%SZ)-$version-$court.log"
+    if ! [[ "$fichier" =~ $MOTIF_COPIE ]]; then
+      journal "journal du conteneur $court non copié : nom hors de la forme des copies"
+      continue
+    fi
+    chemin="$dossier/$fichier"
+    if [ -e "$chemin" ] || [ -L "$chemin" ] || [ -e "$chemin.partiel" ] || [ -L "$chemin.partiel" ]; then
+      journal "journal du conteneur $court non copié : journaux/$fichier existe déjà (ou son .partiel)"
+      continue
+    fi
+    code=0
+    (umask 077 && docker logs --timestamps "$id" >"$chemin.partiel" 2>&1) || code=$?
+    if [ "$code" -ne 0 ]; then
+      rm -f -- "$chemin.partiel" || journal "copie de journal non retirée : journaux/$fichier.partiel"
+      journal "journal du conteneur $court non copié : docker logs en échec (code $code)"
+      continue
+    fi
+    if ! mv -T -- "$chemin.partiel" "$chemin"; then
+      rm -f -- "$chemin.partiel" || journal "copie de journal non retirée : journaux/$fichier.partiel"
+      journal "journal du conteneur $court non copié : journaux/$fichier.partiel ne prend pas son nom"
+      continue
+    fi
+    journal "journal du conteneur $court ($version) copié : journaux/$fichier"
+  done
+  purger_journaux "$dossier"
+  return 0
+}
+
+# lancer : la copie du journal des conteneurs que le `up` va remplacer (copier_journaux), puis `up`
+# du compose.env courant. Les secrets dont compose.projet.yml a besoin viennent de l'environnement
+# (charger_secrets), jamais d'un argument ni d'un fichier. --remove-orphans retire les conteneurs du
+# projet dont aucun des deux fichiers compose ne déclare plus le service. Le code rendu est celui du
+# `up` : la copie ne le change jamais.
 lancer() {
+  copier_journaux
   dc up -d --wait --wait-timeout 120 --remove-orphans
 }
 
@@ -602,6 +729,7 @@ avertir_apres_retour() {
 # échec n'ont de commit de données ; puis sa santé, avec le champ configuration aux conditions de
 # l'aller, lues sur ce couple : montee s'il monte /config, exemple en staging s'il a un commit de
 # données (COMMIT_PRECEDENT, sinon celui de ses montages) et que projet.env déclare VERIFIER_CONFIG.
+# Son `up` (lancer) copie d'abord le journal de la version en échec (copier_journaux).
 echouer() {
   local raison="$1" etat="$VEILLE_EMPLOI_ETAT" retour=aucun image_prec version_prec revision_prec message
   local config_prec contenu_prec commit_prec configuration_prec=""
