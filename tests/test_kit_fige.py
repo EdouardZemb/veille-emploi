@@ -184,5 +184,9 @@ def test_le_kit_ne_se_lit_plus_dans_le_config_env_du_clone(tmp_path, monkeypatch
     monkeypatch.setenv("VEILLE_ENV", "")
     assert empreintes.dossier_kit() is None
 
+    # Un dossier existe aussi : `exists()` le lirait comme un fichier et lèverait.
+    monkeypatch.setenv("VEILLE_ENV", str(tmp_path))
+    assert empreintes.dossier_kit() is None
+
     monkeypatch.setenv("VEILLE_ENV", str(fichier_env))
     assert empreintes.dossier_kit() == kit

@@ -30,7 +30,7 @@ def test_charger_env_nimporte_pas_config():
     le corps de `_charger_env`."""
     source = (RACINE / "src" / "veille" / "cli.py").read_text(encoding="utf-8")
     debut = source.index("def _charger_env")
-    fin = source.index("_charger_env()", debut)
+    fin = source.index("\n_charger_env()", debut)
     corps = source[debut:fin]
     assert "from .config" not in corps, (
         "importer config ici fige ses chemins avant la lecture de .env"
@@ -126,6 +126,21 @@ def test_un_veille_env_vide_ne_fait_pas_tomber_l_import():
         from veille import cli
     """)
     env = {**os.environ, "VEILLE_ENV": ""}
+    resultat = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, timeout=60, env=env
+    )
+    assert resultat.returncode == 0, resultat.stderr
+
+
+def test_un_veille_env_qui_designe_un_dossier_ne_fait_pas_tomber_l_import(tmp_path):
+    """Un dossier existe : `exists()` le laisserait passer, et `read_text` ferait tomber
+    l'import. Seul `is_file()` l'ignore."""
+    script = textwrap.dedent(f"""
+        import sys
+        sys.path.insert(0, {str(RACINE / "src")!r})
+        from veille import cli
+    """)
+    env = {**os.environ, "VEILLE_ENV": str(tmp_path)}
     resultat = subprocess.run(
         [sys.executable, "-c", script], capture_output=True, text=True, timeout=60, env=env
     )
