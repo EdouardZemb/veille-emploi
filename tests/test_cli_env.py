@@ -2,19 +2,25 @@
 
 Regression : `_charger_env()` importait `config` pour connaitre la racine. Or
 `config` calcule ses chemins au moment de son import — la base, le kit, les
-dossiers generes. Les variables de `config/.env` etaient donc lues APRES que
-les chemins soient figes, et `VEILLE_KIT` restait sans effet en ligne de
-commande. Le service systemd ne le voyait pas, lui recevant ses variables par
-`EnvironmentFile`.
+dossiers generes. Les variables du fichier d'environnement etaient donc lues
+APRES que les chemins soient figes, et `VEILLE_KIT` restait sans effet en ligne
+de commande.
+
+Depuis la fin du mode systemd (veille-emploi#34), seul le fichier que designe
+`VEILLE_ENV` est lu : un fichier laisse dans le clone ne l'est plus d'office, et
+un `VEILLE_ENV` vide, ou qui ne designe pas un fichier, est ignore sans un mot.
 """
 
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import textwrap
 from pathlib import Path
+
+import pytest
 
 RACINE = Path(__file__).resolve().parent.parent
 
@@ -24,7 +30,7 @@ def test_charger_env_nimporte_pas_config():
     le corps de `_charger_env`."""
     source = (RACINE / "src" / "veille" / "cli.py").read_text(encoding="utf-8")
     debut = source.index("def _charger_env")
-    fin = source.index("_charger_env()", debut)
+    fin = source.index("\n_charger_env()", debut)
     corps = source[debut:fin]
     assert "from .config" not in corps, (
         "importer config ici fige ses chemins avant la lecture de .env"
@@ -59,7 +65,7 @@ def test_le_env_est_lu_avant_le_calcul_des_chemins(tmp_path):
 
 
 def test_une_variable_deja_posee_gagne_sur_le_fichier(tmp_path):
-    """`setdefault` : l'environnement du service prime sur config/.env."""
+    """`setdefault` : une variable deja posee dans l'environnement prime sur le fichier."""
     env_fichier = tmp_path / "mon.env"
     env_fichier.write_text(f"VEILLE_KIT={tmp_path / 'du-fichier'}\n", encoding="utf-8")
     impose = tmp_path / "impose"
@@ -78,6 +84,76 @@ def test_une_variable_deja_posee_gagne_sur_le_fichier(tmp_path):
     )
     assert resultat.returncode == 0, resultat.stderr
     assert resultat.stdout.strip() == str(impose)
+
+
+def test_sans_veille_env_le_config_env_du_clone_n_est_pas_lu(tmp_path):
+    """Un `config/.env` laisse dans un clone n'est plus lu d'office : ses secrets se
+    designent par `VEILLE_ENV`. Le test importe une copie de `src/veille`, posee sous un
+    clone factice qui porte un `config/.env`, pour que le repli d'avant, s'il revenait,
+    lise ce fichier et non celui du vrai clone."""
+    shutil.copytree(RACINE / "src" / "veille", tmp_path / "src" / "veille",
+                    ignore=shutil.ignore_patterns("__pycache__"))
+    kit = tmp_path / "kit-du-clone"
+    kit.mkdir()
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / ".env").write_text(f"VEILLE_KIT={kit}\n", encoding="utf-8")
+
+    script = textwrap.dedent(f"""
+        import os, sys
+        sys.path.insert(0, {str(tmp_path / "src")!r})
+        from veille import cli
+        print(cli.__file__)
+        print(os.environ.get("VEILLE_KIT"))
+    """)
+    # Les autres variables de la suite restent, dont la configuration designee.
+    env = {k: v for k, v in os.environ.items() if k not in ("VEILLE_ENV", "VEILLE_KIT")}
+    resultat = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, timeout=60, env=env
+    )
+    assert resultat.returncode == 0, resultat.stderr
+    fichier, valeur = resultat.stdout.strip().splitlines()
+    # Un `veille` installe pourrait l'emporter sur la copie : le test lirait le vrai clone.
+    assert Path(fichier).resolve().is_relative_to(tmp_path.resolve()), fichier
+    assert valeur == "None", f"le config/.env du clone a ete lu : VEILLE_KIT={valeur}"
+
+
+def test_un_veille_env_vide_ne_fait_pas_tomber_l_import():
+    """`Path("")` vaut `.`, qui existe : lu comme un fichier, ce dossier ferait tomber
+    l'import de `veille.cli`, donc toute la ligne de commande."""
+    script = textwrap.dedent(f"""
+        import sys
+        sys.path.insert(0, {str(RACINE / "src")!r})
+        from veille import cli
+    """)
+    env = {**os.environ, "VEILLE_ENV": ""}
+    resultat = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, timeout=60, env=env
+    )
+    assert resultat.returncode == 0, resultat.stderr
+
+
+def test_un_veille_env_qui_designe_un_dossier_ne_fait_pas_tomber_l_import(tmp_path):
+    """Un dossier existe : `exists()` le laisserait passer, et `read_text` ferait tomber
+    l'import. Seul `is_file()` l'ignore."""
+    script = textwrap.dedent(f"""
+        import sys
+        sys.path.insert(0, {str(RACINE / "src")!r})
+        from veille import cli
+    """)
+    env = {**os.environ, "VEILLE_ENV": str(tmp_path)}
+    resultat = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, timeout=60, env=env
+    )
+    assert resultat.returncode == 0, resultat.stderr
+
+
+def test_veille_init_n_existe_plus():
+    """Les cles naissent au demarrage de la console, dans tous les modes."""
+    from veille import cli
+
+    with pytest.raises(SystemExit) as sortie:
+        cli.principal(["init"])
+    assert sortie.value.code == 2
 
 
 # --------------------------------------------------------------------------

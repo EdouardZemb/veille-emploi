@@ -9,31 +9,18 @@ from __future__ import annotations
 
 import re
 import shutil
-import subprocess
 from datetime import datetime, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.sauts import sauter
 from veille import db, reglages
 from veille.app import app
 from tests.aide_session import connecter
 
-
-def _systemd_utilisateur() -> bool:
-    """systemd utilisateur repond-il sur cette machine ? Le poste n'a pas
-    `systemctl` ; un runner de CI l'a souvent, mais sans session utilisateur.
-    Sur le serveur, il repond et ces tests tournent."""
-    if shutil.which("systemctl") is None:
-        return False
-    try:
-        r = subprocess.run(["systemctl", "--user", "show-environment"],
-                           capture_output=True, timeout=10)
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-    return r.returncode == 0
+APP_JS = Path(__file__).resolve().parents[1] / "src" / "veille" / "static" / "app.js"
 
 
 @pytest.fixture(autouse=True)
@@ -107,25 +94,20 @@ def test_le_seuil_passe_par_lapi(client, criteres_temporaires):
 
 
 def test_les_frequences_proposees_sont_valides():
-    """On ne laisse pas saisir un OnCalendar libre : une expression fausse
-    casserait la collecte en silence."""
+    """On ne laisse pas saisir d'heures libres : chaque frequence porte les siennes, non vides,
+    croissantes et dans la journee, que le planificateur lit."""
     for cle, f in reglages.FREQUENCES.items():
-        assert f["oncalendar"].startswith("*-*-* "), cle
         assert f["libelle"] and f["detail"], cle
+        heures = f["heures"]
+        assert heures, cle
+        assert all(a < b for a, b in zip(heures, heures[1:])), cle
+        assert all(0 <= h <= 23 and 0 <= m <= 59 for h, m in heures), cle
 
 
 def test_une_frequence_inconnue_est_refusee(client):
     with pytest.raises(ValueError):
         reglages.ecrire_frequence("n_importe_quoi")
     assert client.post("/api/reglages/frequence", json={"cle": "n_importe_quoi"}).status_code == 400
-
-
-@pytest.mark.skipif(sauter(_systemd_utilisateur), reason="systemd utilisateur absent de cette machine")
-def test_lire_la_frequence_ne_casse_pas_sans_unite(monkeypatch, tmp_path):
-    monkeypatch.setattr(reglages, "CHEMIN_TIMER", tmp_path / "absent.timer")
-    etat = reglages.lire_frequence()
-    assert etat["oncalendar"] == ""
-    assert etat["choix"]
 
 
 def test_le_seuil_vit_en_base(criteres_temporaires):
@@ -158,35 +140,41 @@ def test_le_seuil_retombe_sur_criteres_sans_base_amorcee(criteres_temporaires):
     assert reglages.lire_seuil() == 47.0
 
 
-def test_frequence_indisponible_sans_systemctl(client, monkeypatch):
-    monkeypatch.delenv("VEILLE_EMPLOI_ENV", raising=False)
-
-    def absent(*a):
-        raise FileNotFoundError("systemctl")
-
-    monkeypatch.setattr(reglages, "_systemctl", absent)
-    etat = reglages.lire_frequence()
-    assert etat["etat"] == "indisponible"
-    assert etat["mode"] == "systemd"
-    assert etat["raison"]
-    assert client.get("/api/reglages").status_code == 200
-
-
-def test_frequence_en_base_en_conteneur(monkeypatch):
-    monkeypatch.setenv("VEILLE_EMPLOI_ENV", "prod")
-
-    def interdit(*a):
-        raise AssertionError("systemctl ne doit pas etre appele")
-
-    monkeypatch.setattr(reglages, "_systemctl", interdit)
+@pytest.mark.parametrize("mode", [None, "staging", "prod"])
+def test_la_frequence_vit_en_base_dans_tous_les_modes(monkeypatch, mode):
+    """Le mode local se conduit comme le staging : la frequence en base, la collecte inactive
+    (seule la prod collecte)."""
+    if mode is None:
+        monkeypatch.delenv("VEILLE_EMPLOI_ENV", raising=False)
+    else:
+        monkeypatch.setenv("VEILLE_EMPLOI_ENV", mode)
     db.initialiser()
     etat = reglages.lire_frequence()
     assert etat["cle"] == "trois_fois"
-    assert etat["mode"] == "conteneur"
-    assert etat["etat"] == "ok"
-    assert etat["actif"] is True
+    assert etat["actif"] is (mode == "prod")
     reglages.ecrire_frequence("une_fois")
-    assert reglages.lire_frequence()["cle"] == "une_fois"
+    etat = reglages.lire_frequence()
+    assert etat["cle"] == "une_fois"
+    assert db.lire_reglage("frequence") == "une_fois"
+    assert etat["actif"] is (mode == "prod")
+
+
+def test_la_frequence_rend_ses_seules_cles(client, monkeypatch):
+    monkeypatch.delenv("VEILLE_EMPLOI_ENV", raising=False)
+    cles = {"cle", "prochain_passage", "actif", "choix"}
+    etat = reglages.lire_frequence()
+    assert set(etat) == cles
+    for choix in etat["choix"]:
+        assert set(choix) == {"cle", "libelle", "detail"}, choix
+    r = client.get("/api/reglages")
+    assert r.status_code == 200
+    assert set(r.json()["frequence"]) == cles
+
+
+def test_reglages_ne_montre_plus_la_frequence_de_l_unite():
+    source = APP_JS.read_text(encoding="utf-8")
+    for reste in ("oncalendar", "Fréquence indisponible", "Réglage personnalisé"):
+        assert reste not in source, reste
 
 
 def test_la_collecte_n_est_active_qu_en_prod(monkeypatch):
@@ -223,10 +211,18 @@ def test_prochain_passage_au_changement_d_heure():
     assert rendu.astimezone(timezone.utc) == datetime(2026, 10, 25, 6, 15, tzinfo=timezone.utc)
 
 
-def test_chaque_frequence_a_des_heures_coherentes():
-    for f in reglages.FREQUENCES.values():
-        heures = ",".join(f"{h:02d}" for h, _ in f["heures"])
-        assert f["oncalendar"] == f"*-*-* {heures}:15:00"
+def test_le_libelle_de_chaque_frequence_dit_ses_heures():
+    """Le libelle est ce qu'Edouard lit : il enumere les heures de sa frequence, ou dit la
+    premiere et la derniere (« 7h à 21h »)."""
+    for cle, f in reglages.FREQUENCES.items():
+        heures = f["heures"]
+        enumerees = {(int(h), int(m)) for h, m in re.findall(r"(\d{1,2})h(\d{2})", f["libelle"])}
+        if enumerees:
+            assert enumerees == set(heures), cle
+            continue
+        plage = re.search(r"(\d{1,2})h à (\d{1,2})h", f["libelle"])
+        assert plage, cle
+        assert (int(plage[1]), int(plage[2])) == (heures[0][0], heures[-1][0]), cle
 
 
 # --------------------------------------------------------------------------

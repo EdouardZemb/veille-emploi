@@ -6,16 +6,13 @@ de metiers, motifs, planchers salariaux - reste dans le `criteres.yaml` de la co
 qui se modifie a l'aise sur un clavier.
 
 Le seuil vit en base (table `reglages`), amorce une fois depuis
-le `criteres.yaml` de la configuration, que la console n'ecrit plus. La frequence vit en base en
-conteneur, dans l'unite systemd sur le serveur du tailnet.
+le `criteres.yaml` de la configuration, que la console n'ecrit plus. La frequence vit aussi en
+base, dans tous les modes : le planificateur la lit, et seule la prod collecte.
 """
 
 from __future__ import annotations
 
-import re
-import subprocess
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -25,33 +22,26 @@ from .config import charger_criteres, environnement
 PARIS = ZoneInfo("Europe/Paris")
 FREQUENCE_DEFAUT = "trois_fois"
 
-UNITE_TIMER = "veille-collecte.timer"
-CHEMIN_TIMER = Path.home() / ".config" / "systemd" / "user" / UNITE_TIMER
-
-# Frequences proposees. On ne laisse pas saisir un OnCalendar libre : une
-# expression fausse casserait la collecte en silence.
+# Frequences proposees. On ne laisse pas saisir d'heures libres : une heure fausse
+# casserait la collecte en silence. Le planificateur lit les `heures`.
 FREQUENCES = {
     "trois_fois": {
         "libelle": "Trois fois par jour (7h15, 12h15, 18h15)",
-        "oncalendar": "*-*-* 07,12,18:15:00",
         "heures": [(7, 15), (12, 15), (18, 15)],
         "detail": "Après les envois d'alertes du matin, du midi et du soir.",
     },
     "deux_fois": {
         "libelle": "Deux fois par jour (7h15, 18h15)",
-        "oncalendar": "*-*-* 07,18:15:00",
         "heures": [(7, 15), (18, 15)],
         "detail": "Suffit si tu consultes matin et soir.",
     },
     "une_fois": {
         "libelle": "Une fois par jour (7h15)",
-        "oncalendar": "*-*-* 07:15:00",
         "heures": [(7, 15)],
         "detail": "Le minimum utile : les alertes mail arrivent surtout la nuit.",
     },
     "toutes_les_deux_heures": {
         "libelle": "Toutes les deux heures (7h à 21h)",
-        "oncalendar": "*-*-* 07,09,11,13,15,17,19,21:15:00",
         "heures": [(7, 15), (9, 15), (11, 15), (13, 15), (15, 15), (17, 15), (19, 15), (21, 15)],
         "detail": "Pour une période de recherche intensive.",
     },
@@ -90,12 +80,6 @@ def ecrire_seuil(valeur: float) -> None:
 # --------------------------------------------------------------------------
 
 
-def _systemctl(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        ["systemctl", "--user", *args], capture_output=True, text=True, timeout=30
-    )
-
-
 def prochain_passage(cle: str, instant: datetime) -> datetime:
     """Le prochain passage de la collecte, en heure de Paris, strictement apres `instant`."""
     heures = FREQUENCES[cle]["heures"]
@@ -118,91 +102,25 @@ def _choix() -> list[dict[str, Any]]:
     return [{"cle": k, **_public(v)} for k, v in FREQUENCES.items()]
 
 
-def _lire_frequence_conteneur() -> dict[str, Any]:
+def lire_frequence() -> dict[str, Any]:
+    """La frequence lue en base, dans tous les modes ; la collecte n'est active qu'en prod."""
     cle = db.lire_reglage("frequence")
     if cle not in FREQUENCES:
         cle = FREQUENCE_DEFAUT
     prochain = prochain_passage(cle, datetime.now(timezone.utc))
     return {
         "cle": cle,
-        "oncalendar": FREQUENCES[cle]["oncalendar"],
-        "personnalise": False,
         "prochain_passage": prochain.strftime("%Y-%m-%d %H:%M"),
         "actif": environnement() == "prod",
-        "mode": "conteneur",
-        "etat": "ok",
-        "choix": _choix(),
-    }
-
-
-def lire_frequence() -> dict[str, Any]:
-    """Frequence actuelle : la base en conteneur, le fichier d'unite sous systemd."""
-    if environnement() is not None:
-        return _lire_frequence_conteneur()
-    try:
-        return _lire_frequence_systemd()
-    except FileNotFoundError as e:
-        return {
-            "cle": "", "oncalendar": "", "personnalise": False, "prochain_passage": "",
-            "actif": False, "mode": "systemd", "etat": "indisponible",
-            "raison": f"{e.filename or 'systemctl'} est introuvable sur cette machine",
-            "choix": _choix(),
-        }
-
-
-def _lire_frequence_systemd() -> dict[str, Any]:
-    actuel = ""
-    if CHEMIN_TIMER.exists():
-        m = re.search(r"^OnCalendar\s*=\s*(.+)$", CHEMIN_TIMER.read_text(encoding="utf-8"), re.M)
-        if m:
-            actuel = m.group(1).strip()
-
-    cle = next((k for k, v in FREQUENCES.items() if v["oncalendar"] == actuel), "")
-    prochain = ""
-    resultat = _systemctl("list-timers", UNITE_TIMER, "--no-pager", "--no-legend")
-    if resultat.returncode == 0 and resultat.stdout.strip():
-        prochain = " ".join(resultat.stdout.split()[:4])
-
-    return {
-        "cle": cle,
-        "oncalendar": actuel,
-        "personnalise": bool(actuel) and not cle,
-        "prochain_passage": prochain,
-        "actif": _systemctl("is-active", UNITE_TIMER).stdout.strip() == "active",
-        "mode": "systemd",
-        "etat": "ok",
         "choix": _choix(),
     }
 
 
 def ecrire_frequence(cle: str) -> dict[str, Any]:
+    """Ecrit la frequence en base, dans tous les modes. Une cle inconnue leve ValueError."""
     if cle not in FREQUENCES:
         raise ValueError(f"fréquence inconnue : {cle}")
-    if environnement() is not None:
-        db.ecrire_reglage("frequence", cle)
-        return lire_frequence()
-    if not CHEMIN_TIMER.exists():
-        raise RuntimeError(f"unité systemd introuvable : {CHEMIN_TIMER}")
-
-    texte = CHEMIN_TIMER.read_text(encoding="utf-8")
-    nouveau, remplacements = re.subn(
-        r"^OnCalendar\s*=.*$",
-        f"OnCalendar={FREQUENCES[cle]['oncalendar']}",
-        texte,
-        count=1,
-        flags=re.MULTILINE,
-    )
-    if not remplacements:
-        raise RuntimeError("ligne OnCalendar introuvable dans l'unité")
-    CHEMIN_TIMER.write_text(nouveau, encoding="utf-8")
-
-    try:
-        _systemctl("daemon-reload")
-        redemarrage = _systemctl("restart", UNITE_TIMER)
-    except FileNotFoundError:
-        raise RuntimeError("systemctl est introuvable sur cette machine") from None
-    if redemarrage.returncode != 0:
-        raise RuntimeError(f"redémarrage du minuteur impossible : {redemarrage.stderr[:200]}")
+    db.ecrire_reglage("frequence", cle)
     return lire_frequence()
 
 

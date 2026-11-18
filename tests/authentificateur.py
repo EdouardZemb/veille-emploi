@@ -1,7 +1,7 @@
 """Un authentificateur WebAuthn logiciel, pour les tests.
 
 Il fait de vraies signatures ES256, que `webauthn` verifie : la cryptographie
-des passkeys est eprouvee sur le poste et sur le serveur, sans navigateur.
+des passkeys est eprouvee sur le poste et en CI, sans navigateur.
 La cle privee est tiree au vol, a chaque instance : aucun secret versionne.
 
 Tout ce qui part vers le serveur est en base64url sans remplissage, comme

@@ -14,18 +14,22 @@ noteraient les offres avec les critères de Camille.
 Les réglages de l'instance réelle, ses arbitrages et ce que ses rejeux ont
 donné sont dans le `docs/CRITERES.md` du dépôt de données.
 
-Après toute modification :
+Après toute modification, sur le poste, dans le clone :
+
+```powershell
+.venv\Scripts\veille config verifier <dossier>   # 0 : sain ; 2 : un problème par ligne
+```
+
+En conteneur, la configuration est montée en lecture seule : elle change par
+une PR du dépôt de données, et arrive en prod par le déploiement de son
+étiquette de données. Puis, sur le serveur, l'existant se recalcule :
 
 ```bash
-cd <le clone>
-./.venv/bin/veille config verifier <dossier>   # 0 : sain ; 2 : un problème par ligne
-./.venv/bin/veille rescorer      # recalcule l'existant
-systemctl --user restart veille-web
+docker exec veille-emploi-app-1 veille rescorer   # recalcule l'existant
 ```
 
 Le bouton **Recalculer tous les scores**, dans *Plus › Mes critères*, fait
-exactement la même chose. En conteneur, la configuration est montée en lecture
-seule : elle change par une PR, et arrive par le déploiement.
+exactement la même chose.
 
 ### Ce que le rescorage a le droit de faire
 

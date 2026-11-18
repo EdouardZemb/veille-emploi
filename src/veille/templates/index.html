@@ -28,12 +28,12 @@
 </div>
 
 {% if sert_l_exemple %}
-<!-- Une console sans conteneur ni configuration désignée : un oubli de VEILLE_CONFIG. Elle
-     sert les critères et les gabarits de l'exemple, et refuse la collecte, les dossiers, les
-     relances, le recalcul d'une offre et l'affinement. -->
+<!-- Le mode local, sans VEILLE_EMPLOI_ENV ni configuration désignée : un oubli de
+     VEILLE_CONFIG. La console sert les critères et les gabarits de l'exemple, et refuse la
+     collecte, les dossiers, les relances, le recalcul d'une offre et l'affinement. -->
 <p class="avert grave bandeau" role="alert">
-  Cette console sert l'exemple, pas ta configuration : pose <code>VEILLE_CONFIG</code> sur le
-  serveur, puis redémarre la console.
+  Cette console sert l'exemple, pas ta configuration : pose <code>VEILLE_CONFIG</code>, puis
+  relance la console.
 </p>
 {% endif %}
 

@@ -3,7 +3,7 @@
 DEUX VOIES, ET LA SECONDE EST LA PLUS IMPORTANTE.
 
 1. `recuperer()` — recuperation automatique, sur les seules sources qui
-   l'autorisent. Declenchee par une action humaine, jamais par le minuteur.
+   l'autorisent. Declenchee par une action humaine, jamais par le planificateur.
 
 2. `appliquer_texte()` — le texte colle a la main. Il ouvre l'annonce dans SON
    navigateur, ou il est connecte et voit tout, selectionne, colle. Couverture
@@ -16,7 +16,7 @@ au-dessus de son seuil en viennent. Une recuperation automatique y serait interd
 toute facon vaine puisque LinkedIn masque le detail aux visiteurs non connectes.
 
 LIMITES A NE PAS LAISSER DERIVER — voir docs/LIMITES.md :
-  - declenchement humain uniquement, jamais depuis veille-collecte.timer ;
+  - declenchement humain uniquement, jamais depuis la collecte du planificateur ;
   - une page a la fois, delai minimal entre deux, plafond quotidien ;
   - liste blanche ET robots.txt, les deux, pas l'un ou l'autre ;
   - jamais de contournement : pas de navigateur sans tete, pas de cookie de

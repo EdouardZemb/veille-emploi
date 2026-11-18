@@ -3,10 +3,10 @@
 Une seule page : voir, trier, declencher, piloter. L'API JSON derriere sert la
 page et, accessoirement, permet de scripter depuis un terminal.
 
-Exposition : sur le serveur du tailnet, uvicorn ecoute sur 127.0.0.1, derriere
-`tailscale serve`. Dans son conteneur (ADR-0002), la console ecoute sur
+Exposition : dans son conteneur (ADR-0002), la console ecoute sur
 0.0.0.0:8460 ; le port n'est publie que sur la boucle locale de l'hote, et
-l'acces public passe par le tunnel commun.
+l'acces public passe par le tunnel commun. En mode local, sans
+`VEILLE_EMPLOI_ENV`, `veille servir` ecoute sur 127.0.0.1.
 """
 
 from __future__ import annotations
@@ -53,15 +53,14 @@ async def cycle_de_vie(_: FastAPI):
             log.warning(
                 "AUCUNE PASSKEY - lance : veille lien, puis ouvre le lien sur ton telephone"
             )
-    mode = config.environnement()
-    if mode is not None:
-        # en conteneur, les cles des notifications naissent ici (`veille init` n'y passe pas)
-        if not notifications.CHEMIN_VAPID.exists():
-            # le sujet VAPID part avec chaque push : l'origine publique, jamais une adresse reelle
-            notifications.generer_vapid(
-                sujet=notifications.sujet_par_defaut())
-        if mode == "staging":
-            factice.charger_au_demarrage()
+    # Les cles des notifications naissent ici, dans tous les modes, mode local compris ;
+    # presentes, elles restent intactes.
+    if not notifications.CHEMIN_VAPID.exists():
+        # le sujet VAPID part avec chaque push : l'origine publique, jamais une adresse reelle
+        notifications.generer_vapid(
+            sujet=notifications.sujet_par_defaut())
+    if config.environnement() == "staging":
+        factice.charger_au_demarrage()
     PLANIFICATEUR.demarrer()  # purge tout de suite, puis le fil (planificateur.py)
     try:
         yield
@@ -74,11 +73,10 @@ app.mount("/static", StaticFiles(directory=ICI / "static"), name="static")
 gabarits = Jinja2Templates(directory=str(ICI / "templates"))
 
 # 20 demandes par minute et par client pour les quatre routes qu'on appelle sans
-# session, plus un plafond global de 200 : derriere le tunnel ou `tailscale
-# serve`, tout arrive de la meme adresse, le client se lit dans
-# `CF-Connecting-IP` (voir debit.py). Les routes a session ne comptent pas : qui
-# use le budget bloque la connexion et l'ajout d'un appareil, jamais une
-# session deja ouverte.
+# session, plus un plafond global de 200 : derriere le tunnel, tout arrive de
+# la meme adresse, le client se lit dans `CF-Connecting-IP` (voir debit.py).
+# Les routes a session ne comptent pas : qui use le budget bloque la connexion
+# et l'ajout d'un appareil, jamais une session deja ouverte.
 LIMITE_AUTH = LimiteDebit(20, timedelta(minutes=1))
 LIMITE_GLOBALE = LimiteDebit(200, timedelta(minutes=1))
 ROUTES_ANONYMES = frozenset({
@@ -104,8 +102,9 @@ def _refus_sans_configuration() -> JSONResponse | None:
 
 
 def _sert_l_exemple_par_oubli() -> bool:
-    """Une console sans conteneur sert une instance : si rien n'est désigné, elle sert
-    l'exemple par oubli de VEILLE_CONFIG. Le staging et la CI le servent par contrat."""
+    """En mode local, sans `VEILLE_EMPLOI_ENV`, la console sert la configuration que désigne
+    VEILLE_CONFIG : si rien n'est désigné, elle sert l'exemple par oubli. Le staging et la CI
+    le servent par contrat."""
     return config.environnement() is None and not config.config_designee()
 
 
@@ -896,8 +895,8 @@ def api_politique_enrichissement(offre_id: int):
 def api_enrichir(offre_id: int):
     """Recuperation automatique — uniquement sur les sources qui l'autorisent.
 
-    Cette route n'est appelee que par un geste de sa part. Rien dans le
-    minuteur de collecte ne doit y toucher.
+    Cette route n'est appelee que par un geste de sa part. Rien dans la
+    collecte du planificateur ne doit y toucher.
     """
     refus = _refus_sans_configuration_hors_conteneur()
     if refus is not None:
@@ -1215,7 +1214,7 @@ class NouvelleFrequence(BaseModel):
 def api_changer_frequence(corps: NouvelleFrequence):
     try:
         return {"ok": True, "frequence": reglages.ecrire_frequence(corps.cle)}
-    except (ValueError, RuntimeError) as exc:
+    except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
 
@@ -1223,29 +1222,18 @@ def api_changer_frequence(corps: NouvelleFrequence):
 def api_collecter_maintenant():
     """Declenche une collecte sans attendre son heure.
 
-    En conteneur, le planificateur la lance, en prod seulement (le staging ne
-    collecte pas). Sur le serveur du tailnet, c'est le service systemd.
+    Le planificateur la lance, en prod seulement : le staging, la CI et le mode
+    local ne collectent pas, et le disent. `veille collecter` reste en ligne de commande.
     """
-    environnement = config.environnement()
-    # L'environnement d'abord : en staging, c'est « la collecte est coupee » qu'il faut dire.
-    if environnement is not None and environnement != "prod":
+    # L'environnement d'abord : hors prod, c'est « la collecte est coupee » qu'il faut dire.
+    if config.environnement() != "prod":
         return _erreur(409, "collecte_coupee")
+    # En defense : la prod refuse deja de demarrer sans configuration (config.py).
     refus = _refus_sans_configuration()
     if refus is not None:
         return refus
-    if environnement is not None:
-        if not PLANIFICATEUR.collecter_maintenant():
-            return _erreur(409, "collecte_en_cours")
-        return {"ok": True, "message": "Collecte lancée. Rafraîchis dans une minute."}
-
-    import subprocess
-
-    resultat = subprocess.run(
-        ["systemctl", "--user", "start", "veille-collecte.service"],
-        capture_output=True, text=True, timeout=30,
-    )
-    if resultat.returncode != 0:
-        raise HTTPException(500, resultat.stderr[:200] or "démarrage impossible")
+    if not PLANIFICATEUR.collecter_maintenant():
+        return _erreur(409, "collecte_en_cours")
     return {"ok": True, "message": "Collecte lancée. Rafraîchis dans une minute."}
 
 

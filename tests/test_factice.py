@@ -1,4 +1,4 @@
-"""Le jeu factice du staging, et les cles des notifications en mode conteneur."""
+"""Le jeu factice du staging, et les cles des notifications, qui naissent au demarrage."""
 
 from __future__ import annotations
 
@@ -158,9 +158,12 @@ def test_un_echec_du_chargement_n_empeche_pas_de_demarrer(monkeypatch, caplog):
     assert _nb_offres() == 0
 
 
-@pytest.mark.parametrize("mode", ["prod", "staging"])
-def test_les_cles_push_naissent_au_demarrage_en_conteneur(monkeypatch, pdf_bouchon, mode):
-    monkeypatch.setenv("VEILLE_EMPLOI_ENV", mode)
+@pytest.mark.parametrize("mode", ["prod", "staging", None])
+def test_les_cles_push_naissent_au_demarrage_dans_tous_les_modes(monkeypatch, pdf_bouchon, mode):
+    if mode is None:
+        monkeypatch.delenv("VEILLE_EMPLOI_ENV", raising=False)
+    else:
+        monkeypatch.setenv("VEILLE_EMPLOI_ENV", mode)
     chemin = notifications.CHEMIN_VAPID
     assert not chemin.exists()
     _demarrer()
@@ -188,11 +191,6 @@ def test_le_sujet_vapid_du_conteneur_sans_origine_est_un_substitut(monkeypatch, 
     brut = notifications.CHEMIN_VAPID.read_text(encoding="utf-8")
     assert json.loads(brut)["sujet"] == notifications.SUJET_SANS_ORIGINE
     assert "@gmail.com" not in brut
-
-
-def test_sans_mode_les_cles_ne_naissent_pas():
-    _demarrer()
-    assert not notifications.CHEMIN_VAPID.exists()
 
 
 # --------------------------------------------------------------------------

@@ -1,9 +1,9 @@
 """Authentification par passkeys, sessions gardees en base.
 
-POURQUOI : le tailnet n'est pas prive pour toi seul. D'autres appareils y sont,
-et d'autres personnes peuvent le rejoindre pour d'autres projets. Sans ce
-verrou, ta recherche d'emploi - candidatures, pretentions salariales, notes sur des
-employeurs - serait lisible par tout appareil du reseau.
+POURQUOI : la console est publique, derriere le tunnel commun : n'importe qui
+peut en atteindre l'adresse. Sans ce verrou, ta recherche d'emploi -
+candidatures, pretentions salariales, notes sur des employeurs - serait lisible
+par quiconque la trouve.
 
 Mecanique : une passkey ouvre une session, un lien a usage unique en
 enregistre une. Session gardee en base : le cookie porte un jeton au hasard, la

@@ -332,7 +332,7 @@ def test_l_image_ignore_les_fichiers_prives():
     motifs = _motifs()
     prives = [
         ".git", ".git/config", ".venv", ".venv/Scripts/python.exe",
-        "donnees", "donnees/veille.sqlite3", "donnees/kit/cv.pdf",
+        "donnees", "donnees/veille.sqlite3", "donnees/kit/cv.pdf", "donnees/vapid.json",
         "config/.env", "config/auth.json", "config/vapid.json",
         ".githooks", ".githooks/pre-commit", "scripts/modele", "scripts/modele/garde_claude.py",
         ".superpowers", ".superpowers/sdd/progress.md", ".claude", ".claude/settings.json",
@@ -360,9 +360,9 @@ def test_l_image_garde_ce_que_la_console_lit():
 
 
 def test_un_fichier_local_ignore_n_est_pas_un_fichier_suivi(tmp_path):
-    """La console du tailnet garde config/.env et config/vapid.json a la racine du clone du
-    code, ignores par git : ce ne sont pas des fichiers suivis, et aucune image ne les voit.
-    Quand git ne suit rien dans un dossier, la reponse est vide, pas le contenu du disque."""
+    """Un clone peut garder des fichiers locaux ignores par git, comme un vieux config/.env :
+    ce ne sont pas des fichiers suivis, et aucune image ne les voit. Quand git ne suit rien
+    dans un dossier, la reponse est vide, pas le contenu du disque."""
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, timeout=60)
     (tmp_path / ".gitignore").write_text("config/\n", encoding="utf-8")
     (tmp_path / "config").mkdir()

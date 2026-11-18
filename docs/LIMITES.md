@@ -44,8 +44,8 @@ conditions strictes**.
 ### Ce qui est interdit, et qui le reste
 
 Ouvrir les annonces **en lot**, à chaque collecte, sans lui, depuis une tâche
-planifiée. C'est du moissonnage. **Rien dans `veille-collecte.timer` ne doit
-appeler `enrichissement.recuperer()`.**
+planifiée. C'est du moissonnage. **Rien dans la collecte ni dans le
+planificateur ne doit appeler `enrichissement.recuperer()`.**
 
 ### Les cinq règles
 
@@ -91,14 +91,14 @@ présent** :
 - remplir un formulaire de candidature avec lui
 - vérifier ponctuellement une page carrière
 
-**Jamais de tâche planifiée qui navigue sans lui.** Aucune unité systemd,
-aucun cron, aucun déclencheur de ce projet ne doit piloter un navigateur.
+**Jamais de tâche planifiée qui navigue sans lui.** Aucune minuterie, aucun
+cron, aucun déclencheur de ce projet ne doit piloter un navigateur.
 
 Les seules tâches automatiques du dispositif sont le planificateur de la
 console (la purge des sessions et des liens expirés et, en prod, la collecte :
-API, RSS, IMAP) et les minuteries du serveur (la sonde, la sauvegarde et son
-test) ; sur une console sans conteneur, `veille-collecte.timer` collecte et
-`veille-web.service` sert la console. Aucune n'ouvre de navigateur.
+API, RSS, IMAP, puis la passe de vérification du soir) et les minuteries du
+serveur, les unités `veille-emploi-*` du modèle (la sonde, la sauvegarde et son
+test). Aucune n'ouvre de navigateur.
 
 ---
 
@@ -116,27 +116,16 @@ du contenu, est dans l'ADR-0002, § 6.
 - Dans le conteneur, `uvicorn` écoute sur toutes ses interfaces, au port 8460 :
   le tunnel l'atteint par son réseau. L'hôte ne publie ce port que sur
   `127.0.0.1`, pour la santé locale (`deploiement/compose.yml`).
-
-**La console sans conteneur, jusqu'à son retrait** (ADR-0002, § 10), reste sur
-le tailnet seul :
-
-- `uvicorn` écoute **uniquement sur `127.0.0.1`**. Ne change pas ce `--host`.
-- L'accès passe par **`tailscale serve`**, qui publie sur le tailnet seul.
-- **`tailscale funnel` est proscrit** : il publierait sur Internet.
-  `scripts/tailnet/exposer-tailnet.sh` du dépôt de données refuse de démarrer s'il en détecte un,
-  et revérifie après coup.
-- La console écoute sur le tailnet sur un port choisi pour ne gêner aucun autre
-  service de la machine (celui de l'instance réelle, et pourquoi :
-  `docs/LIMITES.md` du dépôt de données). N'y touche pas.
+- Sur le poste, `veille servir` écoute sur `127.0.0.1` par défaut : la console
+  du poste ne se publie nulle part.
 
 ---
 
 ## 4. Aucun réseau n'est une authentification
 
-L'adresse publique est ouverte à tout Internet. Le tailnet a d'autres appareils,
-et d'autres personnes peuvent le rejoindre pour d'autres projets. **La connexion
-de la console n'est pas décorative** : c'est ce qui empêche que sa recherche
-d'emploi soit lisible par quiconque atteint son adresse, publique ou du tailnet.
+L'adresse publique est ouverte à tout Internet. **La connexion de la console
+n'est pas décorative** : c'est ce qui empêche que sa recherche d'emploi soit
+lisible par quiconque atteint son adresse.
 Ne retire `Depends(auth.exiger_session)` d'aucune route, et une route nouvelle
 qui lit ou écrit des données la porte aussi.
 
@@ -159,9 +148,10 @@ l'ait demandé explicitement.
 Le serveur héberge d'autres services (ceux de l'instance réelle :
 `docs/LIMITES.md` du dépôt de données).
 
-Ce projet vit **entièrement** dans son clone, avec son propre
-venv et des unités systemd **utilisateur**. Aucun paquet système, aucun service
-système, jamais `pip` en root.
+Ce projet vit **entièrement** dans ses conteneurs, ses clones et ses dossiers
+du compte de déploiement (`docs/exploitation.md`, « Ce qui tourne »), avec les
+unités **utilisateur** `veille-emploi-*` du modèle. Aucun paquet système, aucun
+service système, jamais `pip` en root.
 
 ---
 
@@ -294,26 +284,17 @@ se fermant, sans jamais réécrire le fichier. D'où le piège : `claude -p` ré
 dans son terminal et échoue partout ailleurs. Le relevé qui l'a montré est dans
 le `docs/LIMITES.md` du dépôt de données.
 
-**Ce qui marche** : `claude setup-token`, puis le jeton dans `config/.env` sous
-`CLAUDE_CODE_OAUTH_TOKEN`, droits `600` — la convention déjà appliquée au mot
-de passe Gmail et aux identifiants France Travail. Le service systemd charge ce
-fichier via `EnvironmentFile`, donc il le verra sans autre réglage.
+**Ce qui marche** : `claude setup-token`, puis le jeton sous
+`CLAUDE_CODE_OAUTH_TOKEN`, dans l'environnement de la console du poste ou dans
+le fichier que désigne `VEILLE_ENV`, droits `600` — la convention déjà
+appliquée au mot de passe Gmail et aux identifiants France Travail.
+L'affinement n'est pas dans l'image : en prod, il est indisponible
+(`docs/exploitation.md`).
 
-### Deux conséquences qu'il faut connaître
+### Une conséquence qu'il faut connaître
 
 **Un conteneur qui monte ce fichier est dans le même cas.** Monter
 `~/.claude/.credentials.json` en lecture seule *et* laisser
 `ANTHROPIC_API_KEY` vide ne donne aucun moyen de s'authentifier. Le montage
 doit être remplacé par le jeton, sinon il continue de donner l'illusion d'une
 configuration valide.
-
-**Le `PATH` d'un service systemd ne contient pas `~/.local/bin`.** Mesure :
-
-```
-PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
-```
-
-Or le binaire `claude`, que le SDK lance, vit précisément là. Corrigé : le
-sous-processus Node reçoit un `PATH` complété. Ce n'était pas la cause de
-l'échec actuel — vérifié, l'erreur est identique avec et sans — mais ça
-l'aurait été dès le jeton posé.

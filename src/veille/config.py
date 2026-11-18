@@ -26,10 +26,12 @@ import yaml
 RACINE = Path(__file__).resolve().parent.parent.parent
 
 
-# Les secrets vivent dans config/.env. Ils ne doivent apparaitre NULLE PART
-# ailleurs : ni journal, ni sortie de commande, ni message de diagnostic. Un
-# service peut tres bien renvoyer dans son corps d'erreur ce qu'on lui a
-# envoye — c'est la que les secrets fuient, pas dans le code qu'on relit.
+# Les secrets vivent dans l'environnement : sur le poste, le fichier que designe
+# VEILLE_ENV ; en conteneur, les secrets de l'instance, que le deploiement
+# dechiffre. Ils ne doivent apparaitre NULLE PART ailleurs : ni journal, ni
+# sortie de commande, ni message de diagnostic. Un service peut tres bien
+# renvoyer dans son corps d'erreur ce qu'on lui a envoye — c'est la que les
+# secrets fuient, pas dans le code qu'on relit.
 SECRETS = (
     "FT_CLIENT_SECRET", "FT_CLIENT_ID",
     "VEILLE_IMAP_MOTDEPASSE", "VEILLE_SMTP_MOTDEPASSE",
@@ -134,7 +136,7 @@ verifier_environnement()
 
 
 def environnement() -> str | None:
-    """Le mode de deploiement (`prod`, `staging`, `ci`), ou None hors conteneur."""
+    """Le mode de deploiement (`prod`, `staging`, `ci`), ou None en mode local."""
     return os.environ.get("VEILLE_EMPLOI_ENV", "").strip() or None
 
 

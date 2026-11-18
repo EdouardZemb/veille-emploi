@@ -1,17 +1,17 @@
-"""Le planificateur : la collecte, la verification et la purge, sans minuteur systemd.
+"""Le planificateur : la collecte, la verification et la purge.
 
 Un conteneur n'a pas de minuteur : un fil de la console en tient lieu
 (ADR-0002, section 5). Il tourne dans tous les modes :
 
 - il purge les sessions et les liens expires, au demarrage puis toutes les
-  six heures, y compris sur une console sans conteneur (mode systemd) ;
+  six heures, y compris en mode local, sans `VEILLE_EMPLOI_ENV` ;
 - en `prod` seulement, il collecte aux heures de la frequence lue en base, qu'il
   relit a chaque reveil : un changement fait dans Reglages s'applique dans la
-  minute. Sans conteneur, c'est `veille-collecte.timer` ;
+  minute ;
 - en `prod` seulement, il lance la passe de verification chaque soir a 22 h 30,
   heure de Paris : elle archive les offres retirees de leur site
-  (`verification.py`). Sans conteneur, une unite systemd posee a la main la
-  lancait, et la bascule vers le conteneur l'avait perdue (veille-emploi#21).
+  (`verification.py`). La bascule vers le conteneur l'avait d'abord perdue
+  (veille-emploi#21).
 
 Une seule collecte a la fois, celle du fil ou celle du bouton « Collecter
 maintenant », et jamais pendant la passe de verification, qui tient le meme
@@ -41,8 +41,9 @@ JOURS = 7  # `veille collecter --jours 7`
 # La passe de verification, heure de Paris : apres la derniere collecte possible
 # (21 h 15, « toutes les deux heures »), et loin des sauvegardes de la nuit.
 HEURE_VERIFICATION = time(22, 30)
-# Ce que prenait l'unite systemd : toutes les offres sondables en une nuit, a
-# trois secondes par offre. Les regles d'archivage sont dans `verification.py`.
+# La limite de la passe d'avant le conteneur : toutes les offres sondables en une
+# nuit, a trois secondes par offre. Les regles d'archivage sont dans
+# `verification.py`.
 LIMITE_VERIFICATION = 400
 
 

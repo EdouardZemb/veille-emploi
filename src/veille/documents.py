@@ -115,8 +115,9 @@ def lister_kit() -> dict[str, Any]:
             "present": False,
             "documents": [],
             "message": (
-                "Aucun kit a cet emplacement. Copie-le sur le serveur puis renseigne "
-                "VEILLE_KIT dans config/.env — voir la section Réglages."
+                "Aucun kit a cet emplacement. En conteneur, copie-le dans le dossier des "
+                "donnees de l'instance ; sur le poste, renseigne VEILLE_KIT dans le fichier "
+                "que designe VEILLE_ENV — voir la section Réglages."
             ),
         }
 

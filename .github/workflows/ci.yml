@@ -47,7 +47,7 @@ jobs:
       # CI (modele-donnees.yml) qui la vérifie, contre l'image publiée de ce dépôt.
       # -rs : les raisons de chaque test sauté restent dans le journal.
       # SUITE_COMPLETE : tout est installé ici, aucun test ne se saute faute de
-      # WeasyPrint, de systemd ou de POSIX ; une dépendance perdue échoue (tests/sauts.py).
+      # WeasyPrint ou de POSIX ; une dépendance perdue échoue (tests/sauts.py).
       - name: Tests
         env:
           SUITE_COMPLETE: "1"
@@ -158,6 +158,25 @@ jobs:
             || { echo "::error::/app/instance est dans l'image"; exit 1; }
           curl -fsS http://127.0.0.1:8460/sante | jq -e '.configuration == "exemple"' \
             || { echo "::error::/sante ne rend pas \"configuration\":\"exemple\""; exit 1; }
+      # Le test de restauration du modèle (deploiement/tester-restauration.sh) lance l'image sans
+      # aucune variable, avec ces options, et attend un /sante au statut ok : c'est le mode local.
+      # Cette étape éprouve ce démarrage dans l'image : le statut ok, l'environnement local, et la
+      # paire de clés des notifications écrite dans /donnees. Elle part d'un volume vide : la
+      # restauration, où la copie de la sauvegarde porte déjà la paire, n'y est pas éprouvée.
+      - name: L'image démarre sans aucune variable
+        shell: bash
+        run: |
+          docker run -d --name veille-emploi-local -p 127.0.0.1:8461:8460 \
+            --user 1000:1000 --read-only --tmpfs /tmp --cap-drop ALL \
+            --security-opt no-new-privileges:true --memory 384m -v /donnees veille-emploi:ci
+          for _ in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8461/sante >/dev/null 2>&1 && break
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8461/sante | jq -e '.statut == "ok" and .environnement == "local"' \
+            || { echo "::error::sans variable, /sante ne rend pas statut ok en mode local"; exit 1; }
+          docker exec veille-emploi-local test -s /donnees/vapid.json \
+            || { echo "::error::sans variable, les clés des notifications ne naissent pas"; exit 1; }
       # Les autres tests de bout en bout du projet contre l'image s'ajoutent ici.
       - uses: ./.github/actions/modele-image-publier
         if: github.event_name == 'push' && github.ref == 'refs/heads/principal'
@@ -165,9 +184,14 @@ jobs:
       # (échec avant `docker run`) : on le tolère.
       - name: Journal du conteneur
         if: failure()
-        run: docker logs veille-emploi || true
+        run: |
+          docker logs veille-emploi || true
+          docker logs veille-emploi-local || true
       - name: Supprimer le conteneur
         if: always()
         run: docker rm -f -v veille-emploi
+      - name: Supprimer le conteneur local
+        if: always()
+        run: docker rm -f -v veille-emploi-local || true
 
 # Ce fichier est au projet : `copier update` n'y touche plus.

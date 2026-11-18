@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .config import DOSSIER_CONFIG, RACINE
+from .config import DOSSIER_CONFIG
 
 # La reference vit avec la configuration de l'instance, pas avec le code.
 REFERENCE = DOSSIER_CONFIG / "empreintes-kit.json"
@@ -70,15 +70,21 @@ class Ecart:
 
 
 def dossier_kit() -> Path | None:
-    """Le kit REEL : la variable d'environnement, sinon `config/.env`.
+    """Le kit REEL : la variable d'environnement, sinon la ligne `VEILLE_KIT=` du
+    fichier que designe `VEILLE_ENV`, et rien d'autre.
+
+    Ce fichier se lit comme `cli._charger_env` le lit : un `VEILLE_ENV` vide vaut
+    absent, et un chemin qui n'est pas un fichier est ignore (`Path("")` vaut `.`,
+    que `read_text` refuserait).
 
     On ne passe pas par `config.CHEMIN_KIT` : sous pytest, les chemins sont
     rediriges vers un dossier temporaire, et le controle mesurerait le vide.
     """
     brut = os.environ.get("VEILLE_KIT")
     if not brut:
-        env = Path(os.environ.get("VEILLE_ENV") or RACINE / "config" / ".env")
-        if env.exists():
+        designe = os.environ.get("VEILLE_ENV", "").strip()
+        env = Path(designe) if designe else None
+        if env is not None and env.is_file():
             for ligne in env.read_text(encoding="utf-8").splitlines():
                 if ligne.strip().startswith("VEILLE_KIT="):
                     brut = ligne.split("=", 1)[1].strip()

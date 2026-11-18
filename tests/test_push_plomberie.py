@@ -1,9 +1,9 @@
 """Plomberie du push web, eprouvee sans HTTPS ni telephone.
 
-Le push ne pourra etre essaye en vrai que le jour ou les certificats HTTPS du
-tailnet seront actifs. Ces tests verifient tout ce qui ne depend pas de ce
-jour-la : generation des cles VAPID, chiffrement de la charge pour un
-abonnement donne, en-tetes envoyes, et nettoyage des abonnements expires.
+Le push ne s'essaie en vrai qu'au telephone, sur une console servie en HTTPS.
+Ces tests verifient tout ce qui n'en depend pas : generation des cles VAPID,
+chiffrement de la charge pour un abonnement donne, en-tetes envoyes, et
+nettoyage des abonnements expires.
 
 On fait tourner un serveur HTTP local qui joue le role du service de push :
 pywebpush lui envoie une vraie requete, et on inspecte ce qu'il recoit.
@@ -226,5 +226,5 @@ def test_sans_cles_vapid_le_journal_dit_ou_elles_naissent(monkeypatch, tmp_path,
     assert len(ecrits) == 1
     message = ecrits[0].getMessage()
     assert "nait au demarrage de la console" in message
-    assert "veille init" in message
+    assert "veille init" not in message
     assert "init-push" not in message

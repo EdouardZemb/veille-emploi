@@ -18,7 +18,7 @@ from veille import dossier
 def _weasyprint_utilisable() -> bool:
     """WeasyPrint rend-il un PDF sur cette machine ? Sous Windows sans Pango,
     l'import leve OSError et non ImportError : on attrape tout, comme le fait
-    `rendu.lettre_en_pdf`. Sur le serveur, il est installe et ces tests tournent."""
+    `rendu.lettre_en_pdf`. En CI, il est installe et ces tests tournent."""
     try:
         from weasyprint import HTML  # noqa: F401
     except Exception:
@@ -649,12 +649,10 @@ def _kit_reel():
     """Le dossier de kit de PRODUCTION, pas celui des tests.
 
     Lu, comme par `empreintes.dossier_kit()`, dans la ligne `VEILLE_KIT=` du fichier
-    que designe `VEILLE_ENV`. Mais sans ses deux autres sources : cette aide ne lit
-    pas la variable `VEILLE_KIT` (la suite la pose sur les gabarits de l'exemple), et
-    elle ne se rabat pas sur `config/.env` quand `VEILLE_ENV` est absente, la ou
-    `dossier_kit()` le fait. La suite pointe `VEILLE_ENV` sur un fichier absent
-    (`conftest.py`) : elle ne lit que des fixtures, et les tests qui en dependent
-    s'y sautent, sur le serveur aussi.
+    que designe `VEILLE_ENV`. Mais sans son autre source : cette aide ne lit pas la
+    variable `VEILLE_KIT` (la suite la pose sur les gabarits de l'exemple). La suite
+    pointe `VEILLE_ENV` sur un fichier absent (`conftest.py`) : elle ne lit que des
+    fixtures, et les tests qui en dependent s'y sautent, en CI aussi.
     """
     import os
     from pathlib import Path as _P

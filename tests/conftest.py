@@ -13,19 +13,18 @@ from pathlib import Path
 
 _TEMPORAIRE = Path(tempfile.mkdtemp(prefix="veille-tests-"))
 
-# Affectes, jamais `setdefault` : la suite tourne aussi sur le serveur, et une
-# variable exportee dans le shell l'enverrait sur les vrais fichiers
-# (tests/test_isolation.py).
+# Affectes, jamais `setdefault` : une variable exportee dans le shell qui lance la
+# suite l'enverrait sur les vrais fichiers (tests/test_isolation.py).
 os.environ["VEILLE_DB"] = str(_TEMPORAIRE / "veille.sqlite3")
 os.environ["VEILLE_URL"] = "http://testserver"
 os.environ["VEILLE_VAPID"] = str(_TEMPORAIRE / "vapid.json")
 os.environ["VEILLE_DOSSIERS"] = str(_TEMPORAIRE / "dossiers")
-# Un fichier absent : importer `veille.cli` chargerait sinon `config/.env`, et sur
-# le serveur ses vraies valeurs entreraient dans toute la suite.
+# Un fichier absent : un `VEILLE_ENV` exporte sur le poste ferait sinon entrer ses
+# valeurs dans toute la suite, a l'import de `veille.cli`.
 os.environ["VEILLE_ENV"] = str(_TEMPORAIRE / "aucun.env")
-# La suite tourne sur l'exemple, jamais sur la configuration d'une instance : sur le
-# serveur, `VEILLE_CONFIG` et `VEILLE_KIT` la designent, et un test qui en lirait les
-# valeurs casserait a chaque reglage. `VEILLE_CRITERES` et `VEILLE_SOURCES` sont
+# La suite tourne sur l'exemple, jamais sur la configuration d'une instance : la ou
+# `VEILLE_CONFIG` et `VEILLE_KIT` la designent, un test qui en lirait les valeurs
+# casserait a chaque reglage. `VEILLE_CRITERES` et `VEILLE_SOURCES` sont
 # retirees : elles l'emporteraient sur `VEILLE_CONFIG`. La configuration reelle se
 # verifie hors de la suite, par `veille config verifier` (etape de la CI).
 _EXEMPLE = Path(__file__).resolve().parent.parent / "exemple"
@@ -36,7 +35,7 @@ for _nom in ("VEILLE_CRITERES", "VEILLE_SOURCES"):
 # Les cookies de session ne doivent pas exiger HTTPS sous le client de test.
 os.environ["VEILLE_HTTPS"] = "0"
 # Les variables du conteneur ont l'absence pour valeur neutre : une valeur exportee
-# (sur le serveur, ou dans un shell de deploiement) ne doit pas entrer dans la suite.
+# (dans un shell de deploiement, par exemple) ne doit pas entrer dans la suite.
 for _nom in ("VEILLE_EMPLOI_ENV", "VEILLE_EMPLOI_URL_PUBLIQUE", "VEILLE_EMPLOI_VERSION"):
     os.environ.pop(_nom, None)
 

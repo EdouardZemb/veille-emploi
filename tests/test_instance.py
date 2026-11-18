@@ -115,6 +115,25 @@ def test_le_bouton_collecter_rend_une_erreur_lisible(rien_de_designe, monkeypatc
         connecter(c)
         r = c.post("/api/reglages/collecter")
     assert r.status_code == 409
+    assert r.json() == {"erreur": "collecte_coupee"}
+    assert lances == []
+
+
+def test_en_prod_le_bouton_collecter_refuse_sans_configuration(rien_de_designe, monkeypatch,
+                                                               tmp_path):
+    """La prod refuse de démarrer sans configuration : le refus du bouton reste, en défense."""
+    from tests.aide_session import connecter
+
+    monkeypatch.setattr(db, "CHEMIN_DB", tmp_path / "veille.sqlite3")
+    monkeypatch.setenv("VEILLE_EMPLOI_ENV", "prod")
+    monkeypatch.setattr(config, "exiger_configuration", lambda: None)
+    lances = []
+    monkeypatch.setattr(planificateur.PLANIFICATEUR, "collecter_maintenant",
+                        lambda: lances.append(1) or True)
+    with TestClient(app, follow_redirects=False) as c:
+        connecter(c)
+        r = c.post("/api/reglages/collecter")
+    assert r.status_code == 409
     assert r.json() == {"erreur": "configuration_non_designee"}
     assert lances == []
 
@@ -302,10 +321,11 @@ def test_prod_avec_une_configuration_cassee_refuse_de_demarrer(tmp_path):
     assert "criteres.yaml" in r.stderr
 
 
-# --- Sans conteneur ni configuration : la page le dit, une offre ne se travaille pas -----
-# Une console sans `VEILLE_EMPLOI_ENV` sert une instance : si elle sert l'exemple, c'est un
-# oubli de `VEILLE_CONFIG`. Le staging et la CI servent l'exemple par contrat, et gardent
-# leurs gestes. La suite désigne l'exemple (`conftest.py`) : ces tests retirent la variable.
+# --- Le mode local sans configuration : la page le dit, une offre ne se travaille pas ----
+# En mode local, sans `VEILLE_EMPLOI_ENV`, la console sert la configuration que désigne
+# `VEILLE_CONFIG` : si elle sert l'exemple, c'est un oubli. Le staging et la CI servent
+# l'exemple par contrat, et gardent leurs gestes. La suite désigne l'exemple
+# (`conftest.py`) : ces tests retirent la variable.
 
 BANDEAU = "Cette console sert l'exemple"
 

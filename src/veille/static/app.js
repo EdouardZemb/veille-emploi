@@ -377,11 +377,6 @@ async function chargerReglages() {
       <div class="bloc">
         <h2>Fréquence de collecte</h2>
         ${frequences}
-        ${r.frequence.etat === 'indisponible'
-          ? `<p class="avert">Fréquence indisponible : ${echapper(r.frequence.raison || '')}</p>` : ''}
-        ${r.frequence.personnalise
-          ? `<p class="avert">Réglage personnalisé en place :
-             <code>${echapper(r.frequence.oncalendar)}</code>. Choisir ci-dessus le remplacera.</p>` : ''}
         <p class="resume">Prochain passage : ${echapper(r.frequence.prochain_passage || 'inconnu')}</p>
         <div class="actions">
           <button id="btn-frequence">Appliquer</button>
@@ -2298,7 +2293,7 @@ const ETATS_PUSH = {
 const RAISONS_PUSH = {
   navigateur: 'Ce navigateur ne gère pas le push web.',
   https: 'Il faut ouvrir la console en HTTPS.',
-  vapid: "Le serveur n'a pas de clé VAPID : elle naît au démarrage de la console (sans conteneur, `veille init`).",
+  vapid: "Le serveur n'a pas de clé VAPID : elle naît au démarrage de la console.",
 };
 // Le premier essai n'était pas parti, le second, après un nouvel abonnement, l'est (réponse R3).
 const REPARATION_PUSH = "Le premier essai n'était pas parti : l'abonnement de cet appareil vient d'être refait, et la notification d'essai est partie.";

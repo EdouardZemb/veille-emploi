@@ -1,9 +1,8 @@
 """La collecte : chaque source, puis les notifications.
 
-Deux appelants. `veille collecter`, que lance le minuteur systemd du serveur du
-tailnet (ou la main d'Edouard), lui passe `print` : sa sortie ne change pas. Le
-planificateur de la console en conteneur (planificateur.py), qui n'a pas de
-minuteur, garde le journal par defaut.
+Deux appelants. `veille collecter`, que lance la main d'Edouard, lui passe
+`print` : sa sortie ne change pas. Le planificateur de la console en conteneur
+(planificateur.py), qui n'a pas de minuteur, garde le journal par defaut.
 """
 
 from __future__ import annotations

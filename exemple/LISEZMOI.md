@@ -24,6 +24,7 @@ Rien ici ne décrit une vraie personne. Les adresses sont en `.exemple.invalid`.
    ou 64 (usage).
 
 Sans configuration désignée, la collecte refuse : elle noterait les offres avec
-cet exemple. Hors conteneur, la console le dit aussi par un bandeau, et refuse les
-gestes sur une offre (dossier, relance, recalcul, affinement). Pour l'essayer sur
-cet exemple, désigne-le, depuis le clone : `VEILLE_CONFIG=exemple`.
+cet exemple. En mode local, sans `VEILLE_EMPLOI_ENV`, la console le dit aussi par
+un bandeau, et refuse les gestes sur une offre (dossier, relance, recalcul,
+affinement). Pour l'essayer sur cet exemple, désigne-le, depuis le clone :
+`VEILLE_CONFIG=exemple`.

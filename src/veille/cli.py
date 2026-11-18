@@ -1,9 +1,8 @@
 """Ligne de commande.
 
-    veille init            prepare la base et les cles
     veille lien            affiche un lien de connexion, valable 24 h
     veille passkeys        liste les passkeys ; --retirer <id> en retire une
-    veille collecter       lance tous les collecteurs actifs (c'est le timer)
+    veille collecter       lance tous les collecteurs actifs
     veille rescorer        recalcule tous les scores apres edition des criteres
     veille etat            resume l'etat de la base
     veille tester-mail     diagnostic IMAP : liste les dossiers, essaie un parsing
@@ -20,16 +19,22 @@ import os
 import sys
 from pathlib import Path
 
-# Charge config/.env avant tout le reste : les collecteurs lisent os.environ.
+# Charge le fichier que designe VEILLE_ENV avant tout le reste : les collecteurs
+# lisent os.environ. Sans VEILLE_ENV, rien n'est lu : un fichier de secrets laisse
+# dans un clone ne l'est plus d'office. Un VEILLE_ENV vide, ou qui designe un
+# fichier absent ou un dossier, est ignore sans un mot : `Path("")` vaut `.`, que
+# `read_text` refuserait en faisant tomber l'import, donc toute la ligne de commande.
 #
 # ATTENTION A L'ORDRE : `config.py` calcule ses chemins (base, kit, dossiers)
-# AU MOMENT DE SON IMPORT. Si on importait config ici pour connaitre la racine,
-# les chemins seraient figes avant que .env soit lu, et VEILLE_KIT serait
-# ignore. On deduit donc la racine de ce fichier-ci, sans rien importer.
+# AU MOMENT DE SON IMPORT. Si on importait config ici, les chemins seraient
+# figes avant que le fichier soit lu, et VEILLE_KIT serait ignore. On n'importe
+# donc rien du paquet.
 def _charger_env() -> None:
-    racine = Path(__file__).resolve().parent.parent.parent
-    chemin = Path(os.environ.get("VEILLE_ENV", racine / "config" / ".env"))
-    if not chemin.exists():
+    brut = os.environ.get("VEILLE_ENV", "").strip()
+    if not brut:
+        return
+    chemin = Path(brut)
+    if not chemin.is_file():
         return
     for ligne in chemin.read_text(encoding="utf-8").splitlines():
         ligne = ligne.strip()
@@ -55,20 +60,6 @@ def _journalisation(verbeux: bool) -> None:
 
 
 # --------------------------------------------------------------------------
-
-
-def cmd_init(args: argparse.Namespace) -> int:
-    from . import db, notifications
-
-    db.initialiser()
-    print(f"Base prete : {db.CHEMIN_DB}")
-    if not notifications.CHEMIN_VAPID.exists():
-        cles = notifications.generer_vapid()
-        print(f"Cles VAPID generees : {notifications.CHEMIN_VAPID}")
-        print(f"  cle publique : {cles.publique}")
-    else:
-        print(f"Cles VAPID deja presentes : {notifications.CHEMIN_VAPID}")
-    return 0
 
 
 def cmd_factice(args: argparse.Namespace) -> int:
@@ -510,7 +501,8 @@ def cmd_kit(args: argparse.Namespace) -> int:
 
     print(f"Kit lu depuis : {CHEMIN_KIT}")
     if not CHEMIN_KIT.exists():
-        print("  -> ce dossier n'existe pas. Renseigne VEILLE_KIT dans config/.env")
+        print("  -> ce dossier n'existe pas. Renseigne VEILLE_KIT dans le fichier que designe "
+              "VEILLE_ENV ; en conteneur, le kit se copie dans /donnees/kit")
         return 1
 
     lettres = sorted(p.name for p in CHEMIN_KIT.glob("lettre*.md"))
@@ -615,8 +607,7 @@ def cmd_tester_notification(args: argparse.Namespace) -> int:
     print("--- Canal 1 : push web ---")
     cles = notifications.charger_vapid()
     if not cles:
-        print("  cles VAPID absentes : elles naissent au demarrage de la console "
-              "(sans conteneur, `veille init`)")
+        print("  cles VAPID absentes : elles naissent au demarrage de la console")
     else:
         print(f"  cles VAPID presentes (sujet {cles.sujet})")
     abonnements = db.lister_abonnements()
@@ -637,7 +628,8 @@ def cmd_tester_notification(args: argparse.Namespace) -> int:
     print(f"  compte       : {utilisateur or '(aucun)'}")
     print(f"  destinataire : {dest or '(aucun)'}")
     if not (utilisateur and motdepasse and dest):
-        print("  -> configuration incomplete, voir config/.env")
+        print("  -> configuration incomplete : voir le fichier que designe VEILLE_ENV, ou, en "
+              "conteneur, les secrets de l'instance")
         return 1
     if not args.envoyer:
         print("  -> ajoute --envoyer pour expedier reellement un message d'essai")
@@ -876,8 +868,6 @@ def principal(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="veille", description="Console de recherche d'emploi")
     p.add_argument("-v", "--verbeux", action="store_true")
     sp = p.add_subparsers(dest="commande", required=True)
-
-    sp.add_parser("init", help="prepare la base et les cles").set_defaults(fonction=cmd_init)
 
     sp.add_parser("factice", help="charge le jeu de données factice (base vide seulement)").set_defaults(
         fonction=cmd_factice
