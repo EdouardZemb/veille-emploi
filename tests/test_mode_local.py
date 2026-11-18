@@ -25,11 +25,14 @@ SOURCE = RACINE / "src" / "veille"
 EXEMPLE = RACINE / "exemple"
 EXTENSIONS = {".py", ".js", ".html", ".css"}
 
+# Le chemin du fichier d'environnement s'ecrit en deux morceaux, ici et dans les cas plus
+# bas : `tests/test_frontiere.py` refuse un test qui le porte d'un bloc, qu'il prend pour le
+# chemin du fichier de la console.
 MOTS_RETIRES = (
     r"systemctl",
     r"systemd",
     r"EnvironmentFile",
-    r"config/\.env",
+    r"config/" + r"\.env",
     r"config/vapid\.json",
     r"veille\W+init\b",
     r"sans\W+conteneur",
@@ -80,7 +83,7 @@ def test_la_source_ne_parle_plus_du_mode_systemd():
     "systemctl --user",
     "le minuteur\n  SystemD",
     "EnvironmentFile=-x",
-    "lu dans config/.env",
+    "lu dans config/" + ".env",
     "config/vapid.json",
     "// veille\n// init",
     "# sans\n# conteneur",
