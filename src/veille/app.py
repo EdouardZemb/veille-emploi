@@ -3,10 +3,10 @@
 Une seule page : voir, trier, declencher, piloter. L'API JSON derriere sert la
 page et, accessoirement, permet de scripter depuis un terminal.
 
-Exposition : sur le serveur du tailnet, uvicorn ecoute sur 127.0.0.1, derriere
-`tailscale serve`. Dans son conteneur (ADR-0002), la console ecoute sur
+Exposition : dans son conteneur (ADR-0002), la console ecoute sur
 0.0.0.0:8460 ; le port n'est publie que sur la boucle locale de l'hote, et
-l'acces public passe par le tunnel commun.
+l'acces public passe par le tunnel commun. En mode local, sans
+`VEILLE_EMPLOI_ENV`, `veille servir` ecoute sur 127.0.0.1.
 """
 
 from __future__ import annotations
@@ -73,11 +73,10 @@ app.mount("/static", StaticFiles(directory=ICI / "static"), name="static")
 gabarits = Jinja2Templates(directory=str(ICI / "templates"))
 
 # 20 demandes par minute et par client pour les quatre routes qu'on appelle sans
-# session, plus un plafond global de 200 : derriere le tunnel ou `tailscale
-# serve`, tout arrive de la meme adresse, le client se lit dans
-# `CF-Connecting-IP` (voir debit.py). Les routes a session ne comptent pas : qui
-# use le budget bloque la connexion et l'ajout d'un appareil, jamais une
-# session deja ouverte.
+# session, plus un plafond global de 200 : derriere le tunnel, tout arrive de
+# la meme adresse, le client se lit dans `CF-Connecting-IP` (voir debit.py).
+# Les routes a session ne comptent pas : qui use le budget bloque la connexion
+# et l'ajout d'un appareil, jamais une session deja ouverte.
 LIMITE_AUTH = LimiteDebit(20, timedelta(minutes=1))
 LIMITE_GLOBALE = LimiteDebit(200, timedelta(minutes=1))
 ROUTES_ANONYMES = frozenset({
@@ -103,8 +102,9 @@ def _refus_sans_configuration() -> JSONResponse | None:
 
 
 def _sert_l_exemple_par_oubli() -> bool:
-    """Une console sans conteneur sert une instance : si rien n'est désigné, elle sert
-    l'exemple par oubli de VEILLE_CONFIG. Le staging et la CI le servent par contrat."""
+    """En mode local, sans `VEILLE_EMPLOI_ENV`, la console sert la configuration que désigne
+    VEILLE_CONFIG : si rien n'est désigné, elle sert l'exemple par oubli. Le staging et la CI
+    le servent par contrat."""
     return config.environnement() is None and not config.config_designee()
 
 

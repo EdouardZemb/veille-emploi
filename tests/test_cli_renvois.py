@@ -2,9 +2,9 @@
 
 Depuis le lot 3, l'archive est au Bilan, les offres mises de côté se trouvent par le filtre d'état
 de Toutes les offres, et un appareil s'abonne aux notifications dans Plus › Réglages : l'en-tête
-n'a plus de bouton « Notifications ». Les clés VAPID naissent au démarrage de la console ;
-`veille init` n'est que le geste sans conteneur. Les messages restent sans accents, comme leurs
-voisins.
+n'a plus de bouton « Notifications ». Les clés VAPID naissent au démarrage de la console, dans
+tous les modes : `veille init` est retirée (la fin du mode systemd). Les messages restent sans
+accents, comme leurs voisins.
 """
 
 from __future__ import annotations
@@ -43,10 +43,8 @@ def test_tester_notification_dit_ou_naissent_les_cles_et_ou_s_abonner(monkeypatc
         db.supprimer_abonnement(a["endpoint"])
     cli.cmd_tester_notification(argparse.Namespace(envoyer=False))
     sortie = capsys.readouterr().out
-    assert (
-        "cles VAPID absentes : elles naissent au demarrage de la console "
-        "(sans conteneur, `veille init`)" in sortie
-    )
+    assert "  cles VAPID absentes : elles naissent au demarrage de la console\n" in sortie
+    assert "veille init" not in sortie
     assert "Il faut d'abord ouvrir la console sur le telephone, puis" in sortie
     assert "Plus › Reglages, « Activer les notifications »" in sortie
     assert "lance `veille init`" not in sortie

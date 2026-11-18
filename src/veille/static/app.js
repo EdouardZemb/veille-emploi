@@ -2293,7 +2293,7 @@ const ETATS_PUSH = {
 const RAISONS_PUSH = {
   navigateur: 'Ce navigateur ne gère pas le push web.',
   https: 'Il faut ouvrir la console en HTTPS.',
-  vapid: "Le serveur n'a pas de clé VAPID : elle naît au démarrage de la console (sans conteneur, `veille init`).",
+  vapid: "Le serveur n'a pas de clé VAPID : elle naît au démarrage de la console.",
 };
 // Le premier essai n'était pas parti, le second, après un nouvel abonnement, l'est (réponse R3).
 const REPARATION_PUSH = "Le premier essai n'était pas parti : l'abonnement de cet appareil vient d'être refait, et la notification d'essai est partie.";

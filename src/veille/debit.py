@@ -1,10 +1,10 @@
 """Limite de debit : un nombre de demandes par fenetre glissante, par cle.
 
 POURQUOI : la connexion est la seule porte de la console. Sans limite, rien
-n'empeche de la marteler. Derriere `tailscale serve` ou le tunnel, tout arrive
-de la meme adresse : la cle du client vient donc de `CF-Connecting-IP` (voir
-`cle_client`), et un plafond global, a cle vide, borne le total. Un seul
-compteur laisserait un client qui martele enfermer tous les autres dehors.
+n'empeche de la marteler. Derriere le tunnel, tout arrive de la meme adresse :
+la cle du client vient donc de `CF-Connecting-IP` (voir `cle_client`), et un
+plafond global, a cle vide, borne le total. Un seul compteur laisserait un
+client qui martele enfermer tous les autres dehors.
 
 Mecanique : les instants des demandes acceptees, dans la fenetre, une fenetre
 par cle. Une demande refusee ne compte pas : le budget se rouvre une fenetre

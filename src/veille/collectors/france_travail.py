@@ -2,7 +2,8 @@
 
 C'est le canal le plus fiable cote francais : API publique, gratuite, prevue
 pour cet usage. Identifiants a creer sur https://francetravail.io (voir
-docs/DEMARRAGE.md), puis renseignes dans config/.env :
+docs/DEMARRAGE.md), puis renseignes dans le fichier que designe VEILLE_ENV ou, en
+conteneur, dans les secrets de l'instance :
 
     FT_CLIENT_ID=...
     FT_CLIENT_SECRET=...

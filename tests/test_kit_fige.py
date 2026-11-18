@@ -163,3 +163,26 @@ def test_un_kit_vide_est_signale_comme_vide_pas_comme_divergent(tmp_path, monkey
     etat = empreintes.etat()
     assert etat["ecarts"] == []
     assert "vide" in etat["raison"]
+
+
+def test_le_kit_ne_se_lit_plus_dans_le_config_env_du_clone(tmp_path, monkeypatch):
+    """Sans `VEILLE_KIT`, le kit se lit dans le fichier que désigne `VEILLE_ENV`, et nulle
+    part ailleurs : plus dans le `config/.env` du clone. `RACINE` est posée sur un clone
+    factice (`raising=False` : le module ne l'importe plus), pour que le repli d'avant, s'il
+    revenait, y trouve un kit. Un `VEILLE_ENV` vide vaut absent : `Path("")` vaut `.`, que
+    `read_text` refuse."""
+    monkeypatch.setattr(empreintes, "RACINE", tmp_path, raising=False)
+    kit = tmp_path / "kit-du-clone"
+    kit.mkdir()
+    fichier_env = tmp_path / "config" / ".env"
+    fichier_env.parent.mkdir()
+    fichier_env.write_text(f"VEILLE_KIT={kit}\n", encoding="utf-8")
+    monkeypatch.delenv("VEILLE_KIT", raising=False)
+    monkeypatch.delenv("VEILLE_ENV", raising=False)
+    assert empreintes.dossier_kit() is None
+
+    monkeypatch.setenv("VEILLE_ENV", "")
+    assert empreintes.dossier_kit() is None
+
+    monkeypatch.setenv("VEILLE_ENV", str(fichier_env))
+    assert empreintes.dossier_kit() == kit

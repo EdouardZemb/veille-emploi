@@ -20,8 +20,8 @@ os.environ["VEILLE_DB"] = str(_TEMPORAIRE / "veille.sqlite3")
 os.environ["VEILLE_URL"] = "http://testserver"
 os.environ["VEILLE_VAPID"] = str(_TEMPORAIRE / "vapid.json")
 os.environ["VEILLE_DOSSIERS"] = str(_TEMPORAIRE / "dossiers")
-# Un fichier absent : importer `veille.cli` chargerait sinon `config/.env`, et sur
-# le serveur ses vraies valeurs entreraient dans toute la suite.
+# Un fichier absent : un `VEILLE_ENV` exporte sur le poste ferait sinon entrer ses
+# valeurs dans toute la suite, a l'import de `veille.cli`.
 os.environ["VEILLE_ENV"] = str(_TEMPORAIRE / "aucun.env")
 # La suite tourne sur l'exemple, jamais sur la configuration d'une instance : sur le
 # serveur, `VEILLE_CONFIG` et `VEILLE_KIT` la designent, et un test qui en lirait les

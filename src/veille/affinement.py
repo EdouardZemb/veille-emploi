@@ -54,15 +54,10 @@ IDENTIFIANTS = Path.home() / ".claude" / ".credentials.json"
 # Les deux formes de jeton acceptees, dans l'ordre de preference.
 #   CLAUDE_CODE_OAUTH_TOKEN : ce que rend `claude setup-token` (long terme)
 #   ANTHROPIC_API_KEY       : une cle d'API classique
-# Elles sont lues depuis config/.env, que le service systemd charge deja via
-# `EnvironmentFile` — meme convention que le mot de passe Gmail et France
+# Elles sont lues dans l'environnement de la console, ou dans le fichier que
+# designe VEILLE_ENV — meme convention que le mot de passe Gmail et France
 # Travail : droits 600, jamais affichees, jamais journalisees.
 VARIABLES_JETON = ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY")
-
-# Le SDK lance le binaire `claude`, qui vit dans ~/.local/bin. Le PATH d'un
-# service systemd ne le contient PAS : sans cet ajout, le SDK ne le trouverait
-# pas une fois le jeton en place.
-BIN_LOCAL = Path.home() / ".local" / "bin"
 
 
 def jeton_present() -> str:
@@ -88,8 +83,8 @@ def _fichier_porte_un_jeton() -> bool:
 # 180 s, et c'est mesure.
 #
 # Le 02/10 a 09:06:26, la demande d'Edouard a ete coupee a 120 s pile. Aucune
-# autre couche n'impose de delai : le navigateur n'en pose aucun, tailscale
-# serve est un proxy nu, uvicorn n'a qu'un keep-alive de 5 s, et le SDK n'a
+# autre couche n'impose de delai : le navigateur n'en pose aucun, le proxy
+# d'alors etait nu, uvicorn n'a qu'un keep-alive de 5 s, et le SDK n'a
 # pas de limite. La requete est d'ailleurs rendue en HTTP 200 — c'est donc
 # bien l'application qui a abandonne, pas le reseau.
 #
@@ -233,7 +228,8 @@ def disponible() -> Disponibilite:
             "Aucun jeton exploitable. Le fichier ~/.claude/.credentials.json "
             "existe mais ses jetons sont vides : une session interactive ne "
             "les y reecrit pas. Pose CLAUDE_CODE_OAUTH_TOKEN (rendu par "
-            "`claude setup-token`) dans config/.env — le service le lit deja.",
+            "`claude setup-token`) dans l'environnement de la console, ou dans "
+            "le fichier que designe VEILLE_ENV.",
         )
     return Disponibilite(
         True,
@@ -387,7 +383,8 @@ def _message_echec(brut: str) -> str:
             "session interactive ne suffit pas : les jetons ne sont pas "
             "reecrits dans ~/.claude/.credentials.json, qui reste une coquille "
             "vide. Le remede : `claude setup-token`, puis poser le jeton rendu "
-            "dans config/.env sous CLAUDE_CODE_OAUTH_TOKEN. "
+            "sous CLAUDE_CODE_OAUTH_TOKEN dans l'environnement de la console, ou "
+            "dans le fichier que designe VEILLE_ENV. "
             "En attendant, la lettre assemblee reste complete et utilisable."
         )
     return f"Affinement indisponible : {_ligne_derreur(brut)[:200]}"
@@ -455,11 +452,9 @@ def appeler_modele(prompt: str, consigne: str) -> Reponse:
     proc = None
     try:
         script.write_text(_SCRIPT, encoding="utf-8")
+        # Le PATH de la console, tel quel : c'est lui qui doit trouver le
+        # binaire `claude` que le SDK lance.
         environnement = dict(os.environ)
-        # Le PATH d'un service systemd ne contient pas ~/.local/bin, ou vit le
-        # binaire `claude` que le SDK lance. Mesure du 02/10 :
-        # PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
-        environnement["PATH"] = f"{BIN_LOCAL}:{environnement.get('PATH', '')}"
         proc = subprocess.Popen(
             ["node", str(script)],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,

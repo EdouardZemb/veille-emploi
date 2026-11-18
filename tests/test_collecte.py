@@ -1,8 +1,8 @@
 """La collecte, sortie de `veille collecter` pour que le planificateur la lance.
 
-Deux appelants : la CLI (le minuteur systemd du serveur du tailnet, ou la main
-d'Edouard), qui lui passe `print` et dont la sortie ne change pas ; le
-planificateur de la console en conteneur, qui garde le journal par defaut.
+Deux appelants : la CLI (la main d'Edouard), qui lui passe `print` et dont la
+sortie ne change pas ; le planificateur de la console en conteneur, qui garde le
+journal par defaut.
 Aucune source ne sort sur le reseau ici : les quatre sont remplacees.
 """
 

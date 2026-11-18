@@ -226,5 +226,5 @@ def test_sans_cles_vapid_le_journal_dit_ou_elles_naissent(monkeypatch, tmp_path,
     assert len(ecrits) == 1
     message = ecrits[0].getMessage()
     assert "nait au demarrage de la console" in message
-    assert "veille init" in message
+    assert "veille init" not in message
     assert "init-push" not in message

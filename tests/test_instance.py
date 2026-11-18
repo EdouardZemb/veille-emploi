@@ -321,10 +321,11 @@ def test_prod_avec_une_configuration_cassee_refuse_de_demarrer(tmp_path):
     assert "criteres.yaml" in r.stderr
 
 
-# --- Sans conteneur ni configuration : la page le dit, une offre ne se travaille pas -----
-# Une console sans `VEILLE_EMPLOI_ENV` sert une instance : si elle sert l'exemple, c'est un
-# oubli de `VEILLE_CONFIG`. Le staging et la CI servent l'exemple par contrat, et gardent
-# leurs gestes. La suite désigne l'exemple (`conftest.py`) : ces tests retirent la variable.
+# --- Le mode local sans configuration : la page le dit, une offre ne se travaille pas ----
+# En mode local, sans `VEILLE_EMPLOI_ENV`, la console sert la configuration que désigne
+# `VEILLE_CONFIG` : si elle sert l'exemple, c'est un oubli. Le staging et la CI servent
+# l'exemple par contrat, et gardent leurs gestes. La suite désigne l'exemple
+# (`conftest.py`) : ces tests retirent la variable.
 
 BANDEAU = "Cette console sert l'exemple"
 

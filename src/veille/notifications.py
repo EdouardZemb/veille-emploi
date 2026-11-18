@@ -1,8 +1,10 @@
 """Notifications : push web (canal principal) et mail (repli).
 
 PUSH WEB
-  Exige HTTPS, donc `tailscale serve` avec un certificat du tailnet. Les cles
-  VAPID sont generees a l'installation et stockees dans config/vapid.json.
+  Exige HTTPS : en conteneur, c'est le tunnel commun qui le porte. Les cles
+  VAPID naissent au demarrage de la console, dans tous les modes, dans le
+  fichier que designe VEILLE_VAPID : `donnees/vapid.json` du clone par defaut,
+  `/donnees/vapid.json` dans l'image.
   Sur la plupart des telephones, le push fonctionne de facon fiable des que
   la PWA est installee.
 
@@ -115,8 +117,7 @@ def envoyer_push(titre: str, corps: str, url: str = "/") -> tuple[int, int]:
     cles = charger_vapid()
     if not cles:
         log.warning(
-            "push impossible : pas de cle VAPID "
-            "(elle nait au demarrage de la console, ou par `veille init` sans conteneur)"
+            "push impossible : pas de cle VAPID (elle nait au demarrage de la console)"
         )
         return 0, 0
 
@@ -209,7 +210,8 @@ def envoyer_mail(sujet: str, corps: str, destinataire: str | None = None) -> boo
     if not utilisateur and hote.endswith("gmail.com"):
         log.warning(
             "mail de repli impossible : aucun identifiant SMTP. Renseigne "
-            "VEILLE_IMAP_UTILISATEUR / VEILLE_IMAP_MOTDEPASSE dans config/.env"
+            "VEILLE_IMAP_UTILISATEUR / VEILLE_IMAP_MOTDEPASSE dans le fichier que designe "
+            "VEILLE_ENV, ou, en conteneur, dans les secrets de l'instance"
         )
         return False
 
@@ -302,7 +304,8 @@ def prevenir_nouvelles_offres(nouvelles: list[dict[str, Any]], base_url: str = "
         # pas seulement dans un journal que personne ne lit.
         log.error(
             "AUCUNE NOTIFICATION REMISE pour %d offre(s) au-dessus du seuil "
-            "- ni push, ni mail. Verifie config/.env et le HTTPS du tailnet.",
+            "- ni push, ni mail. Verifie les secrets de l'instance (le fichier que designe "
+            "VEILLE_ENV, sur le poste) et l'acces HTTPS a la console.",
             len(dignes),
         )
         db.marquer_etat_collecte(

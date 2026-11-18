@@ -91,12 +91,14 @@ def _qui_nomment_l_instance(fichiers: list[str]) -> list[str]:
 # oblique ou inversée).
 CHEMIN_DU_ENV = re.compile(r"config[/\\]+\.env(?![\w.])")
 
-# Ceux qui le nomment sans le lire : ils vérifient un texte qui le cite.
+# Ceux qui le nomment sans lire celui de la console : ils vérifient un texte qui le cite,
+# ou en posent un sous `tmp_path`.
 ENV_TOLERES = {
-    # le message d'indisponibilité de l'affinement dit où poser la variable
-    "tests/test_affinement.py",
     # le fichier est exclu de l'image
     "tests/test_deploiement.py",
+    # un clone factice, sous `tmp_path`, porte ce fichier : il n'est plus lu d'office
+    "tests/test_cli_env.py",
+    "tests/test_kit_fige.py",
 }
 
 

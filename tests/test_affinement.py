@@ -321,7 +321,7 @@ def test_disponible_refuse_sur_une_coquille(monkeypatch, tmp_path):
     assert not d.possible
     assert "coquille" in d.raison or "vides" in d.raison
     assert "setup-token" in d.raison, "il doit savoir quoi faire"
-    assert "config/.env" in d.raison
+    assert "VEILLE_ENV" in d.raison
 
 
 @pytest.mark.parametrize("variable", ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"])
@@ -347,13 +347,13 @@ def test_le_message_dechec_donne_le_vrai_remede():
     mesure que ca ne reecrit pas le fichier."""
     m = affinement._message_echec("Failed to authenticate: OAuth session expired")
     assert "setup-token" in m
-    assert "config/.env" in m
+    assert "VEILLE_ENV" in m
     assert "ne suffit pas" in m
     assert "lettre assemblee reste complete" in m
 
 
-def test_le_sous_processus_recoit_un_path_qui_trouve_claude(monkeypatch, tmp_path):
-    """Le PATH d'un service systemd ne contient pas ~/.local/bin."""
+def test_le_sous_processus_recoit_le_path_de_la_console(monkeypatch, tmp_path):
+    """Le sous-processus recoit le PATH de la console tel quel : rien ne s'y ajoute."""
     monkeypatch.setattr(affinement.shutil, "which", lambda _: "/usr/bin/node")
     monkeypatch.setattr(affinement, "RACINE_SDK", _sdk(tmp_path))
     monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "jeton-de-test")
@@ -363,9 +363,7 @@ def test_le_sous_processus_recoit_un_path_qui_trouve_claude(monkeypatch, tmp_pat
     monkeypatch.setattr(affinement.subprocess, "Popen",
                         _faux_popen(json.dumps({"texte": "texte"}), vu=vu))
     affinement.affiner("Camille Exemple\n\nUn texte.\n", "annonce")
-    chemin = vu["env"]["PATH"]
-    assert str(affinement.BIN_LOCAL) in chemin, chemin
-    assert chemin.startswith(str(affinement.BIN_LOCAL)), "doit primer sur le reste"
+    assert vu["env"]["PATH"] == "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
 
 
 def test_le_jeton_est_transmis_au_sous_processus(monkeypatch, tmp_path):

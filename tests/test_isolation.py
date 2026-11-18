@@ -27,9 +27,9 @@ def test_la_suite_tourne_dans_un_dossier_temporaire():
 
 
 def test_la_suite_ne_lit_pas_le_fichier_d_environnement_de_la_console():
-    """Importer `veille.cli` charge un fichier d'environnement, `config/.env` par
-    defaut. Sur le serveur, ce sont les vraies valeurs : importe par un test, il
-    les versait dans toute la suite, et `VEILLE_KIT` y faisait echouer
+    """Importer `veille.cli` charge le fichier d'environnement que designe `VEILLE_ENV`.
+    Un `VEILLE_ENV` exporte sur le poste designe les vraies valeurs : importe par un
+    test, il les verserait dans toute la suite, et `VEILLE_KIT` y faisait echouer
     tests/test_cli_env.py. La suite pointe `VEILLE_ENV` sur un fichier absent."""
     chemin = os.environ.get("VEILLE_ENV", "")
     assert "veille-tests-" in chemin, f"VEILLE_ENV sort du dossier temporaire : {chemin!r}"

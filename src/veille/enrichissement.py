@@ -16,7 +16,7 @@ au-dessus de son seuil en viennent. Une recuperation automatique y serait interd
 toute facon vaine puisque LinkedIn masque le detail aux visiteurs non connectes.
 
 LIMITES A NE PAS LAISSER DERIVER — voir docs/LIMITES.md :
-  - declenchement humain uniquement, jamais depuis veille-collecte.timer ;
+  - declenchement humain uniquement, jamais depuis la collecte du planificateur ;
   - une page a la fois, delai minimal entre deux, plafond quotidien ;
   - liste blanche ET robots.txt, les deux, pas l'un ou l'autre ;
   - jamais de contournement : pas de navigateur sans tete, pas de cookie de

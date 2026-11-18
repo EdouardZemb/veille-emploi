@@ -26,7 +26,8 @@ a la boite ENTIERE, dans les trois cas. Il n'existe aucun moyen de le limiter a
 un libelle. La delimitation est donc faite par ce code, pas par Gmail - c'est
 vrai du mode `libelle` comme du mode `expediteurs`.
 
-Configuration dans config/.env :
+Configuration dans le fichier que designe VEILLE_ENV ou, en conteneur, dans les
+secrets de l'instance :
     VEILLE_IMAP_HOTE=imap.gmail.com
     VEILLE_IMAP_UTILISATEUR=...@gmail.com
     VEILLE_IMAP_MOTDEPASSE=<mot de passe d'application, 16 caracteres>
