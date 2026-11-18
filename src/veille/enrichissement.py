@@ -3,7 +3,7 @@
 DEUX VOIES, ET LA SECONDE EST LA PLUS IMPORTANTE.
 
 1. `recuperer()` — recuperation automatique, sur les seules sources qui
-   l'autorisent. Declenchee par une action humaine, jamais par le minuteur.
+   l'autorisent. Declenchee par une action humaine, jamais par le planificateur.
 
 2. `appliquer_texte()` — le texte colle a la main. Il ouvre l'annonce dans SON
    navigateur, ou il est connecte et voit tout, selectionne, colle. Couverture

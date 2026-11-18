@@ -1,4 +1,4 @@
-"""Le planificateur : la collecte et la purge sans minuteur systemd.
+"""Le planificateur : la collecte et la purge, par un fil de la console.
 
 Un conteneur n'a pas de minuteur : un fil de la console collecte aux heures de
 la frequence lue en base, en prod seulement, et purge les sessions et les liens

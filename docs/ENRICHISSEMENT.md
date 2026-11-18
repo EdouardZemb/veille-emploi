@@ -142,7 +142,7 @@ franchie.
 
 À reporter dans `LIMITES.md` si le dispositif est retenu :
 
-- déclenchement **humain uniquement**, jamais depuis `veille-collecte.timer` ;
+- déclenchement **humain uniquement**, jamais depuis la collecte du planificateur ;
 - **une page à la fois**, 20 secondes minimum entre deux ;
 - **liste blanche + robots.txt**, les deux, pas l'un ou l'autre ;
 - **jamais de contournement** : pas de navigateur sans tête, pas de cookie de

@@ -1,7 +1,7 @@
 """La suite ne touche jamais les vrais fichiers de la console.
 
-Elle tourne aussi sur le serveur, ou la console sert : une variable `VEILLE_*`
-exportee dans le shell ne doit pas l'y envoyer sur la vraie base ou les vraies cles.
+Une variable `VEILLE_*` exportee dans le shell qui la lance, sur le poste comme
+ailleurs, ne doit pas l'envoyer sur la vraie base ou les vraies cles.
 """
 
 from __future__ import annotations
@@ -70,7 +70,7 @@ def test_les_variables_de_configuration_sont_affectees_par_la_suite():
 
 
 def test_une_configuration_exportee_n_entre_pas_dans_la_suite(tmp_path):
-    """Sur le serveur, `VEILLE_CONFIG` et `VEILLE_KIT` designent l'instance. Exportees
+    """Sur le poste, `VEILLE_CONFIG` et `VEILLE_KIT` peuvent designer une instance. Exportees
     dans le shell qui lance la suite, elles n'y entrent pas : `conftest.py` les
     reaffecte, ou les retire, avant tout import de `veille`."""
     ailleurs = tmp_path / "ailleurs"

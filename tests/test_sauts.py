@@ -12,7 +12,7 @@ def test_un_test_se_saute_faute_de_sa_dependance(monkeypatch):
 
 
 def test_une_suite_declaree_complete_ne_saute_rien(monkeypatch):
-    """La CI et le serveur ont tout : une dependance perdue y echoue, au lieu
+    """La CI a tout : une dependance perdue y echoue, au lieu
     de se sauter en silence derriere une ligne de `-rs` que personne ne lit."""
     monkeypatch.setenv("SUITE_COMPLETE", "1")
 

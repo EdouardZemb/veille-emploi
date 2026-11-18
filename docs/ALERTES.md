@@ -71,12 +71,16 @@ bloc `zones`.
 
 ## Vérifier que les alertes rentrent
 
+Sur le serveur, dans le conteneur de la prod :
+
 ```bash
-cd <le clone>
-./.venv/bin/veille decouvrir-expediteurs   # les expéditeurs vus dans la boîte
-./.venv/bin/veille collecter               # collecte immédiate
-./.venv/bin/veille etat                    # rendement par source
+docker exec veille-emploi-app-1 veille decouvrir-expediteurs   # les expéditeurs vus dans la boîte
+docker exec veille-emploi-app-1 veille collecter               # collecte immédiate
+docker exec veille-emploi-app-1 veille etat                    # rendement par source
 ```
+
+`veille collecter`, lancée ainsi, tourne à côté du planificateur de la console,
+sans son verrou : pas aux heures de la fréquence.
 
 `decouvrir-expediteurs` ne lit que les en-têtes `De:` et `Objet:`, jamais le
 corps des messages. Il dit quels expéditeurs manquent au `sources.yaml` de ta

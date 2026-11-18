@@ -79,21 +79,11 @@ que collectée, et le détail du score ligne par ligne.
 
 ## Copier ton kit sur le serveur
 
-L'emplacement est `donnees/kit` dans le clone de la console, en droits **700**,
-dans le même dossier protégé que la base (en conteneur, `/donnees/kit`).
-
-**Une seule commande, depuis PowerShell sur ton PC** — remplace le chemin
-source par le tien :
-
-```powershell
-scp -r "C:\chemin\vers\ton-kit\*" <utilisateur>@<le serveur>:<le clone>/donnees/kit/
-```
-
-Puis vérifie ce qui a été reconnu :
-
-```bash
-ssh <utilisateur>@<le serveur> "cd <le clone> && ./.venv/bin/veille kit"
-```
+En prod, le kit vit dans `/donnees/kit`, dans le même dossier protégé que la
+base : le dossier des données de la prod. Sa copie est un geste depuis
+PowerShell sur ton PC, une commande `scp`, puis `veille kit`, qui dit ce qui a
+été reconnu : « Copier le kit en prod », dans
+[`exploitation.md`](exploitation.md) (« Ce qui est propre à la console »).
 
 Rien d'autre à faire : **le dossier est relu à chaque ouverture de la console**.
 Tu peux y ajouter des pièces quand tu veux, elles apparaîtront sans
@@ -209,8 +199,10 @@ suisse, ou l'inverse, tu prends l'autre dans *Plus › Documents*.
 
 ### Vérifier avant la première candidature
 
+Sur le serveur :
+
 ```bash
-./.venv/bin/veille kit
+docker exec veille-emploi-app-1 veille kit
 ```
 
 Liste ce que contient le kit, les étiquettes détectées, et ce qui partirait
@@ -493,9 +485,11 @@ Sur « Dossier prêt », « Affiner la lettre » l'ouvre, sans rien régénérer
 
 L'affinement **n'utilise aucune clé d'API** : il s'authentifie par le jeton de
 Claude Code (`CLAUDE_CODE_OAUTH_TOKEN`, rendu par `claude setup-token`, dans
-`config/.env`), et réutilise une installation existante du SDK Agent, que
+l'environnement de la console du poste, ou dans le fichier que désigne
+`VEILLE_ENV`), et réutilise une installation existante du SDK Agent, que
 désigne `VEILLE_SDK_AGENT`. Sans identifiants, il se dit indisponible, avec
-sa raison.
+sa raison. Il n'est pas dans l'image : en prod comme au staging, « Affiner la
+lettre » le dit indisponible (`docs/exploitation.md`).
 
 **Conséquence : aucune clé à créer, aucune ligne de facturation nouvelle.**
 

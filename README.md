@@ -27,7 +27,7 @@ Pour une vraie recherche, [ce que tu dois faire, toi](docs/DEMARRAGE.md) vient d
 | Document | À lire quand |
 |---|---|
 | [CLAUDE.md](CLAUDE.md) | avant de travailler ici |
-| [Le démarrage](docs/DEMARRAGE.md) | pour brancher une instance : Gmail, France Travail, HTTPS, passkeys, PWA |
+| [Le démarrage](docs/DEMARRAGE.md) | pour brancher une instance : Gmail, France Travail, passkeys, PWA, kit |
 | [Le fonctionnement](docs/FONCTIONNEMENT.md) | pour la collecte, le score et les notifications |
 | [Les critères](docs/CRITERES.md) | pour régler le score : intitulés, planchers, allemand, atouts |
 | [Les alertes](docs/ALERTES.md) | pour écrire des alertes mail sans filtrer deux fois |

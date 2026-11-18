@@ -13,8 +13,8 @@ qu'il surveille mesure sa propre copie et passe toujours.
 
 Depuis le lot V1, la suite ne voit plus le kit réel : `conftest.py` pose `VEILLE_KIT`
 sur les gabarits de l'exemple, et ces tests se sautent plutôt que de mesurer l'exemple
-comme s'il était le kit. Le kit se vérifie donc par `veille empreintes-kit`, lancée à
-chaque mise à jour du serveur (`CLAUDE.md`).
+comme s'il était le kit. Le kit se vérifie donc par `veille empreintes-kit`, lancée
+dans le conteneur de la prod (`CLAUDE.md`).
 """
 
 from __future__ import annotations

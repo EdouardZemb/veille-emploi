@@ -895,8 +895,8 @@ def api_politique_enrichissement(offre_id: int):
 def api_enrichir(offre_id: int):
     """Recuperation automatique — uniquement sur les sources qui l'autorisent.
 
-    Cette route n'est appelee que par un geste de sa part. Rien dans le
-    minuteur de collecte ne doit y toucher.
+    Cette route n'est appelee que par un geste de sa part. Rien dans la
+    collecte du planificateur ne doit y toucher.
     """
     refus = _refus_sans_configuration_hors_conteneur()
     if refus is not None:

@@ -18,7 +18,7 @@ from veille import dossier
 def _weasyprint_utilisable() -> bool:
     """WeasyPrint rend-il un PDF sur cette machine ? Sous Windows sans Pango,
     l'import leve OSError et non ImportError : on attrape tout, comme le fait
-    `rendu.lettre_en_pdf`. Sur le serveur, il est installe et ces tests tournent."""
+    `rendu.lettre_en_pdf`. En CI, il est installe et ces tests tournent."""
     try:
         from weasyprint import HTML  # noqa: F401
     except Exception:
