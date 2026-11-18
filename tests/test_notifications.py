@@ -7,12 +7,16 @@ precisement dans le cas ou il doit servir.
 
 from __future__ import annotations
 
+import os
 import smtplib
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 from veille import db, notifications
+from veille.config import RACINE
 
 
 @pytest.fixture(autouse=True)
@@ -216,6 +220,19 @@ def test_un_vapid_json_existant_garde_son_sujet(monkeypatch, tmp_path):
     assert notifications.charger_vapid().sujet == "mailto:proprietaire@exemple.invalid"
     assert chemin.read_bytes() == octets
     assert chemin.stat().st_mtime_ns == mtime
+
+
+def test_les_cles_vont_par_defaut_dans_donnees():
+    """Sans VEILLE_VAPID, les cles naissent dans `donnees/` du clone, avec la base : ignore par
+    git et par l'image, jamais dans `config/`, que le depot de code reserve a l'instance."""
+    code = ("from veille import config, notifications; "
+            "print(notifications.CHEMIN_VAPID == config.RACINE / 'donnees' / 'vapid.json')")
+    env = {k: v for k, v in os.environ.items() if k != "VEILLE_VAPID"}
+    env["PYTHONPATH"] = str(RACINE / "src")
+    r = subprocess.run([sys.executable, "-X", "utf8", "-c", code], capture_output=True,
+                       text=True, encoding="utf-8", env=env, timeout=60)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.strip() == "True"
 
 
 # --------------------------------------------------------------------------

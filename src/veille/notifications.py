@@ -28,7 +28,7 @@ from .config import RACINE
 
 log = logging.getLogger(__name__)
 
-CHEMIN_VAPID = Path(os.environ.get("VEILLE_VAPID", RACINE / "config" / "vapid.json"))
+CHEMIN_VAPID = Path(os.environ.get("VEILLE_VAPID", RACINE / "donnees" / "vapid.json"))
 
 
 # --------------------------------------------------------------------------

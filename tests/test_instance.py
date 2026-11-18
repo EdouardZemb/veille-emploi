@@ -115,6 +115,25 @@ def test_le_bouton_collecter_rend_une_erreur_lisible(rien_de_designe, monkeypatc
         connecter(c)
         r = c.post("/api/reglages/collecter")
     assert r.status_code == 409
+    assert r.json() == {"erreur": "collecte_coupee"}
+    assert lances == []
+
+
+def test_en_prod_le_bouton_collecter_refuse_sans_configuration(rien_de_designe, monkeypatch,
+                                                               tmp_path):
+    """La prod refuse de démarrer sans configuration : le refus du bouton reste, en défense."""
+    from tests.aide_session import connecter
+
+    monkeypatch.setattr(db, "CHEMIN_DB", tmp_path / "veille.sqlite3")
+    monkeypatch.setenv("VEILLE_EMPLOI_ENV", "prod")
+    monkeypatch.setattr(config, "exiger_configuration", lambda: None)
+    lances = []
+    monkeypatch.setattr(planificateur.PLANIFICATEUR, "collecter_maintenant",
+                        lambda: lances.append(1) or True)
+    with TestClient(app, follow_redirects=False) as c:
+        connecter(c)
+        r = c.post("/api/reglages/collecter")
+    assert r.status_code == 409
     assert r.json() == {"erreur": "configuration_non_designee"}
     assert lances == []
 

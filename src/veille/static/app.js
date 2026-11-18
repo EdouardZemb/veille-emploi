@@ -377,11 +377,6 @@ async function chargerReglages() {
       <div class="bloc">
         <h2>Fréquence de collecte</h2>
         ${frequences}
-        ${r.frequence.etat === 'indisponible'
-          ? `<p class="avert">Fréquence indisponible : ${echapper(r.frequence.raison || '')}</p>` : ''}
-        ${r.frequence.personnalise
-          ? `<p class="avert">Réglage personnalisé en place :
-             <code>${echapper(r.frequence.oncalendar)}</code>. Choisir ci-dessus le remplacera.</p>` : ''}
         <p class="resume">Prochain passage : ${echapper(r.frequence.prochain_passage || 'inconnu')}</p>
         <div class="actions">
           <button id="btn-frequence">Appliquer</button>

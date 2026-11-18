@@ -332,7 +332,7 @@ def test_l_image_ignore_les_fichiers_prives():
     motifs = _motifs()
     prives = [
         ".git", ".git/config", ".venv", ".venv/Scripts/python.exe",
-        "donnees", "donnees/veille.sqlite3", "donnees/kit/cv.pdf",
+        "donnees", "donnees/veille.sqlite3", "donnees/kit/cv.pdf", "donnees/vapid.json",
         "config/.env", "config/auth.json", "config/vapid.json",
         ".githooks", ".githooks/pre-commit", "scripts/modele", "scripts/modele/garde_claude.py",
         ".superpowers", ".superpowers/sdd/progress.md", ".claude", ".claude/settings.json",

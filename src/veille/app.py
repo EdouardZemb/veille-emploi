@@ -53,15 +53,14 @@ async def cycle_de_vie(_: FastAPI):
             log.warning(
                 "AUCUNE PASSKEY - lance : veille lien, puis ouvre le lien sur ton telephone"
             )
-    mode = config.environnement()
-    if mode is not None:
-        # en conteneur, les cles des notifications naissent ici (`veille init` n'y passe pas)
-        if not notifications.CHEMIN_VAPID.exists():
-            # le sujet VAPID part avec chaque push : l'origine publique, jamais une adresse reelle
-            notifications.generer_vapid(
-                sujet=notifications.sujet_par_defaut())
-        if mode == "staging":
-            factice.charger_au_demarrage()
+    # Les cles des notifications naissent ici, dans tous les modes, mode local compris ;
+    # presentes, elles restent intactes.
+    if not notifications.CHEMIN_VAPID.exists():
+        # le sujet VAPID part avec chaque push : l'origine publique, jamais une adresse reelle
+        notifications.generer_vapid(
+            sujet=notifications.sujet_par_defaut())
+    if config.environnement() == "staging":
+        factice.charger_au_demarrage()
     PLANIFICATEUR.demarrer()  # purge tout de suite, puis le fil (planificateur.py)
     try:
         yield
@@ -1215,7 +1214,7 @@ class NouvelleFrequence(BaseModel):
 def api_changer_frequence(corps: NouvelleFrequence):
     try:
         return {"ok": True, "frequence": reglages.ecrire_frequence(corps.cle)}
-    except (ValueError, RuntimeError) as exc:
+    except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
 
@@ -1223,29 +1222,18 @@ def api_changer_frequence(corps: NouvelleFrequence):
 def api_collecter_maintenant():
     """Declenche une collecte sans attendre son heure.
 
-    En conteneur, le planificateur la lance, en prod seulement (le staging ne
-    collecte pas). Sur le serveur du tailnet, c'est le service systemd.
+    Le planificateur la lance, en prod seulement : le staging, la CI et le mode
+    local ne collectent pas, et le disent. `veille collecter` reste en ligne de commande.
     """
-    environnement = config.environnement()
-    # L'environnement d'abord : en staging, c'est « la collecte est coupee » qu'il faut dire.
-    if environnement is not None and environnement != "prod":
+    # L'environnement d'abord : hors prod, c'est « la collecte est coupee » qu'il faut dire.
+    if config.environnement() != "prod":
         return _erreur(409, "collecte_coupee")
+    # En defense : la prod refuse deja de demarrer sans configuration (config.py).
     refus = _refus_sans_configuration()
     if refus is not None:
         return refus
-    if environnement is not None:
-        if not PLANIFICATEUR.collecter_maintenant():
-            return _erreur(409, "collecte_en_cours")
-        return {"ok": True, "message": "Collecte lancée. Rafraîchis dans une minute."}
-
-    import subprocess
-
-    resultat = subprocess.run(
-        ["systemctl", "--user", "start", "veille-collecte.service"],
-        capture_output=True, text=True, timeout=30,
-    )
-    if resultat.returncode != 0:
-        raise HTTPException(500, resultat.stderr[:200] or "démarrage impossible")
+    if not PLANIFICATEUR.collecter_maintenant():
+        return _erreur(409, "collecte_en_cours")
     return {"ok": True, "message": "Collecte lancée. Rafraîchis dans une minute."}
 
 

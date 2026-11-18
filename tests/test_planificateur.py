@@ -10,7 +10,6 @@ choisis : aucun fil n'attend une vraie minute.
 from __future__ import annotations
 
 import logging
-import subprocess
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -113,11 +112,6 @@ def test_collecte_a_l_heure_en_prod(monkeypatch, bouchon):
 @pytest.mark.parametrize("mode", ["staging", "ci", None])
 def test_pas_de_collecte_hors_prod(monkeypatch, bouchon, mode):
     _mode(monkeypatch, mode)
-
-    def interdit(*a):
-        raise AssertionError("le planificateur ne lit pas le minuteur systemd")
-
-    monkeypatch.setattr(reglages, "_systemctl", interdit)
     p = planificateur.Planificateur()
     for heure, minute in ((7, 14), (7, 15), (7, 16), (12, 15), (18, 15)):
         p.tour(_paris(heure, minute))
@@ -515,28 +509,13 @@ def client():
         yield c
 
 
-@pytest.fixture
-def systemctl(monkeypatch):
-    """Les appels a systemctl, retenus au lieu d'etre lances."""
-    lances: list[list[str]] = []
-    vrai = subprocess.run
-
-    def run(commande, *a, **k):
-        if commande and commande[0] == "systemctl":
-            lances.append(list(commande))
-            return subprocess.CompletedProcess(commande, 0, "", "")
-        return vrai(commande, *a, **k)
-
-    monkeypatch.setattr(subprocess, "run", run)
-    return lances
-
-
-def test_collecter_maintenant_en_conteneur(client, monkeypatch, systemctl, bloquee):
-    for mode in ("staging", "ci"):
+def test_collecter_maintenant_selon_le_mode(client, monkeypatch, bloquee):
+    """Seule la prod collecte : le mode local refuse comme le staging, sans rien lancer."""
+    for mode in (None, "staging", "ci"):
         _mode(monkeypatch, mode)
         r = client.post("/api/reglages/collecter")
-        assert r.status_code == 409
-        assert r.json() == {"erreur": "collecte_coupee"}
+        assert r.status_code == 409, mode
+        assert r.json() == {"erreur": "collecte_coupee"}, mode
     assert bloquee.appels == []
 
     _mode(monkeypatch, "prod")
@@ -548,17 +527,6 @@ def test_collecter_maintenant_en_conteneur(client, monkeypatch, systemctl, bloqu
     assert r.status_code == 409
     assert r.json() == {"erreur": "collecte_en_cours"}
     assert len(bloquee.appels) == 1
-    assert systemctl == []
-
-
-def test_collecter_maintenant_sous_systemd(client, monkeypatch, systemctl, bouchon):
-    _mode(monkeypatch, None)
-
-    r = client.post("/api/reglages/collecter")
-
-    assert r.status_code == 200
-    assert systemctl == [["systemctl", "--user", "start", "veille-collecte.service"]]
-    assert bouchon.appels == []
 
 
 def test_les_refus_de_collecte_se_lisent_a_l_ecran():
