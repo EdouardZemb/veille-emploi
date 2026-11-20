@@ -4,7 +4,10 @@
 #     -f <clone>/deploiement/compose.projet.yml --env-file <état>/compose.env …
 # Quand compose.env porte VEILLE_EMPLOI_CONFIG ou VEILLE_EMPLOI_CONTENU, `dc` ajoute après eux
 # -f <clone>/deploiement/compose.config.yml ou -f <clone>/deploiement/compose.contenu.yml : les
-# montages de l'instantané des données (M-0006, § 5).
+# montages de l'instantané des données (M-0006, § 5) ; et, quand compose.env porte
+# VEILLE_EMPLOI_RELAIS (en staging seulement), -f <clone>/deploiement/compose.marque.yml : le relais de
+# la marque du staging (lot 19), qui retire alors à `app` son port publié et tout réseau autre que
+# `default`, le tunnel et son alias compris.
 # <état> vaut ~/.local/state/veille-emploi/<env>, sauf si VEILLE_EMPLOI_RACINE_ETAT le déplace.
 # Pas de `name:` ici : le projet (`veille-emploi`, `veille-emploi-staging`, `veille-emploi-local`…) vient de `-p`.
 # Les variables `${…:?}` sans valeur font échouer la commande : mieux vaut un arrêt net qu'un

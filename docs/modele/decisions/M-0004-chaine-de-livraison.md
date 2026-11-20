@@ -6,6 +6,10 @@
 - **Amendé** le 2026-10-29, avec le lot 12 : l'état déployé est un couple, une image et un commit
   de données ; la chaîne lit l'instance dans un second dépôt, ou, pour un projet d'avant M-0006,
   dans le sien, et la prod suit aussi une série d'étiquettes de données (§ 8)
+- **Amendé** le 2026-11-18, avec le lot 19 : en staging, le relais de la marque
+  (`compose.marque.yml`) tient l'alias du tunnel et le port de la boucle locale, et `app` ne les
+  porte qu'en prod (§ 5 ; la boucle locale, M-0003 § 1), et le ménage ne retire jamais l'image du
+  relais (§ 3)
 - **Contexte amont** : la chaîne de livraison d'`ancrage` (son ADR-0006), généralisée par le
   modèle ; M-0002 (les étiquettes sont à Edouard) ; M-0003 (le contrat de l'image) ; M-0006 (le
   code et les données)
@@ -71,15 +75,17 @@ ramener l'autre moitié du couple quitté (M-0006, § 6).
   défaut** : à la mise en service d'un dépôt public, 👤 Edouard le passe en public
   (`docs/exploitation.md`). Le serveur tire avec un seul jeton `read:packages` pour tout le parc,
   rangé dans `~/.config/serveur/docker` par la sonde de `serveur`.
-- **Le serveur ne garde que les images utiles.** Après chaque déploiement ou retour arrière réussi,
-  `deployer.sh` lance `deploiement/nettoyer-images.sh`, qui retire les images du projet que ni
-  l'état des deux environnements, ni un conteneur, ni la marge des 3 plus récentes ne gardent. Son
-  échec ne change pas le résultat du déploiement. GHCR garde tout : une image retirée revient par
-  un `docker pull`, et un retour arrière par une étiquette n'en dépend pas. La sonde de `serveur`,
-  elle, ne supprime toujours rien. Une image qui porte au plus une étiquette se retire par son
-  identifiant ; une image qui en porte deux ou plus, par ses étiquettes, un appel chacune, car
-  Docker refuse sans `-f` le retrait par identifiant d'une telle image. Le script ne passe jamais
-  `-f`. Le même appel fait ensuite le ménage des instantanés des données (§ 8).
+- **Le serveur ne garde que les images utiles**, l'image du relais de la marque exceptée
+  (`python:3.12-alpine`, tirée de Docker Hub, que le ménage ne retire jamais). Après chaque
+  déploiement ou retour arrière réussi, `deployer.sh` lance `deploiement/nettoyer-images.sh`, qui
+  retire les images du projet que ni l'état des deux environnements, ni un conteneur, ni la marge
+  des 3 plus récentes ne gardent. Son échec ne change pas le résultat du déploiement. GHCR garde
+  tout : une image retirée revient par un `docker pull`, et un retour arrière par une étiquette
+  n'en dépend pas. La sonde de `serveur`, elle, ne supprime toujours rien. Une image qui porte au
+  plus une étiquette se retire par son identifiant ; une image qui en porte deux ou plus, par ses
+  étiquettes, un appel chacune, car Docker refuse sans `-f` le retrait par identifiant d'une telle
+  image. Le script ne passe jamais `-f`. Le même appel fait ensuite le ménage des instantanés des
+  données (§ 8).
 
 ### 4. Les secrets : refaits sur le poste
 
@@ -116,7 +122,8 @@ ramener l'autre moitié du couple quitté (M-0006, § 6).
 
 Un seul tunnel Cloudflare pour tout le parc, décrit dans le dépôt `serveur` ; le projet n'a pas de
 jeton de tunnel. Chaque environnement a son réseau Docker, `tunnel-<nom>-<env>`, déclaré `external`
-dans `compose.yml` ; l'app y porte l'alias `<nom>-<env>`, et les routes de Cloudflare visent
+dans `compose.yml` ; l'app y porte l'alias `<nom>-<env>` en prod. En staging, le relais de la marque
+(`compose.marque.yml`, lot 19) le porte à sa place. Les routes de Cloudflare visent
 `http://<nom>-prod:<port_app>` et `http://<nom>-staging:<port_app>`. Un réseau par environnement, et
 non le réseau de l'hôte : le tunnel n'atteint que les apps, jamais les autres ports locaux de la
 machine.

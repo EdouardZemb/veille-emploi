@@ -4,6 +4,8 @@
 - **Amendé** le 2026-10-29, avec le lot 12 : l'application peut lire son instance, sa
   configuration dans `/config` et son contenu dans `/contenu` ; deux commandes la vérifient, et la
   santé dit quelle configuration sert (§ 2 et § 6, M-0006 § 5)
+- **Amendé** le 2026-11-18, avec le lot 19 : en staging, le relais de la marque
+  (`compose.marque.yml`) publie le port sur la boucle locale à la place d'`app` (§ 1)
 - **Contexte amont** : la chaîne de livraison d'`ancrage`, d'où vient la mécanique de la cible
   `serveur` ; M-0004 (la chaîne de livraison) ; M-0005 (les sauvegardes) ;
   M-0006 (le code et les données)
@@ -22,8 +24,9 @@ rien de plus, pour la construire, la vérifier, la déployer, la sauvegarder et 
 Un `Dockerfile` à la racine du dépôt. L'image :
 
 - écoute sur `0.0.0.0`, au port `8460` (la réponse `port_app`) : `deploiement/compose.yml` le
-  publie sur la boucle locale du serveur, et le tunnel commun l'atteint par le réseau du projet. La
-  mécanique ne pose pas `PORT` : une app qui le lit lui donne ce port par défaut ;
+  publie sur la boucle locale du serveur, et le tunnel commun l'atteint par le réseau du projet. En
+  staging, le relais de la marque (`compose.marque.yml`, lot 19) fait l'un et l'autre à la place
+  d'`app`. La mécanique ne pose pas `PORT` : une app qui le lit lui donne ce port par défaut ;
 - tourne en `1000:1000`, sur un système de fichiers en lecture seule, avec `/tmp` en mémoire, sans
   capacité (`cap_drop: ALL`, `no-new-privileges`), dans 384 Mo. `compose.yml` le lui impose ;
   `deploiement/compose.projet.yml` peut changer la mémoire ;

@@ -55,7 +55,9 @@ deja_en_service() {
 
 # dc_de <env> [<montage>…] : le début de chaque appel de compose du déploiement, celui de `dc`
 # (lib.sh) : le projet de l'environnement, ses deux fichiers compose dans l'ordre, puis les fichiers
-# de ces montages (config, contenu : compose.<montage>.yml), et son compose.env.
+# de ces montages (config, contenu, marque : compose.<montage>.yml), et son compose.env. Un appel
+# du staging dont compose.env porte VEILLE_EMPLOI_RELAIS, comme l'écrit deployer.sh, finit par marque
+# (dc_de staging … marque) : le relais de la marque du staging (lot 19).
 dc_de() {
   local nom_env="$1" projet=veille-emploi montages="" montage
   shift
@@ -114,7 +116,7 @@ nombre_de_lancements() {
   local etat="$VEILLE_EMPLOI_RACINE_ETAT/staging"
   [ "$(cat "$etat/deploye")" = "$NOUVELLE main -" ]
   [ "$(cat "$etat/compose.env")" = "$(contenu_compose_env staging "$NOUVELLE" main)" ]
-  appels_de docker | grep -F "docker compose -p veille-emploi-staging -f $CLONE/deploiement/compose.yml -f $CLONE/deploiement/compose.projet.yml --env-file $etat/compose.env up"
+  appels_de docker | grep -F "docker compose -p veille-emploi-staging -f $CLONE/deploiement/compose.yml -f $CLONE/deploiement/compose.projet.yml -f $CLONE/deploiement/compose.marque.yml --env-file $etat/compose.env up"
   appels_de curl | grep -Fx 'curl -fsS -m 5 http://127.0.0.1:4311/sante'
   [ "$(signaux)" = "$(signal 'déployé main') https://hc.example/ping/sonde-staging" ]
 }
@@ -1997,7 +1999,7 @@ container inspect" ]
   [ ! -e "$vise/config" ]
   aucune_ligne '^VEILLE_EMPLOI_CONFIG=' "$etat/compose.env"
   grep -Fx "VEILLE_EMPLOI_CONTENU=$vise/contenu" "$etat/compose.env"
-  appels_de docker | grep -Fx "$(dc_de staging contenu) up -d --wait --wait-timeout 120 --remove-orphans"
+  appels_de docker | grep -Fx "$(dc_de staging contenu marque) up -d --wait --wait-timeout 120 --remove-orphans"
   [ -z "$(montage_de /config)" ]
   [ "$(montage_de /contenu)" = "false $vise/contenu" ]
   # la santé a dit exemple
@@ -2076,8 +2078,9 @@ container inspect" ]
 }
 
 # Migration 1 : chaque `up`, celui du déploiement comme celui du retour arrière, porte
-# --remove-orphans. Un conteneur dont aucun des deux fichiers compose ne déclare plus le service (un
-# service retiré de compose.projet.yml) ne reste pas en service.
+# --remove-orphans. Un conteneur dont aucun des fichiers compose ne déclare plus le service (un
+# service retiré de compose.projet.yml, ou le relais du staging après un retour vers un compose.env
+# sans VEILLE_EMPLOI_RELAIS) ne reste pas en service.
 @test "deployer_supprime_les_orphelins" {
   deja_en_service "$ANCIENNE" 0.1.0
   export DOUBLE_CURL_SANTE_KO="$NOUVELLE"
@@ -2085,6 +2088,174 @@ container inspect" ]
   [ "$status" -eq 1 ]
   [ "$(appels_de docker | grep -c ' up ')" -eq 2 ]
   [ "$(nombre_de_lancements)" -eq 2 ]
+}
+
+# --- le relais de la marque du staging (lot 19) ----------------------------------------------
+#
+# En staging seulement, deployer.sh lit scripts/modele/marque.py du clone juste après le verrou, et
+# écrit son empreinte SHA-256 à la fin de compose.env (VEILLE_EMPLOI_RELAIS) ; `dc` (lib.sh) ajoute
+# alors compose.marque.yml en dernier. Un script absent, illisible ou non lisible par tous fait
+# refuser le staging avant tout changement, code 1 sans signal. La prod n'en a jamais rien.
+
+# staging_du_test : les secrets du staging, et ETAT sur son état.
+staging_du_test() {
+  preparer_secrets_de_test staging JETON=jeton-staging-7 HC_SONDE=https://hc.example/ping/sonde-staging
+  ETAT="$VEILLE_EMPLOI_RACINE_ETAT/staging"
+}
+
+@test "relais_ligne_en_staging" {
+  local empreinte ligne
+  staging_du_test
+  # l'empreinte que calcule le test, sur le fichier nommé
+  empreinte="$(sha256sum "$CLONE/scripts/modele/marque.py")"
+  empreinte="${empreinte%% *}"
+  [[ "$empreinte" =~ ^[0-9a-f]{64}$ ]]
+  deployer staging "$NOUVELLE" main
+  [ "$status" -eq 0 ]
+  # une seule ligne, la dernière, après celles d'avant le relais
+  [ "$(tail -n 1 "$ETAT/compose.env")" = "VEILLE_EMPLOI_RELAIS=$empreinte" ]
+  [ "$(grep -c 'VEILLE_EMPLOI_RELAIS' "$ETAT/compose.env")" -eq 1 ]
+  [ "$(cat "$ETAT/compose.env")" = "$(contenu_compose_env staging "$NOUVELLE" main)" ]
+  # le `up`, et chaque appel de compose, qui suivent tous l'écriture de compose.env, finissent leurs
+  # fichiers par compose.marque.yml
+  [ "$(appels_de docker | grep ' up -d ')" = "$(dc_de staging marque) up -d --wait --wait-timeout 120 --remove-orphans" ]
+  while IFS= read -r ligne; do
+    [[ "$ligne" == "$(dc_de staging marque) "* ]] || {
+      echo "appel de compose sans le relais : $ligne" >&2
+      return 1
+    }
+  done < <(appels_de docker | grep '^docker compose ')
+}
+
+# Ni la ligne, ni le fichier, ni même la lecture du script : absent, il ne refuse rien en prod.
+@test "relais_jamais_en_prod" {
+  horloge_qui_avance
+  deja_en_service "$ANCIENNE" 0.1.0
+  deployer prod "$NOUVELLE" 0.2.0
+  [ "$status" -eq 0 ]
+  [ "$(cat "$ETAT/compose.env")" = "$(contenu_compose_env prod "$NOUVELLE" 0.2.0)" ]
+  aucune_ligne 'RELAIS' "$ETAT/compose.env" "$ETAT/compose.env.precedent"
+  aucune_ligne 'compose\.marque\.yml' "$APPELS"
+  rm "$CLONE/scripts/modele/marque.py"
+  : >"$APPELS"
+  deployer prod "$SUIVANTE" 0.3.0
+  [ "$status" -eq 0 ]
+  [ "$(cat "$ETAT/deploye")" = "$SUIVANTE 0.3.0 -" ]
+  aucune_ligne 'RELAIS' "$ETAT/compose.env"
+  aucune_ligne 'compose\.marque\.yml' "$APPELS"
+  [[ "$output" != *"marque.py"* ]]
+}
+
+# Le script retiré, ou un dossier à sa place (ce que Docker créerait d'une source absente) : refus
+# avant tout changement.
+@test "relais_absent_refuse_le_staging" {
+  local cas
+  staging_du_test
+  en_service staging "$ANCIENNE" main
+  poser_donnees staging
+  cp "$ETAT/compose.env" "$BATS_TEST_TMPDIR/compose.env.avant"
+  cp "$ETAT/deploye" "$BATS_TEST_TMPDIR/deploye.avant"
+  for cas in absent dossier; do
+    echo "cas : $cas"
+    rm -rf "$CLONE/scripts/modele/marque.py"
+    [ "$cas" = absent ] || mkdir "$CLONE/scripts/modele/marque.py"
+    : >"$APPELS"
+    deployer staging "$NOUVELLE" main
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"scripts/modele/marque.py, le relais du staging, est absent, illisible ou non lisible par tous : rien n'a changé"* ]]
+    # rien n'a été tenté : ni instantané, ni lancement, ni état, ni signal
+    [ ! -s "$APPELS" ]
+    diff "$ETAT/compose.env" "$BATS_TEST_TMPDIR/compose.env.avant"
+    diff "$ETAT/deploye" "$BATS_TEST_TMPDIR/deploye.avant"
+    [ ! -e "$ETAT/echec" ]
+    [ ! -e "$ETAT/compose.env.precedent" ]
+  done
+}
+
+# Le banc tourne sous testeur, propriétaire du script : `test -r` y est vrai pour un fichier en 600,
+# et seul le mode dit qu'il n'est pas lisible par tous, donc pas par l'utilisateur du conteneur. En
+# 004, lisible par tous mais pas par son propriétaire, c'est la lecture de l'empreinte qui échoue.
+# Un lien vers un fichier en 600 se lit lrwxrwxrwx : le mode lu est celui de sa cible, que Docker
+# monterait.
+@test "relais_non_lisible_par_tous_refuse" {
+  local mode script="$CLONE/scripts/modele/marque.py"
+  staging_du_test
+  en_service staging "$ANCIENNE" main
+  poser_donnees staging
+  cp "$ETAT/compose.env" "$BATS_TEST_TMPDIR/compose.env.avant"
+  cp "$ETAT/deploye" "$BATS_TEST_TMPDIR/deploye.avant"
+  cp "$script" "$BATS_TEST_TMPDIR/marque-origine.py"
+  for mode in 600 640 004 lien; do
+    echo "cas : $mode"
+    if [ "$mode" = lien ]; then
+      cp "$BATS_TEST_TMPDIR/marque-origine.py" "$BATS_TEST_TMPDIR/marque-600.py"
+      chmod 600 "$BATS_TEST_TMPDIR/marque-600.py"
+      rm -f "$script"
+      ln -s "$BATS_TEST_TMPDIR/marque-600.py" "$script"
+      [ "$(stat -c %A "$script")" = lrwxrwxrwx ]
+    else
+      chmod "$mode" "$script"
+    fi
+    : >"$APPELS"
+    deployer staging "$NOUVELLE" main
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"scripts/modele/marque.py, le relais du staging, est absent, illisible ou non lisible par tous : rien n'a changé"* ]]
+    [ ! -s "$APPELS" ]
+    diff "$ETAT/compose.env" "$BATS_TEST_TMPDIR/compose.env.avant"
+    diff "$ETAT/deploye" "$BATS_TEST_TMPDIR/deploye.avant"
+    [ ! -e "$ETAT/echec" ]
+  done
+  # lisible par tous, le même script se déploie
+  rm -f "$script"
+  cp "$BATS_TEST_TMPDIR/marque-origine.py" "$script"
+  chmod 644 "$script"
+  deployer staging "$NOUVELLE" main
+  [ "$status" -eq 0 ]
+  [ "$(cat "$ETAT/deploye")" = "$NOUVELLE main -" ]
+}
+
+# --retour réécrit compose.env, la ligne du relais comprise : il ne la tient pas de
+# compose.env.precedent, dont le test la retire avant le retour.
+@test "relais_garde_au_retour" {
+  horloge_qui_avance
+  staging_du_test
+  deployer staging "$ANCIENNE" main
+  [ "$status" -eq 0 ]
+  poser_donnees staging
+  deployer staging "$NOUVELLE" main
+  [ "$status" -eq 0 ]
+  grep -q '^VEILLE_EMPLOI_RELAIS=' "$ETAT/compose.env.precedent"
+  grep -v '^VEILLE_EMPLOI_RELAIS=' "$ETAT/compose.env.precedent" >"$BATS_TEST_TMPDIR/precedent-sans-relais.env"
+  cp "$BATS_TEST_TMPDIR/precedent-sans-relais.env" "$ETAT/compose.env.precedent"
+  aucune_ligne 'RELAIS' "$ETAT/compose.env.precedent"
+  : >"$APPELS"
+  deployer staging --retour
+  [ "$status" -eq 0 ]
+  [ "$(cat "$ETAT/deploye")" = "$ANCIENNE main -" ]
+  grep -Fx "VEILLE_EMPLOI_RELAIS=$(empreinte_du_relais)" "$ETAT/compose.env"
+  [ "$(cat "$ETAT/compose.env")" = "$(contenu_compose_env staging "$ANCIENNE" main)" ]
+  [ "$(appels_de docker | grep ' up -d ')" = "$(dc_de staging marque) up -d --wait --wait-timeout 120 --remove-orphans" ]
+}
+
+# Le retour automatique qui suit le premier déploiement marqué d'un staging d'avant le relais
+# recopie son compose.env.precedent tel quel, sans la ligne : le staging revient sans marque, et
+# `app` reprend le port et l'alias par --remove-orphans (une limite écrite).
+@test "relais_retour_automatique_sans_relais" {
+  staging_du_test
+  en_service staging "$ANCIENNE" main
+  grep -v '^VEILLE_EMPLOI_RELAIS=' "$ETAT/compose.env" >"$BATS_TEST_TMPDIR/sans-relais.env"
+  cp "$BATS_TEST_TMPDIR/sans-relais.env" "$ETAT/compose.env"
+  cp "$BATS_TEST_TMPDIR/sans-relais.env" "$EN_SERVICE"
+  poser_donnees staging
+  export DOUBLE_CURL_SANTE_KO="$NOUVELLE"
+  deployer staging "$NOUVELLE" main
+  [ "$status" -eq 1 ]
+  [ "$(appels_de docker | grep -c ' up -d ')" -eq 2 ]
+  [ "$(appels_de docker | grep ' up -d ' | sed -n 1p)" = "$(dc_de staging marque) up -d --wait --wait-timeout 120 --remove-orphans" ]
+  [ "$(appels_de docker | grep ' up -d ' | sed -n 2p)" = "$(dc_de staging) up -d --wait --wait-timeout 120 --remove-orphans" ]
+  diff "$ETAT/compose.env" "$BATS_TEST_TMPDIR/sans-relais.env"
+  [ "$(cat "$ETAT/echec")" = "$NOUVELLE -" ]
+  grep -Fx "VEILLE_EMPLOI_IMAGE=$ANCIENNE" "$EN_SERVICE"
 }
 
 # --- secrets et environnement ----------------------------------------------------------------

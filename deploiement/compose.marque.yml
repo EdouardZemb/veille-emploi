@@ -1,0 +1,57 @@
+# La marque du staging (M-0004, lot 19) : le relais scripts/modele/marque.py, entre le tunnel et
+# `app`. `dc` (lib.sh) n'ajoute ce fichier, en dernier, que quand compose.env porte
+# VEILLE_EMPLOI_RELAIS, que deployer.sh n'écrit qu'en staging : la prod ne le charge jamais.
+# Géré par le modèle.
+services:
+  app:
+    ports: !reset []
+    networks: !override
+      default: {}
+  marque:
+    image: python:3.12-alpine@sha256:c5ba3deef00c7758561a0f03c26f44f10589263d40e732b8748e0d1f38f6dd89
+    command: ["python", "-B", "-I", "/marque/marque.py"]
+    init: true
+    environment:
+      MARQUE_ENV: "${VEILLE_EMPLOI_ENV:?}"
+      MARQUE_AMONT: "http://app:8460"
+      MARQUE_PORT: "8460"
+    labels:
+      modele.marque.empreinte: "${VEILLE_EMPLOI_RELAIS:?}"
+    volumes:
+      - type: bind
+        source: ../scripts/modele/marque.py
+        target: /marque/marque.py
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      - app
+    ports:
+      - "127.0.0.1:${VEILLE_EMPLOI_PORT:?}:8460"
+    networks:
+      default: {}
+      tunnel:
+        aliases:
+          - veille-emploi-${VEILLE_EMPLOI_ENV}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8460/.marque/sante', timeout=3)"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+      start_interval: 1s
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    user: "1000:1000"
+    mem_limit: 128m
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: "3"
