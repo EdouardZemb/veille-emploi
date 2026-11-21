@@ -71,13 +71,17 @@
 #      VEILLE_EMPLOI_URL_PUBLIQUE ; avec un commit de données, VEILLE_EMPLOI_CONFIG=<instantané>/config
 #      (hors staging, si VERIFIER_CONFIG est déclarée) et VEILLE_EMPLOI_CONTENU=<instantané>/contenu (si
 #      VERIFIER_CONTENU l'est), que `dc` monte en lecture seule (compose.config.yml,
-#      compose.contenu.yml) ;
+#      compose.contenu.yml) ; en staging seulement, et en dernier, VEILLE_EMPLOI_RELAIS=<empreinte>,
+#      l'empreinte SHA-256 de scripts/modele/marque.py du clone, le relais de la marque du staging
+#      (lot 19), que `dc` ajoute alors (compose.marque.yml) : ce script est lu juste après le
+#      verrou, et un script absent, illisible ou non lisible par tous y refuse le déploiement ou
+#      le retour arrière du staging, code 1 non signalé, rien de changé ; jamais en prod ;
 #   4. le journal de chaque conteneur app du projet, en service ou arrêté, copié dans
 #      $VEILLE_EMPLOI_ETAT/journaux/ (copier_journaux : les 5 copies les plus récentes sont gardées,
 #      et une copie qui échoue est notée au journal, sans rien arrêter ; les lignes que le conteneur
 #      écrit entre la copie et son arrêt par compose, le temps de tirer l'image si elle manque puis
 #      jusqu'à 10 s d'arrêt, ne sont pas copiées) ; puis
-#      `docker compose up -d --wait --remove-orphans` (un conteneur dont aucun des deux fichiers
+#      `docker compose up -d --wait --remove-orphans` (un conteneur dont aucun des fichiers
 #      compose ne déclare plus le service est retiré) ; avec un commit de données, les montages du
 #      conteneur app (`docker container inspect`) : sur /config et /contenu, l'instantané visé en
 #      lecture seule s'il les monte, rien sinon (jamais /config en staging), les chemins sous leur
@@ -135,7 +139,8 @@
 #     ne répond pas non plus.
 #
 # État, dans $VEILLE_EMPLOI_ETAT (chaque fichier est remplacé d'un coup, jamais écrit à moitié) :
-#   compose.env             variables du compose en service, lues par `dc`
+#   compose.env             variables du compose en service, lues par `dc` ; en staging, la dernière,
+#                           VEILLE_EMPLOI_RELAIS, est l'empreinte du relais de la marque (étape 3)
 #   compose.env.precedent   celui du dernier couple déployé avant celui-ci : cible du retour
 #   deploye                 "<image@sha256:…> <version> <commit>" du couple en service ; <commit> est le
 #                           commit de données, ou « - » sans données montées
@@ -152,9 +157,10 @@
 #
 # Codes de sortie : 0 déployé ; 1 échec (signalé, y compris le refus de la garde du dossier de
 # données et des données du couple en défaut ; non signalé avant toute action :
-# VEILLE_EMPLOI_IMAGE, VEILLE_EMPLOI_VERSION, VEILLE_EMPLOI_CONFIG ou VEILLE_EMPLOI_CONTENU posée dans
+# VEILLE_EMPLOI_IMAGE, VEILLE_EMPLOI_VERSION, VEILLE_EMPLOI_CONFIG, VEILLE_EMPLOI_CONTENU ou VEILLE_EMPLOI_RELAIS posée dans
 # l'environnement, VEILLE_EMPLOI_URL_PUBLIQUE invalide ou absente de env/<env>.env du clone des données,
-# deploiement/projet.env illisible, verrou toujours pris après 600 s) ; 3 secrets absents ; 64 usage
+# deploiement/projet.env illisible, verrou toujours pris après 600 s, en staging
+# scripts/modele/marque.py absent, illisible ou non lisible par tous) ; 3 secrets absents ; 64 usage
 # (commit de données absent, de trop, invalide ou introuvable compris), ou retour arrière impossible.
 #
 # Variable de test : VEILLE_EMPLOI_SANTE_DELAI, secondes entre deux essais de santé (défaut 3).
@@ -171,6 +177,7 @@ OPTION_COMMIT=0    # 1 avec --commit-donnees
 RETOUR=0           # 1 pour --retour
 COUPLE_EN_ECHEC="" # "<image> <commit>" que echec nomme si le lancement échoue : le couple visé, ou en retour le couple quitté
 VERSION_QUITTEE="" # en retour : la version en service avant le retour
+EMPREINTE_RELAIS="" # en staging : l'empreinte SHA-256 du relais de la marque, que compose.env porte ; vide en prod
 DONNEES_NEUVES=0   # 1 avec --donnees-neuves : la garde du dossier de données est levée
 # Posées par preparer_couple et verifier_donnees, d'après le couple visé et deploiement/projet.env.
 INSTANTANE_VISE=""        # l'instantané des données du couple visé ; vide sans commit de données
@@ -336,7 +343,8 @@ copier_journaux() {
 # lancer : la copie du journal des conteneurs que le `up` va remplacer (copier_journaux), puis `up`
 # du compose.env courant. Les secrets dont compose.projet.yml a besoin viennent de l'environnement
 # (charger_secrets), jamais d'un argument ni d'un fichier. --remove-orphans retire les conteneurs du
-# projet dont aucun des deux fichiers compose ne déclare plus le service. Le code rendu est celui du
+# projet dont aucun des fichiers compose ne déclare plus le service, dont le relais du staging après
+# un retour vers un compose.env sans VEILLE_EMPLOI_RELAIS. Le code rendu est celui du
 # `up` : la copie ne le change jamais.
 lancer() {
   copier_journaux
@@ -836,7 +844,7 @@ main() {
   charger_env "$NOM_ENV"
   charger_secrets "$NOM_ENV"
   local etat="$VEILLE_EMPLOI_ETAT" deployee="" commit_deploye=- conteneurs="" revision raison="" quoi avant declarees=""
-  local config_visee="" contenu_vise=""
+  local config_visee="" contenu_vise="" relais="" mode_relais="" empreinte_relais=""
   local -a lignes=()
 
   # L'image, la version et les montages ne viennent que de compose.env (refuser_image_heritee,
@@ -871,6 +879,25 @@ main() {
     [ "$RETOUR" -eq 0 ] || quoi="retour arrière"
     flock -w 600 9 \
       || arreter 1 "verrou $etat/verrou toujours pris après 600 s : $quoi abandonné, rien n'a changé"
+  fi
+  # Le relais de la marque du staging (lot 19), en staging seulement, avant tout changement : le
+  # script lu est celui du clone que la sonde vient d'avancer, celui que le `up` montera. Son
+  # empreinte va dans compose.env (étape 3), et `dc` n'ajoute compose.marque.yml que sur cette
+  # ligne. Le conteneur le lit sous l'utilisateur 1000:1000 : le contrôle du mode, lisible par tous,
+  # ne dépend pas du compte qui déploie. Sur la cible, le compte qui déploie a l'uid 1000, celui du
+  # conteneur ; le runner de la CI, l'uid 1001. Et `test -r` est vrai pour le
+  # propriétaire d'un fichier en 600 : seul le mode le voit. Le mode se lit sur la cible d'un lien
+  # (`stat -L`), que Docker suit au montage : sans -L, un lien se lirait lrwxrwxrwx. Le script se
+  # lit par l'entrée standard : `sha256sum` préfixe sa ligne par « \ » quand le nom porte « \ » ou
+  # un saut de ligne.
+  if [ "$NOM_ENV" = staging ]; then
+    relais="$VEILLE_EMPLOI_CLONE/scripts/modele/marque.py"
+    if [ -f "$relais" ] && mode_relais="$(stat -L -c %A -- "$relais")" && [ "${mode_relais:7:1}" = r ] \
+      && empreinte_relais="$(sha256sum <"$relais")"; then
+      EMPREINTE_RELAIS="${empreinte_relais:0:64}"
+    else
+      arreter 1 "scripts/modele/marque.py, le relais du staging, est absent, illisible ou non lisible par tous : rien n'a changé"
+    fi
   fi
   # Le couple précédent se lit sous le verrou : une sonde qui déploie en même temps l'aurait changé.
   # `quoi` et `avant` servent aux messages : « déploiement de 0.2.0 » / « avant 0.2.0 », ou
@@ -955,6 +982,9 @@ main() {
   [ "$MONTER_CONTENU" -eq 0 ] || contenu_vise="$INSTANTANE_VISE/contenu"
   [ -z "$config_visee" ] || lignes+=("VEILLE_EMPLOI_CONFIG=$config_visee")
   [ -z "$contenu_vise" ] || lignes+=("VEILLE_EMPLOI_CONTENU=$contenu_vise")
+  # Le relais de la marque, en staging seulement (lu après le verrou), en dernier : `dc` ajoute
+  # alors compose.marque.yml.
+  [ -z "$EMPREINTE_RELAIS" ] || lignes+=("VEILLE_EMPLOI_RELAIS=$EMPREINTE_RELAIS")
   ecrire_atomique "$etat/compose.env" "${lignes[@]}"
 
   # 4. Lancement, montages (avec un commit de données) et santé.
