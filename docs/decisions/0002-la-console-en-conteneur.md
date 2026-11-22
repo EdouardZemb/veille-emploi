@@ -69,6 +69,10 @@ service. Le code marche donc dans deux modes, que **`VEILLE_EMPLOI_ENV`** distin
 
 Le mode systemd est retiré après le #12 (une piste).
 
+**Le 2026-11-22**, le lot « la fin du mode systemd » (`veille-emploi#34`) l'a retiré : sans
+`VEILLE_EMPLOI_ENV`, la console prend un mode local, sans systemd, celui du poste, des tests et du
+test de restauration du modèle (`docs/exploitation.md`, « Le mode local »).
+
 ### 2. L'image
 
 - `python:3.13-slim`, épinglée par empreinte. Les bibliothèques de WeasyPrint (Pango, HarfBuzz,

@@ -247,8 +247,10 @@ il ne part jamais au serveur ni dans un journal.
    téléphone, voir plus bas.
 3. 👤 La console s'ouvre.
 
-La bascule du serveur réel, du mot de passe unique aux passkeys, et son retour
-arrière sont dans `docs/DEMARRAGE.md` du dépôt de données.
+La bascule du serveur réel, du mot de passe unique aux passkeys, a été faite
+le 27/10/2026 : le § 4 du `docs/DEMARRAGE.md` du dépôt de données n'en garde
+qu'un paragraphe daté, et le geste entier, avec son retour arrière, se relit
+dans ce dépôt-là par `git show aaf5d76:docs/DEMARRAGE.md`.
 
 ### Faire passer un lien du terminal au téléphone
 
