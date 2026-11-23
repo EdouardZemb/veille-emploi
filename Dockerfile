@@ -9,7 +9,7 @@
 
 # python:3.13-slim (Python 3.13.18), résolue le 2026-10-28 ; empreinte de l'index
 # multi-architecture. Dependabot la fait monter (.github/dependabot.yml).
-FROM python:3.13-slim@sha256:2d44738ebf4ce5f63b9d9ea871e9c7cfdc0426f7b0c97cac915fd88ded1d86bb
+FROM python:3.13-slim@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106ee9ed90
 
 # Les bibliothèques de WeasyPrint (Pango et HarfBuzz, dont libharfbuzz-subset0, qui découpe les
 # polices des PDF), DejaVu (les lettres en PDF sont en DejaVu Serif), et la base des fuseaux : les
