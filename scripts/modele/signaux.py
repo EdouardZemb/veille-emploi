@@ -9,12 +9,16 @@ Trois lectures par `gh`, lancées ensemble, dans un budget total de BUDGET secon
 Ce qu'un fork peut écrire (le titre d'une PR, le nom d'un workflow absent de la copie) n'est pas
 recopié : il entrerait dans le contexte de Claude.
 
-Puis une section « documentation », pendant que les lectures tournent : le gabarit resté vide,
-`gabarits_vides` de `documentation.py`, lu dans la racine du dépôt sans sous-processus. Un constat
-donne la ligne `documentation : <constat>`, plusieurs un titre `documentation :` et une ligne
-`- <constat>` chacun, au plus MAX_ELEMENTS ; rien à signaler n'ajoute rien. Ses lignes suivent
-celles de la CI et nomment des chemins, jamais un contenu. Une erreur du contrôle donne
-`documentation : non lue (erreur)`, et laisse les signaux de la CI.
+Puis une section « documentation », pendant que les lectures tournent : les avertissements de la
+documentation, `avertissements` de `documentation.py` (le gabarit resté vide, l'« État » trop
+long, la copie dans le README, l'issue citée), lus dans la racine du dépôt sans sous-processus.
+BUDGET ne les borne pas : seul le délai du hook, 30 s, le fait. Un constat donne la ligne
+`documentation : <constat>`, plusieurs un titre `documentation :` et une ligne `- <constat>`
+chacun, au plus MAX_ELEMENTS ; rien à signaler n'ajoute rien. Ses lignes suivent celles de la CI et
+nomment des chemins, jamais un contenu. Une erreur d'un des quatre avertissements donne sa ligne
+« non lu(e) (erreur) », à sa place ; l'import de `documentation` en échec, ou une erreur
+d'`avertissements` lui-même, donne `documentation : non lue (erreur)`, et laisse les signaux de la
+CI.
 
 Le script écrit sur la sortie standard un seul objet JSON (`systemMessage` pour l'utilisateur,
 `additionalContext` pour Claude) et rend toujours 0 : il ne bloque jamais une session, exception
@@ -331,13 +335,13 @@ def _voisins() -> None:
 
 
 def _documentation(racine: str) -> list[str]:
-    """Les constats du gabarit resté vide dans `racine`, sans sous-processus ; `non lue (erreur)`
+    """Les avertissements de la documentation de `racine`, sans sous-processus ; `non lue (erreur)`
     sur toute exception, celle de l'import comprise. `documentation` n'est importé qu'ici."""
     try:
         _voisins()
         import documentation
 
-        return documentation.gabarits_vides(Path(racine))
+        return documentation.avertissements(Path(racine))
     except Exception:  # noqa: BLE001 - une erreur du contrôle laisse les signaux de la CI
         return ["non lue (erreur)"]
 

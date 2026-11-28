@@ -1,5 +1,6 @@
-"""La documentation de la racine : la licence et la carte, deux contrôles qui refusent en CI, et le
-gabarit resté vide, qui avertit au démarrage d'une session.
+"""La documentation de la racine : la licence et la carte, deux contrôles qui refusent en CI, et
+quatre avertissements au démarrage d'une session : le gabarit resté vide, l'« État » trop long, la
+copie dans le README et l'issue citée.
 
 La licence. En nature `code`, `LICENSE` doit être présent à la racine, sous ce nom exact, et non
 vide, et, à la racine d'un dépôt git, suivi par git, comme dans le commit que lit la CI : un
@@ -37,7 +38,50 @@ règles ; les fichiers d'ADR (sous `docs/decisions/` ou `docs/adr/`, sauf leur `
 deux premières, et leur dossier relève de la troisième. Les constats suivent l'ordre des liens, un
 par chemin. Rien à signaler ne donne rien, sauf un README qui ne lie aucun document du dépôt, ou
 pas de README. Ce contrôle ne refuse jamais et ne lance aucun sous-processus : `signaux.py` le
-lance au `SessionStart`, jamais la CI.
+lance au `SessionStart`, jamais la CI. Les trois suivants non plus.
+
+L'« État » trop long. Dans `CLAUDE.md`, les sections « État » de niveau 2 (titre sans égard à la
+casse), jusqu'au titre suivant de même niveau ou d'un niveau supérieur, ont plus de 40 lignes non
+vides en tout : une ligne d'espaces est vide, un sous-titre, un bloc de code et un commentaire
+comptent. Le constat dit le nombre de lignes. Ses limites : un titre « Etat », sans accent, ou
+« L'état du projet » n'est pas lu, ni un « État » de niveau 3.
+
+La copie dans le README. Chaque ligne de `README.md` visible, hors des commentaires HTML fermés
+(un bloc de code est lu, un code en ligne aussi), est repliée (NFC, sans égard à la casse) et
+cherchée pour quatre sortes : une version (`v1.2.3`, `1.2.3`), une heure (`7h15`, `07:15`), un arbre
+de fichiers (`├`, `└`, `│`), un mot qui date l'état (« actuellement », « à venir », « lot
+suivant »…) ou un lot au futur (un « lot 3 » et un verbe en « ra » ou « ront »). Un constat par
+sorte, dans cet ordre : sa première ligne, et le nombre des autres. Ses limites, dont la liste
+n'est pas close : un futur dit autrement (« va ajouter », « est prévu ») ; un mot qui date absent de
+la liste ; une version à deux nombres (`v1.2`) ; un arbre dessiné en ASCII (`|--`) ; un nombre
+recopié (de tests, de lignes), qu'aucune recherche ne sépare d'un nombre utile ; une phrase de prose
+devenue fausse. Une recherche peut aussi donner un constat de trop : un mot fini par « ra » ou
+« ront » près d'un lot (« Sahara » près d'un « lot 3 », « le front du lot 3 »), une correspondance
+de ports (`80:80`) ou un rapport (`16:10`) lus comme une heure, un numéro de section à trois nombres
+(`4.3.1`) lu comme une version, un dessin en traits (`│ boîte │`) lu comme un arbre. Un commentaire
+fermé qui enjambe un bloc de code laisse lire le bloc, que GitHub cache ; un `<!--` en tête de
+ligne, fermé seulement dans un bloc de code, cache la suite, que GitHub montre. Un code en ligne
+qui porte le dernier `-->` du texte cache ce qu'il porte entre `<!--` et `-->`, que GitHub montre ;
+un `<!--` en tête de ligne qu'un accent grave ouvert plus haut paraît mettre en code laisse lire ce
+qu'il ouvre, que GitHub cache ; un `<!--` ouvert au milieu d'une ligne et fermé plus bas, au-delà
+de son paragraphe, cache ce qui le sépare de sa fermeture, que GitHub montre. Seul le README est
+lu : un texte vers lequel il aiguille ne l'est pas. Un `<!--` jamais fermé qui ouvre une ligne,
+hors du code, cache la suite, comme sur GitHub.
+
+L'issue citée. Une ligne de `README.md`, hors des blocs de code, du code en ligne et des
+commentaires, cite une issue ou une PR : `#12`, `compte/dépôt#12`, un lien dont la cible porte
+`/issues/12` ou `/pull/12`, une URL nue comprise. Une cible de lien ou de définition qui porte
+`#12` (une ancre de document) n'en est pas une. Le constat dit la première ligne et le nombre des
+autres. Ses limites, dont la liste n'est pas close : `GH-12`, que GitHub lie aussi ; une référence
+dans un bloc HTML que le texte ne retire pas ; une couleur en chiffres seuls (`#000000`) hors du
+code ; un chemin suivi d'une ancre en chiffres hors d'un lien (`docs/a.md#12`), lu comme
+`<compte>/<dépôt>#N` ; un chemin `…/issues/12` en prose ; une référence dans un bloc de code
+indenté, ou dans une cible de lien qui porte une parenthèse ; une référence après un `<!--` en tête
+de ligne qu'un accent grave ouvert plus haut paraît mettre en code ; un `<!--` ouvert au milieu
+d'une ligne et fermé plus bas, au-delà de son paragraphe, cache ce qui le sépare de sa fermeture,
+que GitHub montre.
+
+`README.md` et `CLAUDE.md` se lisent sous ce nom exact, à la racine.
 
 Ce qui est un lien : un lien en ligne, `[…](cible)` ou `![…](cible)`, avec un titre ou des
 chevrons, son texte sur plusieurs lignes ou entre crochets au besoin, une image cliquable donnant
@@ -126,13 +170,15 @@ pas de l'UTF-8) remplacé par `?`.
 
 Bibliothèque standard seule, Python 3.10 ou plus.
 
-Usage : documentation.py [--racine DOSSIER] [--gabarits-vides]  (racine par défaut : le dossier
-        courant ; la CI lance la licence et la carte depuis la racine du dépôt. --racine change
-        les fichiers lus, pas la nature : hors CI, c'est celle du `reglages.py` voisin du
-        script ; en CI, celle de la branche par défaut, lue dans le dossier courant.
-        --gabarits-vides lance le seul gabarit resté vide, et imprime un constat par ligne)
+Usage : documentation.py [--racine DOSSIER] [--avertissements | --gabarits-vides]
+        (racine par défaut : le dossier courant ; la CI lance la licence et la carte depuis la
+        racine du dépôt. --racine change les fichiers lus, pas la nature : hors CI, c'est
+        celle du `reglages.py` voisin du script ; en CI, celle de la branche par défaut, lue dans
+        le dossier courant.
+        --avertissements lance les quatre avertissements, et imprime un constat par ligne ;
+        --gabarits-vides en est le synonyme)
 
-Retour : 0 rien à signaler, 1 refus, 64 erreur d'usage ; avec --gabarits-vides, toujours 0, hors
+Retour : 0 rien à signaler, 1 refus, 64 erreur d'usage ; avec --avertissements, toujours 0, hors
          d'une erreur d'usage.
 """
 
@@ -144,6 +190,7 @@ import re
 import subprocess
 import sys
 import unicodedata
+from bisect import bisect_right
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -654,6 +701,194 @@ def gabarits_vides(racine: Path) -> list[str]:
     return constats
 
 
+# --- les avertissements ----------------------------------------------------------------------
+
+# La longueur de l'« État » de `CLAUDE.md`, en lignes non vides.
+ETAT_MAX = 40
+
+_LETTRE = r"[^\W\d_]"
+VERSION = re.compile(r"(?<![^\W_])(?<!\.)v?\d+\.\d+\.\d+(?![^\W_]|\.\d)")
+HEURE = re.compile(r"(?<![\d.:])\d{1,2}(?:\s?h\s?|:)\d{2}(?!\d)")
+ARBRE = re.compile(r"[├└│]")
+MOTS_QUI_DATENT = re.compile(
+    rf"(?<!{_LETTRE})(?:actuellement|bientôt|prochainement|pour\s+l['’]instant|pour\s+le\s+moment"
+    rf"|à\s+venir|à\s+terme|prochain\s+lot|lot\s+suivant|prochaine\s+version)(?!{_LETTRE})"
+)
+LOT_NUMERO = re.compile(rf"(?<!{_LETTRE})lot\s*(?:#\s*)?\d+")
+# Le quantificateur s'écrit hors de la chaîne formatée : doubler son accolade ouvrante la ferait
+# prendre pour du Jinja par le contrôle des rendus.
+MOT_AU_FUTUR = re.compile(
+    rf"(?<!{_LETTRE})(?:{_LETTRE}" + r"{2,}ra" + rf"|{_LETTRE}*ront)(?!{_LETTRE})"
+)
+REF_DIESE = re.compile(r"(?<![\w&#/.])#\d+(?![\w-])")
+REF_DEPOT = re.compile(r"(?<![\w./-])[a-z0-9][a-z0-9-]*/[\w.-]+#\d+(?![\w-])")
+REF_LIEN = re.compile(r"/(?:issues|pull)/\d+(?!\w)")
+CIBLE_EN_LIGNE = re.compile(r"\]\([^)\n]*\)")
+CIBLE_DE_DEFINITION = re.compile(r"^ {0,3}\[[^\]\n]+\]:[ \t]*\S+")
+# Un `<!--` qui ouvre une ligne : après au plus trois espaces, une puce, un numéro ou `>`.
+_OUVRE_UN_COMMENTAIRE = re.compile(DEBUT_DE_BLOC + "<!--", re.MULTILINE)
+
+
+def _blanchir(lignes: list[str], debuts: list[int], debut: int, fin: int, blocs: set[int]) -> None:
+    """Remplace par des espaces les caractères `[debut, fin)` du texte que `lignes` découpe (le
+    premier caractère de la ligne i est le numéro `debuts[i]`), les fins de ligne gardées, sauf
+    sur les lignes de `blocs`, que le remplacement laisse telles quelles."""
+    for i in range(bisect_right(debuts, debut) - 1, bisect_right(debuts, fin - 1)):
+        if i in blocs:
+            continue
+        de = max(debut, debuts[i]) - debuts[i]
+        a = min(fin, debuts[i] + len(lignes[i])) - debuts[i]
+        if a > de:
+            lignes[i] = lignes[i][:de] + " " * (a - de) + lignes[i][a:]
+
+
+def _visible(texte: str) -> str:
+    """Le texte en LF, tel que GitHub le montre pour la copie : de même longueur, ligne pour ligne
+    et colonne pour colonne. Les commentaires HTML fermés sont des espaces, leurs fins de ligne
+    gardées ; un code en ligne reste, et protège le `<!--` qu'il porte ; les lignes des blocs de
+    code clôturés restent telles quelles, `<!-- … -->` compris. Le premier `<!--` qui ouvre une
+    ligne et qui ne se ferme jamais cache tout ce qui le suit, blocs compris ; un `<!--` jamais
+    fermé au milieu d'une ligne reste du texte, comme sur GitHub."""
+    texte = _en_lf(texte)
+    lignes = texte.split("\n")
+    debuts = [0]
+    for ligne in lignes[:-1]:
+        debuts.append(debuts[-1] + len(ligne) + 1)
+    hors = _hors_des_blocs(texte).split("\n")
+    blocs = {
+        i for i, (ligne, dehors) in enumerate(zip(lignes, hors)) if ligne.strip() and not dehors
+    }
+    masque = "\n".join(" " * len(ligne) if i in blocs else ligne for i, ligne in enumerate(lignes))
+    # Tout `<!--` avant le dernier `-->` se ferme : le motif ne parcourt que jusqu'à lui, la suite
+    # n'est lue que pour son code en ligne et son premier `<!--` qui ouvre une ligne.
+    dernier = masque.rfind("-->")
+    coupure = dernier + 3 if dernier >= 0 else 0
+    for m in _CODE_OU_COMMENTAIRE.finditer(masque, 0, coupure):
+        if not m.group(1):
+            _blanchir(lignes, debuts, m.start(), m.end(), blocs)
+    codes = [(m.start(), m.end()) for m in CODE_EN_LIGNE.finditer(masque, coupure)]
+    for m in _OUVRE_UN_COMMENTAIRE.finditer(masque, coupure):
+        place = m.end() - 4
+        i = bisect_right(codes, (place, len(masque))) - 1
+        if i >= 0 and codes[i][0] <= place < codes[i][1]:
+            continue
+        _blanchir(lignes, debuts, place, len(masque), set())
+        break
+    return "\n".join(lignes)
+
+
+def _constat(sorte: str, lignes: list[int]) -> str:
+    """Le constat d'une sorte : la première ligne touchée, et le nombre des autres."""
+    constat = f"README.md, l. {lignes[0]} : {sorte}"
+    autres = len(lignes) - 1
+    if autres == 1:
+        return constat + " (et 1 autre ligne)"
+    if autres > 1:
+        return constat + f" (et {autres} autres lignes)"
+    return constat
+
+
+def etat_trop_long(racine: Path) -> list[str]:
+    """Le constat de l'« État » de `CLAUDE.md` quand il a plus de `ETAT_MAX` lignes non vides :
+    le titre de niveau 2, les sections s'additionnant, jusqu'au titre suivant de même niveau ou
+    supérieur ; les sous-titres, les blocs de code et les commentaires comptent."""
+    try:
+        noms = os.listdir(racine)
+    except OSError:
+        return []
+    claude = _lire(racine, "CLAUDE.md", noms)
+    if claude is None:
+        return []
+    n = sum(
+        1
+        for morceau in sections(claude, "État", 2)
+        for ligne in morceau.split("\n")
+        if ligne.strip()
+    )
+    if n <= ETAT_MAX:
+        return []
+    constat = (
+        f"CLAUDE.md : « État » de {n} lignes, au-delà de {ETAT_MAX} "
+        "(le passé va au journal des versions ou aux publications)"
+    )
+    return [constat]
+
+
+def copies_du_readme(racine: Path) -> list[str]:
+    """Les constats d'une copie qui se périme dans le README : une version, une heure, un arbre de
+    fichiers, un mot qui date l'état ou un lot au futur. Un constat par sorte, dans cet ordre ; le
+    code en ligne et les blocs de code sont lus, les commentaires fermés non."""
+    try:
+        noms = os.listdir(racine)
+    except OSError:
+        return []
+    readme = _lire(racine, "README.md", noms)
+    if readme is None:
+        return []
+    trouvees: dict[str, list[int]] = {"v": [], "h": [], "a": [], "m": []}
+    for rang, ligne in enumerate(_visible(readme).split("\n"), start=1):
+        ligne = _replie(ligne)
+        if VERSION.search(ligne):
+            trouvees["v"].append(rang)
+        if HEURE.search(ligne):
+            trouvees["h"].append(rang)
+        if ARBRE.search(ligne):
+            trouvees["a"].append(rang)
+        if MOTS_QUI_DATENT.search(ligne) or (
+            LOT_NUMERO.search(ligne) and MOT_AU_FUTUR.search(ligne)
+        ):
+            trouvees["m"].append(rang)
+    sortes = {
+        "v": "une version recopiée",
+        "h": "une heure recopiée",
+        "a": "un arbre de fichiers",
+        "m": "un mot qui date l'état, ou un lot au futur",
+    }
+    return [_constat(sortes[k], trouvees[k]) for k in sortes if trouvees[k]]
+
+
+def issues_citees(racine: Path) -> list[str]:
+    """Le constat d'une issue ou d'une PR citée dans le README : `#12`, `compte/dépôt#12`, un lien
+    `/issues/12` ou `/pull/12`. Hors du code, des commentaires et des cibles de lien."""
+    try:
+        noms = os.listdir(racine)
+    except OSError:
+        return []
+    readme = _lire(racine, "README.md", noms)
+    if readme is None:
+        return []
+    trouvees: list[int] = []
+    for rang, ligne in enumerate(_preparer(_visible(readme)).split("\n"), start=1):
+        ligne = _replie(ligne)
+        if REF_LIEN.search(ligne):
+            trouvees.append(rang)
+            continue
+        for cible in (CIBLE_EN_LIGNE, CIBLE_DE_DEFINITION):
+            ligne = cible.sub(lambda m: " " * len(m.group(0)), ligne)
+        if REF_DIESE.search(ligne) or REF_DEPOT.search(ligne):
+            trouvees.append(rang)
+    return [_constat("une issue ou une PR citée", trouvees)] if trouvees else []
+
+
+def avertissements(racine: Path) -> list[str]:
+    """Les avertissements de la documentation : le gabarit resté vide, l'« État » trop long, la
+    copie dans le README, l'issue citée, dans cet ordre. Chaque contrôle est gardé : une erreur
+    donne sa ligne « non lu(e) (erreur) » à sa place, et à elle seule."""
+    constats: list[str] = []
+    # Les noms se lisent à l'appel, jamais dans une liste faite à l'import.
+    for controle, erreur in (
+        (lambda: gabarits_vides(racine), "gabarit resté vide : non lu (erreur)"),
+        (lambda: etat_trop_long(racine), "« État » : non lu (erreur)"),
+        (lambda: copies_du_readme(racine), "copie dans le README : non lue (erreur)"),
+        (lambda: issues_citees(racine), "issue citée : non lue (erreur)"),
+    ):
+        try:
+            constats.extend(controle())
+        except Exception:  # noqa: BLE001 - un avertissement ne fait jamais échouer
+            constats.append(erreur)
+    return constats
+
+
 # --- ligne de commande -----------------------------------------------------------------------
 
 
@@ -688,7 +923,9 @@ def main(argv: list[str] | None = None) -> int:
             pass
     p = _Analyseur(
         prog="documentation.py",
-        description="La licence et la carte de la racine, ou le gabarit resté vide.",
+        description=(
+            "La licence et la carte de la racine, ou les avertissements de la documentation."
+        ),
     )
     p.add_argument(
         "--racine",
@@ -701,9 +938,14 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     p.add_argument(
+        "--avertissements",
         "--gabarits-vides",
+        dest="avertissements",
         action="store_true",
-        help="le seul gabarit resté vide : un constat par ligne, et toujours 0",
+        help=(
+            "les avertissements de la documentation : un constat par ligne, et toujours 0 ;"
+            " --gabarits-vides en est le synonyme"
+        ),
     )
     try:
         args = p.parse_args(argv)
@@ -712,9 +954,9 @@ def main(argv: list[str] | None = None) -> int:
     if not args.racine.is_dir():
         print("documentation : racine introuvable (voir --help)", file=sys.stderr)
         return EXIT_USAGE
-    if args.gabarits_vides:
+    if args.avertissements:
         try:
-            constats = gabarits_vides(args.racine)
+            constats = avertissements(args.racine)
         except Exception:  # noqa: BLE001 - un avertissement ne fait jamais échouer
             constats = ["non lue (erreur)"]
         for constat in constats:
