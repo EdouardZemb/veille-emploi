@@ -8,6 +8,7 @@
   (§ 2, § 3 et § 6, M-0004 § 8)
 - **Amendé** le 2026-11-01, avec la v0.7.1 : tant que la prod n'a rien déployé, `serveur` peut
   dire « non » aux heures des sauvegardes (§ 2)
+- **Amendé** le 2026-11-22, avec le lot 20 : la section « Confirmation »
 - **Contexte amont** : les sauvegardes d'`ancrage` (son ADR-0007, §4 et §5), dont la mécanique
   est extraite ; M-0003 (le contrat de l'instantané) ; M-0004 (la chaîne de livraison)
 
@@ -178,6 +179,27 @@ commun s'écrira au deuxième.
   trimestre.
 - **Difficile à changer** : la clé hors ligne, pour laquelle toutes les archives distantes sont
   chiffrées, et la forme de l'instantané (M-0003).
+
+## Confirmation
+
+Dans le projet :
+
+- `deploiement/sauvegarder.sh` : la sauvegarde nocturne, sa copie chiffrée et sa rétention ;
+- `deploiement/tester-restauration.sh` : le test hebdomadaire de restauration ;
+- `deploiement/restaurer.sh` : la restauration, depuis un instantané ou une archive chiffrée ;
+- `deploiement/deployer.sh` : l'instantané d'avant un déploiement, et la garde du dossier de
+  données ;
+- `deploiement/installer-unites.sh` : les minuteries de la sauvegarde et de son test ;
+- `tests/deploiement/sauvegarde.bats` : la sauvegarde, son test et la restauration ;
+- `tests/deploiement/deployer.bats` : l'instantané d'avant un déploiement.
+
+Aucun contrôle ne tient l'exercice trimestriel sur le poste : c'est un geste d'Edouard, que rien ne
+lance ni ne lit.
+
+Dans `modele-projet` :
+
+- `tests/test_mecanique.py` : les tests bats du projet rendu, dans leur image Docker ;
+- `tests/test_cible_serveur.py` : le rendu de la cible avec ses sauvegardes.
 
 ## Révision
 

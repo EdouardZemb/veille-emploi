@@ -6,6 +6,7 @@
   santé dit quelle configuration sert (§ 2 et § 6, M-0006 § 5)
 - **Amendé** le 2026-11-18, avec le lot 19 : en staging, le relais de la marque
   (`compose.marque.yml`) publie le port sur la boucle locale à la place d'`app` (§ 1)
+- **Amendé** le 2026-11-22, avec le lot 20 : la section « Confirmation »
 - **Contexte amont** : la chaîne de livraison d'`ancrage`, d'où vient la mécanique de la cible
   `serveur` ; M-0004 (la chaîne de livraison) ; M-0005 (les sauvegardes) ;
   M-0006 (le code et les données)
@@ -225,6 +226,28 @@ et `instance/contenu/` du dépôt lui-même, à un dépôt.
   de la semaine, qui n'a pas de données en service à reporter. Le projet la teste dans ses propres
   tests, contre son image.
 - **Difficile à changer** : la forme de l'instantané. Les archives gardées 90 jours la portent.
+
+## Confirmation
+
+Dans le projet :
+
+- `deploiement/ci/verifier-image.sh` : la santé, la révision, l'environnement et l'exemple de
+  l'instance de l'image que la CI vient de lancer, et, avec les sauvegardes, l'instantané ;
+- `.github/actions/modele-image-construire/action.yml` : le lancement de l'image comme en
+  production (utilisateur 1000, lecture seule, `/tmp` en mémoire, `/donnees`) ;
+- `deploiement/deployer.sh` : la santé locale d'un déploiement, avec la version, la révision et la
+  configuration attendues ;
+- `tests/deploiement/ci.bats` : la vérification de l'image, et celle de l'exemple de l'instance.
+
+Aucun contrôle ne tient la commande `REPORTER` de l'image, que seule lance une vraie restauration :
+le projet la teste dans ses propres tests, contre son image.
+
+Dans `modele-projet` :
+
+- `tests/test_ci_serveur.py` : les jobs de la CI et les actions composites de la cible ;
+- `tests/test_mecanique.py` : les tests bats du projet rendu, dans leur image Docker ;
+- `tests/modele/epreuve-donnees.sh` : l'instance montée sur `/config` et `/contenu`, sur un vrai
+  Docker.
 
 ## Révision
 

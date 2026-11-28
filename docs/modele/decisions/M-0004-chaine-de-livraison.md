@@ -10,6 +10,7 @@
   (`compose.marque.yml`) tient l'alias du tunnel et le port de la boucle locale, et `app` ne les
   porte qu'en prod (§ 5 ; la boucle locale, M-0003 § 1), et le ménage ne retire jamais l'image du
   relais (§ 3)
+- **Amendé** le 2026-11-22, avec le lot 20 : la section « Confirmation »
 - **Contexte amont** : la chaîne de livraison d'`ancrage` (son ADR-0006), généralisée par le
   modèle ; M-0002 (les étiquettes sont à Edouard) ; M-0003 (le contrat de l'image) ; M-0006 (le
   code et les données)
@@ -316,6 +317,32 @@ refait du clone des données.
 - **Difficile à changer** : peu de chose. Le modèle par tirage, GHCR et la convention « étiquette =
   prod » se remplacent sans toucher l'application. La forme de l'état en couple, elle, est lue par
   les versions précédentes des scripts lors d'un retour arrière (§ 8).
+
+## Confirmation
+
+Dans le projet :
+
+- `.github/workflows/modele-version.yml` : l'étiquette `vX.Y.Z` rend l'image versionnée, sans la
+  reconstruire ;
+- `deploiement/sonder.sh` : le tirage, le couple neuf déployé, l'échec jamais retenté ;
+- `deploiement/deployer.sh` : le déploiement et le retour arrière par couple ;
+- `deploiement/nettoyer-images.sh` : le ménage des images et des instantanés ;
+- `deploiement/compose.marque.yml` : le relais de la marque, en staging seulement ;
+- `scripts/modele/verifier_secrets.py` : les `.cles` du dépôt et, à un dépôt, les secrets chiffrés
+  contre eux, sans les déchiffrer ;
+- `tests/deploiement/sonder.bats` : la sonde ;
+- `tests/deploiement/deployer.bats` : le déploiement, l'échec et le retour ;
+- `tests/deploiement/nettoyer-images.bats` : le ménage ;
+- `tests/deploiement/secrets.bats` : le chargement des secrets, sans fichier restant.
+
+Dans `modele-projet` :
+
+- `tests/test_cible_serveur.py` : le rendu de la cible, ses scripts et ses textes ;
+- `tests/test_verifier_secrets.py` : le contrôle des secrets chiffrés ;
+- `tests/test_mecanique.py` : les tests bats du projet rendu, dans leur image Docker ;
+- `tests/modele/epreuve-donnees.sh` : un couple déployé, changé et revenu en arrière, sur un vrai
+  Docker ;
+- `tests/modele/epreuve-menage.sh` : le ménage des images, sur un vrai Docker.
 
 ## Révision
 
